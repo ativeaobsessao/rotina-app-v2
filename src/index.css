@@ -1,5 +1,7 @@
 @import "tailwindcss";
 
+@custom-variant dark (&:is(.dark *));
+
 @theme {
   --color-primary: theme('colors.blue.600');
 }
@@ -10,5 +12,11 @@
   }
   .pb-safe-bottom {
     padding-bottom: calc(env(safe-area-inset-bottom) + 5rem);
+  }
+}
+
+@layer base {
+  .dark body {
+    @apply bg-gray-950 text-gray-100;
   }
 }

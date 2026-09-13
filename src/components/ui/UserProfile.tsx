@@ -3,11 +3,13 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { supabase } from '../../services/supabase';
-import { LogOut, Camera, Lock, UserPen, Users } from 'lucide-react';
+import { LogOut, Camera, Lock, UserPen, Users, Moon, Sun } from 'lucide-react';
+import { useTheme } from '../../contexts/ThemeContext';
 import { FamilyModal } from './FamilyModal';
 import { getCurrentProfile } from '../../services/api';
 
 export function UserProfile() {
+  const { theme, toggleTheme } = useTheme();
   const [isOpen, setIsOpen] = useState(false);
   const [profile, setProfile] = useState<any>(null);
   const [uploading, setUploading] = useState(false);
@@ -191,6 +193,14 @@ export function UserProfile() {
           >
             <Lock className="w-4 h-4 mr-2 text-gray-400" />
             Alterar senha
+          </button>
+          
+                    <button 
+            onClick={() => { setIsOpen(false); toggleTheme(); }}
+            className="w-full text-left px-4 py-3 text-sm text-gray-700 hover:bg-gray-50 flex items-center transition-colors border-b border-gray-100"
+          >
+            {theme === 'light' ? <Moon className="w-4 h-4 mr-2 text-gray-400" /> : <Sun className="w-4 h-4 mr-2 text-gray-400" />}
+            {theme === 'light' ? 'Modo Escuro' : 'Modo Claro'}
           </button>
           
           <button 

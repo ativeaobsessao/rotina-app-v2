@@ -357,6 +357,7 @@ export function HistoryScreen({ onTabChange, onEditPastDay }: { onTabChange?: (t
   // Modal state — med editing
   const [selectedMed, setSelectedMed] = useState<{ med: HistoryMedEntry; dateStr: string } | null>(null);
   const [closingDateStr, setClosingDateStr] = useState<string | null>(null);
+  const [showReportModal, setShowReportModal] = useState(false);
   const [daysLimit, setDaysLimit] = useState(14);
   const [filterCategory, setFilterCategory] = useState<'all' | 'meals' | 'meds'>('all');
   const [filterStartDate, setFilterStartDate] = useState('');
@@ -545,7 +546,18 @@ export function HistoryScreen({ onTabChange, onEditPastDay }: { onTabChange?: (t
         <div className="flex h-[80vh] items-center justify-center">
           <Spinner />
         </div>
-      </MainLayout>
+      
+      {/* Report modal */}
+      {patient && (
+        <ReportModal 
+          isOpen={showReportModal} 
+          onClose={() => setShowReportModal(false)} 
+          patientId={patient.id} 
+          patientName={patient.name} 
+        />
+      )}
+    </MainLayout>
+
     );
   }
 
@@ -595,7 +607,16 @@ export function HistoryScreen({ onTabChange, onEditPastDay }: { onTabChange?: (t
         <div className="bg-white px-6 pt-12 pb-6 sticky top-0 z-30 border-b border-gray-100/50 backdrop-blur-xl">
           <div className="flex items-center justify-between mb-2">
             <h1 className="text-2xl font-bold tracking-tight text-gray-900">Histórico</h1>
-            <UserProfile />
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setShowReportModal(true)}
+                className="p-2 text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-full transition-colors"
+                title="Gerar Relatório"
+              >
+                <FileText className="w-5 h-5" />
+              </button>
+              <UserProfile />
+            </div>
           </div>
           <p className="text-sm text-gray-500">
             Registros anteriores de {patient.name}

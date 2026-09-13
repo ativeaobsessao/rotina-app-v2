@@ -16,9 +16,12 @@ export function MainLayout({ children, activeTab = 'today', onTabChange }: MainL
     <div className="flex min-h-screen flex-col bg-gray-50 dark:bg-gray-950 pb-safe-bottom transition-colors">
       
       {!isOnline && (
-        <div className="fixed top-0 left-0 right-0 z-50 bg-amber-500 text-white text-xs font-bold py-1 px-4 flex items-center justify-center">
-          <WifiOff className="w-3 h-3 mr-2" />
-          Modo Offline
+        <div className="fixed top-0 left-0 right-0 z-50 bg-amber-500 text-white text-xs font-medium py-1.5 px-4 flex flex-col items-center justify-center text-center shadow-md">
+          <div className="flex items-center font-bold mb-0.5">
+            <WifiOff className="w-3.5 h-3.5 mr-1.5" />
+            Você está Offline
+          </div>
+          <span className="text-[10px] opacity-90 leading-tight">Os registros serão sincronizados automaticamente ao reconectar.</span>
         </div>
       )}
       {isOnline && pendingSyncCount > 0 && (

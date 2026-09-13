@@ -1,7 +1,30 @@
+import { get, set } from 'idb-keyval';
+import { addToSyncQueue } from './syncQueue';
 // @ts-nocheck
 
 import { supabase } from './supabase';
 import type { Database } from '../types/database.types';
+
+
+async function fetchWithCache<T>(cacheKey: string, fetcher: () => Promise<T>, fallbackValue: any = null): Promise<T> {
+  if (navigator.onLine) {
+    try {
+      const data = await fetcher();
+      await set(cacheKey, data);
+      return data;
+    } catch (err) {
+      console.warn('Network fetch failed, falling back to cache for', cacheKey);
+      const cached = await get<T>(cacheKey);
+      if (cached !== undefined) return cached;
+      return fallbackValue as T;
+    }
+  } else {
+    const cached = await get<T>(cacheKey);
+    if (cached !== undefined) return cached;
+    return fallbackValue as T;
+  }
+}
+
 
 type Profile = Database['public']['Tables']['profiles']['Row'];
 type Family = Database['public']['Tables']['families']['Row'];
@@ -36,23 +59,32 @@ export async function getCurrentUser() {
 }
 
 export async function getCurrentProfile(): Promise<Profile | null> {
-  const user = await getCurrentUser();
-  if (!user) return null;
+  return fetchWithCache(
+    'currentProfile',
+    async () => {
+      const user = await getCurrentUser();
+      if (!user) return null;
 
-  const { data, error } = await supabase
-    .from('profiles')
-    .select('*')
-    .eq('id', user.id)
-    .maybeSingle();
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', user.id)
+        .maybeSingle();
 
-  if (error) throw error;
-  return data || [];
+      if (error) throw error;
+      return data as Profile | null;
+    },
+    null
+  );
 }
 
 // --- CONFIGURATION ---
 
-export async function getPatient(familyId: string): Promise<Patient | null> {
-  const { data, error } = await supabase
+export async function getPatient(familyId: string): Promise<any> {
+  return fetchWithCache(
+    `patient_${familyId}`,
+    async () => {
+      const { data, error } = await supabase
     .from('patients')
     .select('*')
     .eq('family_id', familyId)
@@ -60,11 +92,17 @@ export async function getPatient(familyId: string): Promise<Patient | null> {
 
   // If there are multiple patients, we might want to return a list, but MVP has one.
   if (error) throw error;
-  return data || [];
+      return data || null;
+    },
+    null
+  );
 }
 
-export async function getMealConfigs(patientId: string): Promise<MealConfig[]> {
-  const { data, error } = await supabase
+export async function getMealConfigs(patientId: string): Promise<any[]> {
+  return fetchWithCache(
+    `mealConfigs_${patientId}`,
+    async () => {
+      const { data, error } = await supabase
     .from('meal_configs')
     .select('*')
     .eq('patient_id', patientId)
@@ -72,11 +110,17 @@ export async function getMealConfigs(patientId: string): Promise<MealConfig[]> {
     .order('display_order', { ascending: true });
 
   if (error) throw error;
-  return data || [];
+      return data || [];
+    },
+    []
+  );
 }
 
-export async function getMedicationPeriods(patientId: string): Promise<MedicationPeriod[]> {
-  const { data, error } = await supabase
+export async function getMedicationPeriods(patientId: string): Promise<any[]> {
+  return fetchWithCache(
+    `medPeriods_${patientId}`,
+    async () => {
+      const { data, error } = await supabase
     .from('medication_periods')
     .select('*')
     .eq('patient_id', patientId)
@@ -84,35 +128,50 @@ export async function getMedicationPeriods(patientId: string): Promise<Medicatio
     .order('display_order', { ascending: true });
 
   if (error) throw error;
-  return data || [];
+      return data || [];
+    },
+    []
+  );
 }
 
-export async function getMedications(patientId: string): Promise<Medication[]> {
-  const { data, error } = await supabase
+export async function getMedications(patientId: string): Promise<any[]> {
+  return fetchWithCache(
+    `medications_${patientId}`,
+    async () => {
+      const { data, error } = await supabase
     .from('medications')
     .select('*')
     .eq('patient_id', patientId)
     .eq('active', true);
 
   if (error) throw error;
-  return data || [];
+      return data || [];
+    },
+    []
+  );
 }
 
 
 // --- DAILY CLOSURES ---
-export async function getDailyClosure(patientId: string, date: string): Promise<any | null> {
-  const { data, error } = await supabase
-    .from('daily_closures')
-    .select('*, closed_by_profile:profiles!daily_closures_closed_by_fkey(name)')
-    .eq('patient_id', patientId)
-    .eq('date', date)
-    .single();
-    
-  if (error && error.code !== 'PGRST116') {
-    console.error('Error fetching daily closure:', error);
-    return null;
-  }
-  return data || null;
+export async function getDailyClosure(patientId: string, date: string) {
+  return fetchWithCache(
+    `closure_${patientId}_${date}`,
+    async () => {
+      const { data, error } = await supabase
+        .from('daily_closures')
+        .select('*, closed_by_profile:profiles!daily_closures_closed_by_fkey(name)')
+        .eq('patient_id', patientId)
+        .eq('date', date)
+        .maybeSingle();
+
+      if (error) {
+        console.error('Error fetching daily closure:', error);
+        return null;
+      }
+      return data || null;
+    },
+    null
+  );
 }
 
 export async function getHistoricalDailyClosures(patientId: string, beforeDate: string, startDate?: string): Promise<any[]> {
@@ -222,28 +281,44 @@ export async function getHistoricalMedicationLogs(patientId: string, beforeDate:
 }
 
 export async function getMealLogs(patientId: string, eventDate: string): Promise<any[]> {
-  const { data, error } = await supabase
-    .from('meal_logs')
-    .select('*, creator:profiles!meal_logs_created_by_fkey(name), updater:profiles!meal_logs_updated_by_fkey(name)')
-    .eq('patient_id', patientId)
-    .eq('event_date', eventDate);
-
-  if (error) throw error;
-  return data || [];
+  return fetchWithCache(
+    `mealLogs_${patientId}_${eventDate}`,
+    async () => {
+      const { data, error } = await supabase
+        .from('meal_logs')
+        .select('*, creator:profiles!meal_logs_created_by_fkey(name), updater:profiles!meal_logs_updated_by_fkey(name)')
+        .eq('patient_id', patientId)
+        .eq('event_date', eventDate);
+      if (error) throw error;
+      return data || [];
+    },
+    []
+  );
 }
 
 export async function getMedicationLogs(patientId: string, eventDate: string): Promise<any[]> {
-  const { data, error } = await supabase
-    .from('medication_logs')
-    .select('*, creator:profiles!medication_logs_created_by_fkey(name), updater:profiles!medication_logs_updated_by_fkey(name)')
-    .eq('patient_id', patientId)
-    .eq('event_date', eventDate);
-
-  if (error) throw error;
-  return data || [];
+  return fetchWithCache(
+    `medLogs_${patientId}_${eventDate}`,
+    async () => {
+      const { data, error } = await supabase
+        .from('medication_logs')
+        .select('*, creator:profiles!medication_logs_created_by_fkey(name), updater:profiles!medication_logs_updated_by_fkey(name)')
+        .eq('patient_id', patientId)
+        .eq('event_date', eventDate);
+      if (error) throw error;
+      return data || [];
+    },
+    []
+  );
 }
 
 export async function createMealLog(log: Database['public']['Tables']['meal_logs']['Insert']) {
+
+  if (!navigator.onLine) {
+    await addToSyncQueue('createMealLog', log);
+    return [];
+  }
+
   const { data, error } = await supabase
     .from('meal_logs')
     .insert(log as any)
@@ -260,6 +335,12 @@ export async function createMealLog(log: Database['public']['Tables']['meal_logs
 }
 
 export async function updateMealLog(id: string, log: Database['public']['Tables']['meal_logs']['Update']) {
+
+  if (!navigator.onLine) {
+    await addToSyncQueue('updateMealLog', { id, ...log });
+    return [];
+  }
+
   const { data, error } = await supabase
     .from('meal_logs')
     // @ts-expect-error Supabase strict types fail here
@@ -278,6 +359,12 @@ export async function updateMealLog(id: string, log: Database['public']['Tables'
 }
 
 export async function createMedicationLog(log: Database['public']['Tables']['medication_logs']['Insert']) {
+
+  if (!navigator.onLine) {
+    await addToSyncQueue('createMedicationLog', log);
+    return [];
+  }
+
   const { data, error } = await supabase
     .from('medication_logs')
     .insert(log as any)
@@ -289,6 +376,12 @@ export async function createMedicationLog(log: Database['public']['Tables']['med
 }
 
 export async function updateMedicationLog(id: string, log: Database['public']['Tables']['medication_logs']['Update']) {
+
+  if (!navigator.onLine) {
+    await addToSyncQueue('updateMedicationLog', { id, ...log });
+    return [];
+  }
+
   const { data, error } = await supabase
     .from('medication_logs')
     // @ts-expect-error Supabase strict types fail here
@@ -305,22 +398,26 @@ export async function updateMedicationLog(id: string, log: Database['public']['T
 
 export async function getPatientPhotoUrl(_patientId: string, path: string): Promise<string | null> {
   if (!path) return null;
-  const { data, error } = await supabase.storage.from('patient-profile').createSignedUrl(path, 60 * 60 * 24); // 24 hours
-  if (error) {
-    console.error('Error getting patient photo:', error);
-    return null;
-  }
-  return data.signedUrl;
+  return fetchWithCache(`photo_url_patient_${path}`, async () => {
+    const { data, error } = await supabase.storage.from('patient-profile').createSignedUrl(path, 60 * 60 * 24 * 7); // 7 days
+    if (error) {
+      console.error('Error getting patient photo:', error);
+      return null;
+    }
+    return data.signedUrl;
+  }, null);
 }
 
 export async function getMealPhotoUrl(path: string): Promise<string | null> {
   if (!path) return null;
-  const { data, error } = await supabase.storage.from('meal-records').createSignedUrl(path, 60 * 60 * 24); // 24 hours
-  if (error) {
-    console.error('Error getting meal photo:', error);
-    return null;
-  }
-  return data.signedUrl;
+  return fetchWithCache(`photo_url_meal_${path}`, async () => {
+    const { data, error } = await supabase.storage.from('meal-photos').createSignedUrl(path, 60 * 60 * 24 * 7); // 7 days
+    if (error) {
+      console.error('Error getting meal photo:', error);
+      return null;
+    }
+    return data.signedUrl;
+  }, null);
 }
 
 export async function uploadMealPhoto(patientId: string, file: File, fileName: string) {
@@ -428,15 +525,22 @@ export async function seedInitialRoutine(patientId: string) {
 // --- FAMILY MEMBERSHIPS & INVITES (Phase 3) ---
 
 export async function getMyFamilyMemberships(): Promise<any[]> {
-  const { data, error } = await supabase
-    .from('family_members')
-    .select('*, families(*)');
-    // Using simple select. We'll join what we can manually if patient isn't a direct fk from family_members.
-    // Wait, patient is linked via family_id. 
-    // It's better to fetch memberships and then patients separately or use a view if needed,
-    // but we can just do a multi-step query in the UI or let's refine this function.
-  if (error) throw error;
-  return data || [];
+  return fetchWithCache(
+    'myFamilyMemberships',
+    async () => {
+      const user = await getCurrentUser();
+      if (!user) return [];
+
+      const { data, error } = await supabase
+        .from('family_members')
+        .select('*')
+        .eq('user_id', user.id);
+
+      if (error) throw error;
+      return data || [];
+    },
+    []
+  );
 }
 
 export async function getFamilyMembers(familyId: string): Promise<any[]> {

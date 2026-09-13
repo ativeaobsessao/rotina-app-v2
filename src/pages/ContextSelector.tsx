@@ -65,19 +65,17 @@ export function ContextSelectorScreen({ onSelect, initialPatients }: { onSelect:
 
   if (loading) {
     return (
-      <div className="flex h-[100dvh] items-center justify-center bg-gray-50">
-        <Spinner className="w-8 h-8 text-indigo-600" />
-      </div>
+      <div className="flex h-[100dvh] items-center justify-center bg-gray-50 dark:bg-gray-950 transition-colors"></div>
     );
   }
 
   return (
-    <div className="flex min-h-[100dvh] flex-col bg-gray-50 items-center py-16 px-6">
+    <div className="flex min-h-[100dvh] flex-col bg-gray-50 dark:bg-gray-950 transition-colors items-center py-16 px-6">
       <div className="w-full max-w-sm space-y-12">
         <div className="text-center">
           {patients.length > 1 ? (
             <>
-              <h1 className="text-3xl font-bold tracking-tight text-gray-900">
+              <h1 className="text-3xl font-bold tracking-tight text-gray-900 dark:text-gray-100">
                 Como está a sua família hoje?
               </h1>
               <p className="text-gray-500 mt-3 font-medium">
@@ -86,7 +84,7 @@ export function ContextSelectorScreen({ onSelect, initialPatients }: { onSelect:
             </>
           ) : patients.length === 1 ? (
             <>
-              <h1 className="text-3xl font-bold tracking-tight text-gray-900">
+              <h1 className="text-3xl font-bold tracking-tight text-gray-900 dark:text-gray-100">
                 {patients[0].gender === 'F' ? 'Como está a ' : patients[0].gender === 'M' ? 'Como está o ' : 'Como está a rotina de '}{patients[0].name}?
               </h1>
               <p className="text-gray-500 mt-3 font-medium">
@@ -95,7 +93,7 @@ export function ContextSelectorScreen({ onSelect, initialPatients }: { onSelect:
             </>
           ) : (
             <>
-              <h1 className="text-3xl font-bold tracking-tight text-gray-900">
+              <h1 className="text-3xl font-bold tracking-tight text-gray-900 dark:text-gray-100">
                 Bem-vindo
               </h1>
               <p className="text-gray-500 mt-3 font-medium">
@@ -113,8 +111,8 @@ export function ContextSelectorScreen({ onSelect, initialPatients }: { onSelect:
 
         <div className="space-y-4">
           {patients.length === 0 && !error ? (
-            <div className="text-center py-10 bg-white rounded-3xl border border-gray-100 shadow-sm">
-              <h3 className="text-lg font-bold text-gray-900 mb-2">Nenhum paciente disponível</h3>
+            <div className="text-center py-10 bg-white dark:bg-gray-900 transition-colors rounded-3xl border border-gray-100 shadow-sm">
+              <h3 className="text-lg font-bold text-gray-900 dark:text-gray-100 mb-2">Nenhum paciente disponível</h3>
               <p className="text-sm text-gray-500 max-w-xs mx-auto">
                 Você ainda não possui acesso a nenhum paciente.
               </p>
@@ -125,9 +123,9 @@ export function ContextSelectorScreen({ onSelect, initialPatients }: { onSelect:
                 key={pat.id}
                 onClick={() => handleSelect(pat.id, pat.familyId)}
                 disabled={switching !== null}
-                className="w-full bg-white p-6 rounded-[2rem] shadow-sm border border-gray-100/50 hover:shadow-md hover:border-gray-200 transition-all active:scale-[0.98] flex flex-col items-center justify-center space-y-4 relative overflow-hidden group"
+                className="w-full bg-white dark:bg-gray-900 transition-colors p-6 rounded-[2rem] shadow-sm border border-gray-100/50 hover:shadow-md hover:border-gray-200 transition-all active:scale-[0.98] flex flex-col items-center justify-center space-y-4 relative overflow-hidden group"
               >
-                <div className="w-24 h-24 rounded-full bg-gray-50 flex items-center justify-center border border-gray-100 overflow-hidden shadow-inner">
+                <div className="w-24 h-24 rounded-full bg-gray-50 dark:bg-gray-950 transition-colors flex items-center justify-center border border-gray-100 overflow-hidden shadow-inner">
                   {pat.photo ? (
                     <img src={pat.photo} alt={pat.name} className="w-full h-full object-cover" />
                   ) : (
@@ -135,12 +133,12 @@ export function ContextSelectorScreen({ onSelect, initialPatients }: { onSelect:
                   )}
                 </div>
                 
-                <h2 className="text-xl font-bold text-gray-900 tracking-tight">
+                <h2 className="text-xl font-bold text-gray-900 dark:text-gray-100 tracking-tight">
                   {pat.name}
                 </h2>
                 
                 {switching === pat.id && (
-                  <div className="absolute inset-0 bg-white/60 backdrop-blur-sm flex items-center justify-center">
+                  <div className="absolute inset-0 bg-white dark:bg-gray-900 transition-colors/60 backdrop-blur-sm flex items-center justify-center">
                     <Spinner className="w-8 h-8 text-indigo-600" />
                   </div>
                 )}

@@ -6,7 +6,7 @@ const TodayScreen = React.lazy(() => import('./pages/Today').then(m => ({ defaul
 const RoutineScreen = React.lazy(() => import('./pages/Routine').then(m => ({ default: m.RoutineScreen })));
 const SetupScreen = React.lazy(() => import('./pages/Setup').then(m => ({ default: m.SetupScreen })));
 const HistoryScreen = React.lazy(() => import('./pages/History').then(m => ({ default: m.HistoryScreen })));
-import { Spinner } from './components/ui/Spinner';
+
 import { InviteScreen } from './pages/InviteScreen';
 import { ContextSelectorScreen } from './pages/ContextSelector';
 import { ResetPasswordScreen } from './pages/ResetPassword';
@@ -139,9 +139,7 @@ export default function App() {
 
   if (loading) {
     return (
-      <div className="flex h-screen items-center justify-center bg-gray-50">
-        <Spinner className="w-8 h-8 text-gray-900" />
-      </div>
+      <div className="flex h-screen items-center justify-center bg-gray-50 dark:bg-gray-950 transition-colors"></div>
     );
   }
 
@@ -177,9 +175,7 @@ export default function App() {
 
   if (needsSetup) {
     return <React.Suspense fallback={
-      <div className="flex h-[100dvh] items-center justify-center bg-gray-50">
-        <Spinner className="w-8 h-8 text-gray-900" />
-      </div>
+      <div className="flex h-[100dvh] items-center justify-center bg-gray-50 dark:bg-gray-950 transition-colors"></div>
     }>
       <SetupScreen onComplete={() => { setNeedsSetup(false); setCurrentTab('routine'); }} />
     </React.Suspense>;
@@ -187,9 +183,7 @@ export default function App() {
 
   if (currentTab === 'routine') {
     return <React.Suspense fallback={
-      <div className="flex h-[100dvh] items-center justify-center bg-gray-50">
-        <Spinner className="w-8 h-8 text-gray-900" />
-      </div>
+      <div className="flex h-[100dvh] items-center justify-center bg-gray-50 dark:bg-gray-950 transition-colors"></div>
     }>
       <RoutineScreen onTabChange={setCurrentTab} />
     </React.Suspense>;
@@ -197,18 +191,14 @@ export default function App() {
   
   if (currentTab === 'history') {
     return <React.Suspense fallback={
-      <div className="flex h-[100dvh] items-center justify-center bg-gray-50">
-        <Spinner className="w-8 h-8 text-gray-900" />
-      </div>
+      <div className="flex h-[100dvh] items-center justify-center bg-gray-50 dark:bg-gray-950 transition-colors"></div>
     }>
       <HistoryScreen onTabChange={setCurrentTab} onEditPastDay={(dateStr) => { setEditingDateStr(dateStr); setCurrentTab('today'); }} />
     </React.Suspense>;
   }
 
   return <React.Suspense fallback={
-      <div className="flex h-[100dvh] items-center justify-center bg-gray-50">
-        <Spinner className="w-8 h-8 text-gray-900" />
-      </div>
+      <div className="flex h-[100dvh] items-center justify-center bg-gray-50 dark:bg-gray-950 transition-colors"></div>
     }>
       <TodayScreen onTabChange={setCurrentTab} editingDateStr={editingDateStr} onClearEditDate={() => setEditingDateStr(null)} />
     </React.Suspense>;

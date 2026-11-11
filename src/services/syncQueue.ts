@@ -51,20 +51,21 @@ export async function processSyncQueue() {
   
   for (const item of queue) {
     try {
+      const client = supabase as any;
       if (item.action === 'createMealLog') {
-        await supabase.from('meal_logs').insert(item.payload as any);
+        await client.from('meal_logs').insert(item.payload);
       } else if (item.action === 'updateMealLog') {
         const { id, ...data } = item.payload;
-        await supabase.from('meal_logs').update(data as any).eq('id', id);
+        await client.from('meal_logs').update(data).eq('id', id);
       } else if (item.action === 'createMedicationLog') {
-        await supabase.from('medication_logs').insert(item.payload as any);
+        await client.from('medication_logs').insert(item.payload);
       } else if (item.action === 'updateMedicationLog') {
         const { id, ...data } = item.payload;
-        await supabase.from('medication_logs').update(data as any).eq('id', id);
+        await client.from('medication_logs').update(data).eq('id', id);
       } else if (item.action === 'createDailyClosure') {
-        await supabase.from('daily_closures').insert(item.payload as any);
+        await client.from('daily_closures').insert(item.payload);
       } else if (item.action === 'deleteDailyClosure') {
-        await supabase.from('daily_closures').delete().eq('patient_id', item.payload.patient_id).eq('date', item.payload.date);
+        await client.from('daily_closures').delete().eq('patient_id', item.payload.patient_id).eq('date', item.payload.date);
       }
       
       // If success, remove from queue

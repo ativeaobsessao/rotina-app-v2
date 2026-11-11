@@ -42,7 +42,7 @@ export function ResetPasswordScreen({ onComplete }: { onComplete: () => void }) 
     <div className="flex min-h-screen flex-col items-center justify-center bg-gray-50 px-6 py-12">
       <div className="w-full max-w-sm space-y-8 text-center">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight text-gray-900">DUDE</h1>
+          <h1 className="text-3xl font-bold tracking-tight text-gray-900">DUCA</h1>
           <h2 className="mt-6 text-xl font-semibold text-gray-900">Criar nova senha</h2>
           <p className="mt-2 text-sm text-gray-500">
             Digite sua nova senha abaixo para recuperar seu acesso.

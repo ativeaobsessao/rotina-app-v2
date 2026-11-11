@@ -77,7 +77,7 @@ export function SetupScreen({ onComplete }: SetupScreenProps) {
     <div className="flex h-screen flex-col bg-gray-50 p-6 items-center justify-center">
       <div className="w-full max-w-md space-y-8 bg-white p-8 rounded-3xl shadow-sm border border-gray-100 text-center">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-gray-900">Bem-vindo ao DUDE</h1>
+          <h1 className="text-2xl font-bold tracking-tight text-gray-900">Bem-vindo ao DUCA</h1>
           <p className="text-gray-500 mt-2">Vamos configurar a rotina. Primeiro, quem estamos acompanhando?</p>
         </div>
 

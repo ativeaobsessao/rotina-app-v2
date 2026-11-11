@@ -34,9 +34,9 @@ export default defineConfig(() => {
 
         includeAssets: ['favicon-96x96.png', 'apple-touch.png', 'web-app-manifest-192x192.png', 'web-app-manifest-512x512.png'],
         manifest: {
-          name: 'DUDE',
-          short_name: 'DUDE',
-          description: 'Acompanhamento da rotina diária',
+          name: 'DUCA',
+          short_name: 'DUCA',
+          description: 'Acompanhamento da rotina diária e cuidados com a saúde familiar',
           theme_color: '#ffffff',
           background_color: '#ffffff',
           display: 'standalone',

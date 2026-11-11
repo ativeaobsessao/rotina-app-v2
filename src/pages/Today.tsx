@@ -19,6 +19,7 @@ import { getLocalDateString, getCurrentLocalTime, formatFriendlyDate, getWeekday
 import { Spinner } from '../components/ui/Spinner';
 
 import { TimelineItem } from '../components/timeline/TimelineItem';
+import { DailyProgressBar } from '../components/timeline/DailyProgressBar';
 import { MealModal } from '../components/meals/MealModal';
 import { UserProfile } from '../components/ui/UserProfile';
 import { MedicationModal } from '../components/medications/MedicationModal';
@@ -309,7 +310,7 @@ export function TodayScreen({ onTabChange, editingDateStr, onClearEditDate }: { 
 
         <div className="bg-white px-6 pt-12 pb-6 sticky top-0 z-30 border-b border-gray-100/50 backdrop-blur-xl">
           <div className="flex items-center justify-between mb-6">
-            <h1 className="text-2xl font-bold tracking-tight text-gray-900">DUDE</h1>
+            <h1 className="text-2xl font-bold tracking-tight text-gray-900">DUCA</h1>
             <UserProfile />
           </div>
 
@@ -326,6 +327,8 @@ export function TodayScreen({ onTabChange, editingDateStr, onClearEditDate }: { 
               <p className="text-sm text-gray-500">Hoje, {friendlyDate}</p>
             </div>
           </div>
+
+          <DailyProgressBar total={events.length} completed={resolvedEventsCount} />
         </div>
 
 

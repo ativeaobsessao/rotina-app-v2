@@ -91,7 +91,7 @@ export function FamilyModal({ familyId, currentUserId, onClose }: FamilyModalPro
       if (navigator.share) {
         try {
           await navigator.share({
-            title: 'Convite para o DUDE',
+            title: 'Convite para o DUCA',
             text: 'Você foi convidado para acompanhar um paciente.',
             url: inviteLink
           });

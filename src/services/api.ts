@@ -207,8 +207,8 @@ export async function createDailyClosure(familyId: string, patientId: string, da
         date: date,
         status: 'closed',
         closed_by: closedBy
-      } as any
-    ]);
+      }
+    ] as any);
     
   if (error) {
     console.error('Error creating daily closure:', error);
@@ -458,7 +458,7 @@ export async function createPatient(patient: Database['public']['Tables']['patie
 }
 
 export async function updatePatient(id: string, patient: Database['public']['Tables']['patients']['Update']) {
-  const { data, error } = await supabase.from('patients').update(patient as any).eq('id', id).select().single();
+  const { data, error } = await (supabase as any).from('patients').update(patient).eq('id', id).select().single();
   if (error) throw error;
   return data || [];
 }
@@ -471,37 +471,37 @@ export async function uploadPatientPhoto(patientId: string, file: File, fileName
 }
 
 export async function createMealConfig(config: Database['public']['Tables']['meal_configs']['Insert']) {
-  const { data, error } = await supabase.from('meal_configs').insert(config as any).select().single();
+  const { data, error } = await (supabase as any).from('meal_configs').insert(config).select().single();
   if (error) throw error;
   return data || [];
 }
 
 export async function updateMealConfig(id: string, config: Database['public']['Tables']['meal_configs']['Update']) {
-  const { data, error } = await supabase.from('meal_configs').update(config as any).eq('id', id).select().single();
+  const { data, error } = await (supabase as any).from('meal_configs').update(config).eq('id', id).select().single();
   if (error) throw error;
   return data || [];
 }
 
 export async function createMedicationPeriod(period: Database['public']['Tables']['medication_periods']['Insert']) {
-  const { data, error } = await supabase.from('medication_periods').insert(period as any).select().single();
+  const { data, error } = await (supabase as any).from('medication_periods').insert(period).select().single();
   if (error) throw error;
   return data || [];
 }
 
 export async function updateMedicationPeriod(id: string, period: Database['public']['Tables']['medication_periods']['Update']) {
-  const { data, error } = await supabase.from('medication_periods').update(period as any).eq('id', id).select().single();
+  const { data, error } = await (supabase as any).from('medication_periods').update(period).eq('id', id).select().single();
   if (error) throw error;
   return data || [];
 }
 
 export async function createMedication(med: Database['public']['Tables']['medications']['Insert']) {
-  const { data, error } = await supabase.from('medications').insert(med as any).select().single();
+  const { data, error } = await (supabase as any).from('medications').insert(med).select().single();
   if (error) throw error;
   return data || [];
 }
 
 export async function updateMedication(id: string, med: Database['public']['Tables']['medications']['Update']) {
-  const { data, error } = await supabase.from('medications').update(med as any).eq('id', id).select().single();
+  const { data, error } = await (supabase as any).from('medications').update(med).eq('id', id).select().single();
   if (error) throw error;
   return data || [];
 }
@@ -551,16 +551,16 @@ export async function getFamilyMembers(familyId: string): Promise<any[]> {
   if (error) throw error;
 
   if (data && data.length > 0) {
-    const userIds = data.map(m => m.user_id);
+    const userIds = (data as any[]).map(m => m.user_id);
     const { data: profiles } = await supabase
       .from('profiles')
       .select('id, name, email, avatar_url')
       .in('id', userIds);
       
     if (profiles) {
-      return data.map(m => ({
+      return (data as any[]).map(m => ({
         ...m,
-        profile: profiles.find(p => p.id === m.user_id)
+        profile: (profiles as any[]).find(p => p.id === m.user_id)
       }));
     }
   }
@@ -579,30 +579,30 @@ export async function getFamilyInvites(familyId: string): Promise<any[]> {
 }
 
 export async function createFamilyInvite(): Promise<any> {
-  const { data, error } = await supabase.rpc('create_family_invite');
+  const { data, error } = await (supabase as any).rpc('create_family_invite');
   if (error) throw error;
   return data || [];
 }
 
 export async function acceptFamilyInvite(token: string): Promise<any> {
-  const { data, error } = await supabase.rpc('accept_family_invite', { p_token: token });
+  const { data, error } = await (supabase as any).rpc('accept_family_invite', { p_token: token });
   if (error) throw error;
   return data || [];
 }
 
 export async function revokeFamilyInvite(inviteId: string) {
-  const { error } = await supabase.rpc('revoke_family_invite', { p_invite_id: inviteId });
+  const { error } = await (supabase as any).rpc('revoke_family_invite', { p_invite_id: inviteId });
   if (error) throw error;
 }
 
 export async function setActiveFamily(familyId: string) {
-  const { error } = await supabase.rpc('set_active_family', { p_family_id: familyId });
+  const { error } = await (supabase as any).rpc('set_active_family', { p_family_id: familyId });
   if (error) throw error;
   // Invalidate cache since family changed
   cache.clear();
 }
 
 export async function removeFamilyMember(userId: string, familyId: string) {
-  const { error } = await supabase.rpc('remove_family_member', { p_user_id: userId, p_family_id: familyId });
+  const { error } = await (supabase as any).rpc('remove_family_member', { p_user_id: userId, p_family_id: familyId });
   if (error) throw error;
 }

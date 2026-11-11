@@ -73,7 +73,7 @@ export function LoginScreen() {
     <div className="flex min-h-screen flex-col items-center justify-center bg-gray-50 px-6 py-12">
       <div className="w-full max-w-sm space-y-8 text-center">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight text-gray-900">DUDE</h1>
+          <h1 className="text-3xl font-bold tracking-tight text-gray-900">DUCA</h1>
           <div className="mt-8 mx-auto h-32 w-32 overflow-hidden rounded-full border-4 border-white shadow-sm bg-gray-200 flex items-center justify-center">
             {/* Generic placeholder since we don't know the family yet */}
             <span className="text-4xl text-gray-400">👵</span>

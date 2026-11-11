@@ -5,6 +5,7 @@ import { Button } from '../ui/Button';
 import { Spinner } from '../ui/Spinner';
 import { cn } from '../../utils/cn';
 import { createMedicationLog, updateMedicationLog } from '../../services/api';
+import { triggerHapticFeedback } from '../../utils/haptics';
 import type { MedicationEventData } from '../../types/timeline';
 
 interface MedicationModalProps {
@@ -86,6 +87,7 @@ export function MedicationModal({ isOpen, onClose, event, patientId, profileId, 
         }
       }
 
+      triggerHapticFeedback([40, 60, 40]);
       onSuccess();
     } catch (err) {
       console.error(err);
@@ -121,6 +123,7 @@ export function MedicationModal({ isOpen, onClose, event, patientId, profileId, 
         });
       }
       
+      triggerHapticFeedback(50);
       onSuccess();
     } catch (err) {
       console.error(err);

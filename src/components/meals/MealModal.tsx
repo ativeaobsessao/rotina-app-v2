@@ -7,6 +7,7 @@ import { Spinner } from '../ui/Spinner';
 import { cn } from '../../utils/cn';
 import { compressImage } from '../../utils/image';
 import { createMealLog, updateMealLog, uploadMealPhoto, deleteStorageFile } from '../../services/api';
+import { triggerHapticFeedback } from '../../utils/haptics';
 import type { MealEventData } from '../../types/timeline';
 
 interface MealModalProps {
@@ -106,6 +107,7 @@ export function MealModal({ isOpen, onClose, event, patientId, profileId, eventD
         });
       }
 
+      triggerHapticFeedback([40, 60, 40]);
       onSuccess();
     } catch (err) {
       console.error(err);

@@ -3,6 +3,7 @@ import { useNetwork } from '../contexts/NetworkContext';
 import React from 'react';
 import { Home, Clock, Settings } from 'lucide-react';
 import { cn } from '../utils/cn';
+import { PWAInstallBanner } from '../components/pwa/PWAInstallBanner';
 
 interface MainLayoutProps {
   children: React.ReactNode;
@@ -60,6 +61,9 @@ export function MainLayout({ children, activeTab = 'today', onTabChange }: MainL
           </button>
         </div>
       </nav>
+
+      {/* Notificação Flutuante de Instalação PWA (Desktop & Mobile) */}
+      <PWAInstallBanner />
     </div>
   );
 }

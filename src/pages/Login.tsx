@@ -3,6 +3,7 @@ import { supabase } from '../services/supabase';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import { Spinner } from '../components/ui/Spinner';
+import { PWAInstallBanner } from '../components/pwa/PWAInstallBanner';
 
 export function LoginScreen() {
   const [isSignUp, setIsSignUp] = useState(false);
@@ -169,6 +170,7 @@ export function LoginScreen() {
           </div>
         </form>
       </div>
+      <PWAInstallBanner />
     </div>
   );
 }

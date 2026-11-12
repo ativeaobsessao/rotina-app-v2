@@ -34,6 +34,7 @@ export default defineConfig(() => {
 
         includeAssets: ['favicon-96x96.png', 'apple-touch.png', 'web-app-manifest-192x192.png', 'web-app-manifest-512x512.png'],
         manifest: {
+          id: '/',
           name: 'DUCA',
           short_name: 'DUCA',
           description: 'Acompanhamento da rotina diária e cuidados com a saúde familiar',
@@ -48,15 +49,31 @@ export default defineConfig(() => {
               src: '/web-app-manifest-192x192.png',
               sizes: '192x192',
               type: 'image/png',
-              purpose: 'any maskable'
+              purpose: 'any'
+            },
+            {
+              src: '/web-app-manifest-192x192.png',
+              sizes: '192x192',
+              type: 'image/png',
+              purpose: 'maskable'
             },
             {
               src: '/web-app-manifest-512x512.png',
               sizes: '512x512',
               type: 'image/png',
-              purpose: 'any maskable'
+              purpose: 'any'
+            },
+            {
+              src: '/web-app-manifest-512x512.png',
+              sizes: '512x512',
+              type: 'image/png',
+              purpose: 'maskable'
             }
           ]
+        },
+        devOptions: {
+          enabled: true,
+          type: 'module'
         }
       })
     ],

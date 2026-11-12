@@ -1,38 +1,36 @@
 import React, { useState, useEffect } from 'react';
 import { usePWAInstall } from '../../hooks/usePWAInstall';
-import { Download, X, Share2, PlusSquare, Smartphone, Laptop, Sparkles } from 'lucide-react';
+import { Download, X, Share2, PlusSquare, Smartphone, Laptop } from 'lucide-react';
 
 export function PWAInstallBanner() {
-  const { isInstallable, isInstalled, isIOS, isMobile, install } = usePWAInstall();
+  const { isInstallable, isInstalled, isIOS, install } = usePWAInstall();
   const [isVisible, setIsVisible] = useState(false);
   const [showIOSGuide, setShowIOSGuide] = useState(false);
   const [showDesktopGuide, setShowDesktopGuide] = useState(false);
 
   useEffect(() => {
-    // If already installed in standalone mode, never show
+    // REGRA DE OURO: Se o app já estiver instalado no dispositivo (iOS, Android, Chrome ou Desktop),
+    // NUNCA exibe o convite.
     if (isInstalled) {
       setIsVisible(false);
       return;
     }
 
-    // Check if dismissed in this session or recently
-    const dismissedUntil = localStorage.getItem('duca_pwa_dismissed_until');
-    if (dismissedUntil && Number(dismissedUntil) > Date.now()) {
-      return;
-    }
+    // Em TODOS os acessos de usuários que ainda não instalaram:
+    // Exibe imediatamente o banner convidativo.
+    setIsVisible(true);
 
-    // Trigger banner with subtle delay to create pleasant entrance
-    const timer = setTimeout(() => {
-      setIsVisible(true);
-    }, 1500);
+    // REGRA DE TEMPO: Permanece na tela por exatamente 30 segundos em cada acesso,
+    // fechando suavemente após esse período.
+    const autoDismissTimer = setTimeout(() => {
+      setIsVisible(false);
+    }, 30000); // 30 segundos
 
-    return () => clearTimeout(timer);
+    return () => clearTimeout(autoDismissTimer);
   }, [isInstalled]);
 
   const handleDismiss = () => {
     setIsVisible(false);
-    // Dismiss for 24 hours so we don't annoy the user repeatedly
-    localStorage.setItem('duca_pwa_dismissed_until', (Date.now() + 24 * 60 * 60 * 1000).toString());
   };
 
   const handleInstallClick = async () => {
@@ -45,19 +43,20 @@ export function PWAInstallBanner() {
     }
   };
 
+  // Se já estiver instalado ou o tempo de 30s tiver expirado, não renderiza
   if (!isVisible || isInstalled) return null;
 
   return (
     <>
-      {/* Notificação Flutuante com Design Refinado */}
+      {/* Notificação Flutuante de Instalação (Exibida por 30 segundos) */}
       <div className="fixed bottom-20 left-4 right-4 sm:left-auto sm:right-6 sm:bottom-6 sm:max-w-md z-40 animate-in fade-in slide-in-from-bottom-5 duration-500">
-        <div className="bg-white/95 dark:bg-gray-900/95 backdrop-blur-xl border border-gray-100/80 dark:border-gray-800 p-4 rounded-3xl shadow-2xl shadow-indigo-500/10 flex items-center justify-between gap-3.5">
-          {/* Ícone do App */}
+        <div className="bg-white/95 dark:bg-gray-900/95 backdrop-blur-xl border border-gray-100/90 dark:border-gray-800 p-4 rounded-3xl shadow-2xl shadow-indigo-500/15 flex items-center justify-between gap-3.5">
+          {/* Ícone Refinado com Indicador de Pulso */}
           <div className="relative shrink-0">
             <img 
               src="/web-app-manifest-192x192.png" 
               alt="DUCA Ícone" 
-              className="w-12 h-12 rounded-2xl shadow-md border border-white/50 dark:border-gray-700 object-cover"
+              className="w-12 h-12 rounded-2xl shadow-md border border-white/60 dark:border-gray-700 object-cover"
             />
             <span className="absolute -top-1 -right-1 flex h-3.5 w-3.5">
               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-75"></span>
@@ -69,18 +68,18 @@ export function PWAInstallBanner() {
           <div className="flex-1 min-w-0 pr-1">
             <div className="flex items-center gap-1.5">
               <h4 className="text-sm font-bold text-gray-900 dark:text-white tracking-tight truncate">
-                Instalar o DUCA
+                Baixar Aplicativo DUCA
               </h4>
               <span className="text-[10px] bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 font-bold px-1.5 py-0.5 rounded-full">
                 App
               </span>
             </div>
             <p className="text-xs text-gray-500 dark:text-gray-400 leading-snug line-clamp-2 mt-0.5">
-              Acesse a rotina com mais velocidade e sem barras do navegador.
+              Instale na tela de início para acesso rápido, seguro e sem barras de navegação.
             </p>
           </div>
 
-          {/* Ações */}
+          {/* Botão Baixar e Fechar */}
           <div className="flex items-center gap-1.5 shrink-0">
             <button
               onClick={handleInstallClick}
@@ -132,7 +131,7 @@ export function PWAInstallBanner() {
                   2
                 </div>
                 <div className="text-xs text-gray-600 dark:text-gray-300 leading-relaxed">
-                  Role para baixo e selecione a opção <span className="font-semibold text-gray-900 dark:text-white inline-flex items-center gap-1">Adicionar à Tela de Início <PlusSquare className="w-3.5 h-3.5 text-indigo-600 inline" /></span>.
+                  Role para baixo e selecione <span className="font-semibold text-gray-900 dark:text-white inline-flex items-center gap-1">Adicionar à Tela de Início <PlusSquare className="w-3.5 h-3.5 text-indigo-600 inline" /></span>.
                 </div>
               </div>
 
@@ -141,7 +140,7 @@ export function PWAInstallBanner() {
                   3
                 </div>
                 <div className="text-xs text-gray-600 dark:text-gray-300 leading-relaxed">
-                  Toque em <span className="font-semibold text-gray-900 dark:text-white">Adicionar</span> no canto superior direito. Pronto! O DUCA ficará como um aplicativo nativo na sua tela.
+                  Toque em <span className="font-semibold text-gray-900 dark:text-white">Adicionar</span> no canto superior direito. O DUCA será instalado como um aplicativo nativo no seu iPhone.
                 </div>
               </div>
             </div>

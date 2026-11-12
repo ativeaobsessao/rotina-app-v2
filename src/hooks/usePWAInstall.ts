@@ -12,15 +12,27 @@ export function usePWAInstall() {
   const [isMobile, setIsMobile] = useState(false);
 
   useEffect(() => {
-    // 1. Detect if running in standalone mode (already installed on Home Screen/Desktop app)
-    const isStandalone =
-      window.matchMedia('(display-mode: standalone)').matches ||
-      (window.navigator as unknown as { standalone?: boolean }).standalone === true ||
-      document.referrer.includes('android-app://');
+    // ─── Verificação Exaustiva e Rigorosa de Standalone (Instalado) ───
+    // Cobre todos os sistemas operacionais e navegadores:
+    // 1. Padrão W3C (Chrome, Edge, Android, Desktop PWA): display-mode: standalone
+    const matchStandalone = window.matchMedia('(display-mode: standalone)').matches;
+    const matchFullscreen = window.matchMedia('(display-mode: fullscreen)').matches;
+    const matchMinimalUi = window.matchMedia('(display-mode: minimal-ui)').matches;
 
-    setIsInstalled(isStandalone);
+    // 2. iOS Safari (iPhone / iPad): window.navigator.standalone === true
+    const isIOSStandalone = (window.navigator as unknown as { standalone?: boolean }).standalone === true;
 
-    // 2. Device Detection
+    // 3. Android TWA / WebAPK / referrer
+    const isAndroidApp = document.referrer.includes('android-app://');
+
+    // 4. Marca persistida após confirmação de evento appinstalled
+    const storedInstalled = localStorage.getItem('duca_app_installed') === 'true';
+
+    const runningAsInstalled = matchStandalone || matchFullscreen || matchMinimalUi || isIOSStandalone || isAndroidApp || storedInstalled;
+
+    setIsInstalled(runningAsInstalled);
+
+    // Detecção de Sistema Operacional
     const userAgent = window.navigator.userAgent.toLowerCase();
     const isIOSDevice = /iphone|ipad|ipod/.test(userAgent) && !(window as any).MSStream;
     const isMobileDevice = /iphone|ipad|ipod|android|mobile/.test(userAgent);
@@ -28,15 +40,17 @@ export function usePWAInstall() {
     setIsIOS(isIOSDevice);
     setIsMobile(isMobileDevice);
 
-    // 3. Listen for Chromium/Edge/Android beforeinstallprompt event
+    // Evento disparado pelo Chromium (Desktop, Android) quando o app está pronto para ser instalado
     const handleBeforeInstallPrompt = (e: Event) => {
       e.preventDefault();
       setDeferredPrompt(e as BeforeInstallPromptEvent);
     };
 
+    // Evento disparado imediatamente após o app ser instalado no dispositivo
     const handleAppInstalled = () => {
       setIsInstalled(true);
       setDeferredPrompt(null);
+      localStorage.setItem('duca_app_installed', 'true');
     };
 
     window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
@@ -55,6 +69,7 @@ export function usePWAInstall() {
     if (outcome === 'accepted') {
       setIsInstalled(true);
       setDeferredPrompt(null);
+      localStorage.setItem('duca_app_installed', 'true');
       return true;
     }
     return false;

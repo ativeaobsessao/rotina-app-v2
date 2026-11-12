@@ -1,5 +1,3 @@
-// @ts-nocheck
-
 import React, { useEffect, useState } from 'react';
 import { MainLayout } from '../layouts/MainLayout';
 import {
@@ -14,9 +12,10 @@ import {
 import { getLocalDateString, formatDateToTime, formatFriendlyDate, formatTime } from '../utils/date';
 import { Spinner } from '../components/ui/Spinner';
 import { UserProfile } from '../components/ui/UserProfile';
-import { ChevronDown, ChevronUp, Coffee, Pill, CheckCircle2, Circle } from 'lucide-react';
+import { ChevronDown, ChevronUp, Coffee, Pill, CheckCircle2, Circle, FileText } from 'lucide-react';
 import { MealModal } from '../components/meals/MealModal';
 import { MedicationModal } from '../components/medications/MedicationModal';
+import { ReportModal } from '../components/history/ReportModal';
 import type { MealEventData, MedicationEventData } from '../types/timeline';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -64,7 +63,7 @@ interface DayData {
 
 // ─── Sub-component: individual meal row ──────────────────────────────────────
 
-function MealRow({ meal, onEdit, profileId }: { meal: HistoryMealEntry; onEdit: () => void; profileId?: string }) {
+function MealRow({ meal, onEdit, profileId }: { meal: HistoryMealEntry; onEdit: () => void; profileId?: string; key?: React.Key }) {
   const consumptionLabel =
     meal.consumption_status === 'normal' ? 'Comeu normalmente' :
     meal.consumption_status === 'partial' ? 'Comeu parcialmente' :
@@ -122,7 +121,7 @@ function MealRow({ meal, onEdit, profileId }: { meal: HistoryMealEntry; onEdit: 
 
 // ─── Sub-component: individual medication row ─────────────────────────────────
 
-function MedRow({ med, onEdit, profileId }: { med: HistoryMedEntry; onEdit: () => void; profileId?: string }) {
+function MedRow({ med, onEdit, profileId }: { med: HistoryMedEntry; onEdit: () => void; profileId?: string; key?: React.Key }) {
   const isAdministered = med.status === 'administered';
 
   return (
@@ -182,6 +181,7 @@ function HistoryDayGroup({
   onCloseDay?: (date: string) => void;
   isClosingDay?: boolean;
   profileId?: string;
+  key?: React.Key;
 }) {
   const [expanded, setExpanded] = useState(false);
   const friendly = formatFriendlyDate(day.dateStr);
@@ -546,18 +546,7 @@ export function HistoryScreen({ onTabChange, onEditPastDay }: { onTabChange?: (t
         <div className="flex h-[80vh] items-center justify-center">
           <Spinner />
         </div>
-      
-      {/* Report modal */}
-      {patient && (
-        <ReportModal 
-          isOpen={showReportModal} 
-          onClose={() => setShowReportModal(false)} 
-          patientId={patient.id} 
-          patientName={patient.name} 
-        />
-      )}
-    </MainLayout>
-
+      </MainLayout>
     );
   }
 
@@ -727,6 +716,15 @@ export function HistoryScreen({ onTabChange, onEditPastDay }: { onTabChange?: (t
           profileId={profile.id}
           eventDate={selectedMed.dateStr}
           onSuccess={() => { loadData(); setSelectedMed(null); }}
+        />
+      )}
+      {/* Report modal */}
+      {patient && (
+        <ReportModal 
+          isOpen={showReportModal} 
+          onClose={() => setShowReportModal(false)} 
+          patientId={patient.id} 
+          patientName={patient.name} 
         />
       )}
       

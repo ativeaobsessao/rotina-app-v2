@@ -105,9 +105,9 @@ export function InviteScreen({ token }: { token: string }) {
             <div className="w-20 h-20 bg-indigo-50 rounded-full flex items-center justify-center mb-6 border border-indigo-100 shadow-sm">
               <UserPlus className="w-10 h-10 text-indigo-600" />
             </div>
-            <h1 className="text-2xl font-bold tracking-tight text-gray-900">Aceitar convite</h1>
-            <p className="text-gray-500 mt-3 text-sm sm:text-base mb-8 max-w-xs mx-auto">
-              Você foi convidado para acompanhar um paciente e visualizar sua rotina.
+            <h1 className="text-2xl font-bold tracking-tight text-gray-900">Acompanhar em Família</h1>
+            <p className="text-gray-500 mt-3 text-sm sm:text-base mb-8 max-w-xs mx-auto leading-relaxed">
+              Você foi convidado com carinho para fazer parte desta família no DUCA e acompanhar a rotina diária de cuidados.
             </p>
             
             {error && (

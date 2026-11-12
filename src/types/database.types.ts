@@ -18,6 +18,7 @@ export interface Database {
       meal_logs: { Row: any, Insert: any, Update: any },
       medication_logs: { Row: any, Insert: any, Update: any },
       daily_closures: { Row: any, Insert: any, Update: any },
+      daily_mood_logs: { Row: any, Insert: any, Update: any },
       family_members: { Row: any, Insert: any, Update: any },
       family_invites: { Row: any, Insert: any, Update: any },
     }

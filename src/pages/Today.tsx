@@ -8,6 +8,8 @@ import {
   getMedications,
   getMealLogs,
   getMedicationLogs,
+  getDailyMoodLog,
+  type DailyMoodLog,
   getPatientPhotoUrl,
   getMealPhotoUrl,
   getDailyClosure,
@@ -23,6 +25,7 @@ import { DailyProgressBar } from '../components/timeline/DailyProgressBar';
 import { MealModal } from '../components/meals/MealModal';
 import { UserProfile } from '../components/ui/UserProfile';
 import { MedicationModal } from '../components/medications/MedicationModal';
+import { MoodAndPainModal } from '../components/mood/MoodAndPainModal';
 import type { TimelineEvent, MealEventData, MedicationEventData } from '../types/timeline';
 import { Unlock } from 'lucide-react';
 
@@ -40,6 +43,11 @@ export function TodayScreen({ onTabChange, editingDateStr, onClearEditDate }: { 
   const [loadedDate, setLoadedDate] = useState<string | null>(null);
   const [isTransitioning, setIsTransitioning] = useState(false);
   
+  // Mood & Pain state
+  const [todayMood, setTodayMood] = useState<DailyMoodLog | null>(null);
+  const [showMoodModal, setShowMoodModal] = useState(false);
+  const [moodModalMode, setMoodModalMode] = useState<'view' | 'edit'>('view');
+
   // Modals state
   const [selectedMealEvent, setSelectedMealEvent] = useState<MealEventData | null>(null);
   const [selectedMedEvent, setSelectedMedEvent] = useState<MedicationEventData | null>(null);
@@ -75,14 +83,17 @@ export function TodayScreen({ onTabChange, editingDateStr, onClearEditDate }: { 
 
   async function refreshTimeline(patientId: string, dateStr: string) {
     try {
-      // Fetch configs and logs
-      const [meals, medPeriods, allMeds, mealLogs, medLogs] = await Promise.all([
+      // Fetch configs, logs and mood
+      const [meals, medPeriods, allMeds, mealLogs, medLogs, moodLog] = await Promise.all([
         getMealConfigs(patientId),
         getMedicationPeriods(patientId),
         getMedications(patientId),
         getMealLogs(patientId, dateStr),
-        getMedicationLogs(patientId, dateStr)
+        getMedicationLogs(patientId, dateStr),
+        getDailyMoodLog(patientId, dateStr)
       ]);
+
+      setTodayMood(moodLog);
 
       const currentTime = getCurrentLocalTime();
       
@@ -188,6 +199,13 @@ export function TodayScreen({ onTabChange, editingDateStr, onClearEditDate }: { 
       })
       .subscribe();
 
+    const moodSub = supabase
+      .channel('public:daily_mood_logs')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'daily_mood_logs' }, () => {
+        refreshTimeline(patient.id, localDate);
+      })
+      .subscribe();
+
     // Focus setup
     const handleFocus = () => {
       refreshTimeline(patient.id, localDate);
@@ -205,6 +223,7 @@ export function TodayScreen({ onTabChange, editingDateStr, onClearEditDate }: { 
     return () => {
       supabase.removeChannel(mealSub);
       supabase.removeChannel(medSub);
+      supabase.removeChannel(moodSub);
       window.removeEventListener('focus', handleFocus);
       window.removeEventListener('visibilitychange', handleVisibilityChange);
     };
@@ -234,7 +253,7 @@ export function TodayScreen({ onTabChange, editingDateStr, onClearEditDate }: { 
     return (
       <MainLayout activeTab={editingDateStr ? "history" : "today"} onTabChange={onTabChange}>
         <div className="flex h-[80vh] items-center justify-center flex-col text-center px-6">
-          <p className="text-gray-500">Paciente não encontrado ou rotina não configurada.</p>
+          <p className="text-gray-500">Familiar não encontrado ou rotina não configurada.</p>
         </div>
       </MainLayout>
     );
@@ -315,16 +334,102 @@ export function TodayScreen({ onTabChange, editingDateStr, onClearEditDate }: { 
           </div>
 
           <div className="flex items-center space-x-4">
-            <div className="w-16 h-16 rounded-full bg-gray-100 border border-gray-200 overflow-hidden flex items-center justify-center shrink-0">
-              {patientPhoto ? (
-                <img src={patientPhoto} alt={patient.name} className="w-full h-full object-cover" />
+            {/* Avatar Clicável com indicador de humor e toque tátil */}
+            <button
+              type="button"
+              onClick={() => {
+                setMoodModalMode(todayMood ? 'view' : 'edit');
+                setShowMoodModal(true);
+              }}
+              className="relative group transition-transform active:scale-95 focus:outline-none shrink-0"
+              title={todayMood ? 'Ver avaliação de bem-estar de hoje' : 'Registrar como está hoje'}
+            >
+              <div className="w-16 h-16 rounded-full bg-gray-100 border-2 border-white shadow-md overflow-hidden flex items-center justify-center ring-2 ring-indigo-100 group-hover:ring-indigo-300 transition-all">
+                {patientPhoto ? (
+                  <img src={patientPhoto} alt={patient.name} className="w-full h-full object-cover" />
+                ) : (
+                  <span className="text-2xl">👵</span>
+                )}
+              </div>
+
+              {/* Indicador sutil de humor na foto */}
+              {todayMood ? (
+                <div 
+                  className={`absolute -bottom-1 -right-1 w-6 h-6 rounded-full flex items-center justify-center text-xs shadow-md border-2 border-white ${
+                    todayMood.pain_level !== 'none'
+                      ? 'bg-rose-50 ring-1 ring-rose-300'
+                      : 'bg-emerald-50 ring-1 ring-emerald-300'
+                  }`}
+                >
+                  {todayMood.mood === 'happy' ? '😊' :
+                   todayMood.mood === 'calm' ? '😌' :
+                   todayMood.mood === 'tired' ? '🥱' :
+                   todayMood.mood === 'sad' ? '😢' : '😣'}
+                </div>
               ) : (
-                <span className="text-2xl">👵</span>
+                <div 
+                  className="absolute -bottom-1 -right-1 w-6 h-6 rounded-full bg-indigo-50 border-2 border-white ring-1 ring-indigo-200 flex items-center justify-center text-[10px] text-indigo-600 shadow-sm animate-pulse"
+                >
+                  ✨
+                </div>
               )}
-            </div>
-            <div>
-              <h2 className="text-xl font-semibold text-gray-900">{patient.name}</h2>
-              <p className="text-sm text-gray-500">Hoje, {friendlyDate}</p>
+            </button>
+
+            <div className="flex-1 min-w-0">
+              <h2 className="text-xl font-semibold text-gray-900 truncate">{patient.name}</h2>
+              <p className="text-xs text-gray-500 mb-1.5">Hoje, {friendlyDate}</p>
+
+              {/* Status pill para rápida leitura e registro com zero ruído */}
+              {todayMood ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMoodModalMode('view');
+                    setShowMoodModal(true);
+                  }}
+                  className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border transition-all active:scale-95 text-left max-w-full ${
+                    todayMood.pain_level === 'none'
+                      ? 'bg-emerald-50 text-emerald-800 border-emerald-200/70 hover:bg-emerald-100/70'
+                      : 'bg-rose-50 text-rose-800 border-rose-200/70 hover:bg-rose-100/70'
+                  }`}
+                >
+                  <span className="text-sm">
+                    {todayMood.mood === 'happy' ? '😊' :
+                     todayMood.mood === 'calm' ? '😌' :
+                     todayMood.mood === 'tired' ? '🥱' :
+                     todayMood.mood === 'sad' ? '😢' : '😣'}
+                  </span>
+                  <span className="truncate">
+                    {todayMood.pain_level === 'none' 
+                      ? 'Bem e sem dores' 
+                      : `Queixa de dor (${
+                          todayMood.pain_locations?.length 
+                            ? todayMood.pain_locations.map(p => 
+                                p === 'head' ? 'cabeça' :
+                                p === 'belly' ? 'barriga' :
+                                p === 'back' ? 'costas' :
+                                p === 'legs' ? 'pernas' :
+                                p === 'chest' ? 'peito' :
+                                p === 'arms' ? 'braços' :
+                                p === 'feet' ? 'pés' : 'corpo'
+                              ).join(', ') 
+                            : 'dor relatada'
+                        })`}
+                  </span>
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMoodModalMode('edit');
+                    setShowMoodModal(true);
+                  }}
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-slate-50 hover:bg-slate-100 text-slate-600 border border-dashed border-slate-300 transition-all active:scale-95"
+                >
+                  <span className="text-indigo-500 font-bold">+</span>
+                  <span>Registrar bem-estar de hoje</span>
+                </button>
+              )}
             </div>
           </div>
 
@@ -498,6 +603,24 @@ export function TodayScreen({ onTabChange, editingDateStr, onClearEditDate }: { 
           profileId={profile.id}
           eventDate={localDate}
           onSuccess={handleMedRefresh}
+        />
+      )}
+
+      {/* Mood and Pain Modal */}
+      {showMoodModal && patient && profile && (
+        <MoodAndPainModal
+          isOpen={showMoodModal}
+          onClose={() => setShowMoodModal(false)}
+          patientId={patient.id}
+          familyId={profile.family_id}
+          profileId={profile.id}
+          patientName={patient.name}
+          dateStr={localDate}
+          currentLog={todayMood}
+          mode={moodModalMode}
+          onSuccess={(updatedLog) => {
+            setTodayMood(updatedLog);
+          }}
         />
       )}
 

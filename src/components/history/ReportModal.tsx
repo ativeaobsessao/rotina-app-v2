@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { X, CalendarDays, FileDown, CheckCircle2, AlertCircle } from 'lucide-react';
-import { getHistoricalMealLogs, getHistoricalMedicationLogs } from '../../services/api';
+import { getHistoricalMealLogs, getHistoricalMedicationLogs, getHistoricalMoodLogs } from '../../services/api';
 import { getLocalDateString, formatFriendlyDate } from '../../utils/date';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -38,12 +38,13 @@ export function ReportModal({ isOpen, onClose, patientId, patientName }: ReportM
       const beforeDate = endD.toISOString().split('T')[0];
 
       // Fetch data
-      const [mealLogs, medLogs] = await Promise.all([
+      const [mealLogs, medLogs, moodLogs] = await Promise.all([
         getHistoricalMealLogs(patientId, beforeDate, startDate),
         getHistoricalMedicationLogs(patientId, beforeDate, startDate),
+        getHistoricalMoodLogs(patientId, beforeDate, startDate),
       ]);
 
-      if (mealLogs.length === 0 && medLogs.length === 0) {
+      if (mealLogs.length === 0 && medLogs.length === 0 && moodLogs.length === 0) {
         throw new Error('Nenhum registro encontrado para o período selecionado.');
       }
 
@@ -103,7 +104,12 @@ export function ReportModal({ isOpen, onClose, patientId, patientName }: ReportM
       doc.text('Registros:', rightColX, 31);
       doc.setFont('helvetica', 'normal');
       doc.setTextColor(15, 23, 42);
-      doc.text(`${mealLogs.length} Refeições  •  ${medLogs.length} Medicamentos`, rightColX + 16, 31);
+      const summaryParts = [
+        medLogs.length > 0 ? `${medLogs.length} Meds` : null,
+        mealLogs.length > 0 ? `${mealLogs.length} Refeições` : null,
+        moodLogs.length > 0 ? `${moodLogs.length} Bem-Estar` : null,
+      ].filter(Boolean).join(' • ');
+      doc.text(summaryParts || 'Sem registros', rightColX + 16, 31);
 
       let currentY = 40;
 
@@ -249,6 +255,105 @@ export function ReportModal({ isOpen, onClose, patientId, patientName }: ReportM
                 data.cell.styles.textColor = [161, 98, 7]; // Yellow 700
               } else {
                 data.cell.styles.textColor = [185, 28, 28]; // Red 700
+              }
+            }
+          },
+        });
+
+        currentY = (doc as any).lastAutoTable.finalY + 8;
+      }
+
+      // ─── Tabela 3: Estado de Espírito, Humor e Dores ─────────────────
+      if (moodLogs.length > 0) {
+        if (currentY > pageHeight - 35) {
+          doc.addPage();
+          currentY = 16;
+        }
+
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(11);
+        doc.setTextColor(15, 118, 110); // Teal 700
+        doc.text('3. Avaliação Diária de Bem-Estar, Humor e Queixas de Dor', margin, currentY);
+        currentY += 2;
+
+        const moodMap: Record<string, string> = {
+          happy: 'Feliz / Animada',
+          calm: 'Calma / Tranquila',
+          tired: 'Cansada / Lenta',
+          sad: 'Triste / Sensível',
+          agitated: 'Inquieta / Agitada',
+        };
+
+        const painMap: Record<string, string> = {
+          none: 'Sem dores',
+          mild: 'Dor leve',
+          moderate: 'Dor moderada',
+          severe: 'Dor forte',
+        };
+
+        const partsMap: Record<string, string> = {
+          head: 'Cabeça',
+          belly: 'Barriga/Estômago',
+          back: 'Costas/Coluna',
+          legs: 'Pernas/Joelhos',
+          chest: 'Peito/Tórax',
+          arms: 'Braços/Ombros',
+          feet: 'Pés',
+          joints: 'Articulações',
+        };
+
+        const moodTableData = moodLogs.map(log => {
+          const dateFormatted = log.date ? log.date.split('-').reverse().join('/') : '-';
+          const moodStr = moodMap[log.mood] || log.mood;
+          const painStr = painMap[log.pain_level] || log.pain_level;
+          const locations = (log.pain_locations || []).map(p => partsMap[p] || p).join(', ') || (log.pain_level === 'none' ? 'Nenhuma' : '-');
+          const caregiver = (log as any).updater?.name || 'Familiar';
+          const notesStr = log.notes || '-';
+
+          return [dateFormatted, moodStr, painStr, locations, caregiver, notesStr];
+        });
+
+        autoTable(doc, {
+          startY: currentY,
+          margin: { left: margin, right: margin, bottom: 15 },
+          head: [['Data', 'Humor / Disposição', 'Nível de Dor', 'Regiões da Dor', 'Registrado por', 'Observações / Contexto']],
+          body: moodTableData,
+          theme: 'grid',
+          headStyles: {
+            fillColor: [13, 148, 136], // Teal 600
+            textColor: [255, 255, 255],
+            fontSize: 8,
+            fontStyle: 'bold',
+            halign: 'left',
+            cellPadding: 1.8,
+          },
+          bodyStyles: {
+            fontSize: 7.5,
+            textColor: [30, 41, 59],
+            cellPadding: 1.6,
+            lineColor: [226, 232, 240],
+            lineWidth: 0.1,
+          },
+          alternateRowStyles: {
+            fillColor: [240, 253, 250], // Teal 50 suave
+          },
+          columnStyles: {
+            0: { cellWidth: 16, halign: 'center' }, // Data
+            1: { cellWidth: 28, fontStyle: 'bold' }, // Humor
+            2: { cellWidth: 24, fontStyle: 'bold' }, // Nível de dor
+            3: { cellWidth: 32 },                  // Regiões
+            4: { cellWidth: 24 },                  // Registrado por
+            5: { cellWidth: 'auto' },              // Observações
+          },
+          didParseCell: (data) => {
+            if (data.section === 'body' && data.column.index === 2) {
+              if (data.cell.raw === 'Sem dores') {
+                data.cell.styles.textColor = [22, 101, 52]; // Green 800
+              } else if (data.cell.raw === 'Dor leve') {
+                data.cell.styles.textColor = [161, 98, 7]; // Yellow 700
+              } else {
+                data.cell.styles.textColor = [185, 28, 28]; // Red 700
+                data.cell.styles.fontStyle = 'bold';
               }
             }
           },

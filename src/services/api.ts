@@ -232,6 +232,96 @@ export async function deleteDailyClosure(patientId: string, date: string): Promi
   return true;
 }
 
+// --- DAILY MOOD & PAIN LOGS ---
+
+export interface DailyMoodLog {
+  id?: string;
+  patient_id: string;
+  family_id: string;
+  date: string;
+  mood: 'happy' | 'calm' | 'tired' | 'sad' | 'agitated';
+  pain_level: 'none' | 'mild' | 'moderate' | 'severe';
+  pain_locations: string[];
+  notes?: string | null;
+  updated_by?: string | null;
+  updater?: { name: string } | null;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export async function getDailyMoodLog(patientId: string, date: string): Promise<DailyMoodLog | null> {
+  return fetchWithCache(
+    `mood_${patientId}_${date}`,
+    async () => {
+      const { data, error } = await (supabase as any)
+        .from('daily_mood_logs')
+        .select('*, updater:profiles!daily_mood_logs_updated_by_fkey(name)')
+        .eq('patient_id', patientId)
+        .eq('date', date)
+        .maybeSingle();
+
+      if (error) {
+        console.warn('Error fetching daily mood:', error.message);
+        return null;
+      }
+      return data || null;
+    },
+    null
+  );
+}
+
+export async function upsertDailyMoodLog(log: DailyMoodLog): Promise<DailyMoodLog | null> {
+  try {
+    const { data, error } = await (supabase as any)
+      .from('daily_mood_logs')
+      .upsert(
+        {
+          patient_id: log.patient_id,
+          family_id: log.family_id,
+          date: log.date,
+          mood: log.mood,
+          pain_level: log.pain_level,
+          pain_locations: log.pain_locations || [],
+          notes: log.notes || null,
+          updated_by: log.updated_by || null,
+          updated_at: new Date().toISOString()
+        },
+        { onConflict: 'patient_id,date' }
+      )
+      .select('*, updater:profiles!daily_mood_logs_updated_by_fkey(name)')
+      .single();
+
+    if (error) throw error;
+    // Update local cache
+    await set(`mood_${log.patient_id}_${log.date}`, data);
+    return data;
+  } catch (err) {
+    console.warn('Failed to upsert mood to supabase, caching locally:', err);
+    await set(`mood_${log.patient_id}_${log.date}`, log);
+    return log;
+  }
+}
+
+export async function getHistoricalMoodLogs(patientId: string, beforeDate: string, afterDate: string): Promise<DailyMoodLog[]> {
+  try {
+    const { data, error } = await (supabase as any)
+      .from('daily_mood_logs')
+      .select('*, updater:profiles!daily_mood_logs_updated_by_fkey(name)')
+      .eq('patient_id', patientId)
+      .lte('date', beforeDate)
+      .gte('date', afterDate)
+      .order('date', { ascending: false });
+
+    if (error) {
+      console.warn('Error fetching historical mood logs:', error.message);
+      return [];
+    }
+    return data || [];
+  } catch {
+    return [];
+  }
+}
+
 // --- LOGS ---
 
 export async function getHistoricalMealLogs(patientId: string, beforeDate: string, startDate?: string): Promise<any[]> {

@@ -11,9 +11,21 @@ export function ContextSelectorScreen({ onSelect, initialPatients }: { onSelect:
   const [switching, setSwitching] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!initialPatients) {
-      loadPatients();
+    // 1. Instant hydration from cached patients to avoid any splash/waiting
+    const cachedPatientsStr = localStorage.getItem('duca_cached_context_patients');
+    if (cachedPatientsStr && (!patients || patients.length === 0)) {
+      try {
+        const parsed = JSON.parse(cachedPatientsStr);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setPatients(parsed);
+          setLoading(false);
+        }
+      } catch (e) {
+        // Ignore JSON error
+      }
     }
+
+    loadPatients();
   }, [initialPatients]);
 
   async function loadPatients() {
@@ -42,8 +54,13 @@ export function ContextSelectorScreen({ onSelect, initialPatients }: { onSelect:
       );
       
       const loadedPatients = loadedPatientsUnfiltered.filter((p) => p !== null) as any;
-      const uniquePatients = Array.from(new Map(loadedPatients.map(p => [p.id, p])).values());
+      const uniquePatients = Array.from(new Map(loadedPatients.map((p: any) => [p.id, p])).values());
       setPatients(uniquePatients);
+      try {
+        localStorage.setItem('duca_cached_context_patients', JSON.stringify(uniquePatients));
+      } catch (e) {
+        // quota exceeded fallback
+      }
     } catch (err: any) {
       setError(err.message || 'Erro ao carregar pacientes');
     } finally {

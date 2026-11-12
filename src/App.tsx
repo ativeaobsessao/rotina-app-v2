@@ -13,12 +13,41 @@ import { ResetPasswordScreen } from './pages/ResetPassword';
 import { getMyFamilyMemberships } from './services/api';
 
 export default function App() {
-  const [session, setSession] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
+  // Synchronous cache checks to render ContextSelector immediately on tap
+  const cachedPatients = (() => {
+    try {
+      const stored = localStorage.getItem('duca_cached_context_patients');
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch {}
+    return null;
+  })();
+
+  const [session, setSession] = useState<any>(() => {
+    // Check if supabase auth session exists in localStorage
+    try {
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && (key.startsWith('sb-') || key.includes('auth-token')) && key.endsWith('-auth-token')) {
+          const item = localStorage.getItem(key);
+          if (item) {
+            const parsed = JSON.parse(item);
+            if (parsed && (parsed.access_token || parsed.currentSession)) return parsed;
+          }
+        }
+      }
+    } catch {}
+    return null;
+  });
+
+  // If we already know the user has cached patients, we do NOT show a blank/loading screen!
+  const [loading, setLoading] = useState(!cachedPatients);
   const [needsSetup, setNeedsSetup] = useState(false);
-  const [needsContextSelection, setNeedsContextSelection] = useState(false);
+  const [needsContextSelection, setNeedsContextSelection] = useState(!!cachedPatients);
   const [isRecoveringPassword, setIsRecoveringPassword] = useState(false);
-  const [initialPatients, setInitialPatients] = useState<any[] | null>(null);
+  const [initialPatients, setInitialPatients] = useState<any[] | null>(cachedPatients);
   const hasCheckedContextRef = useRef(false);
   const [currentTab, setCurrentTab] = useState<'today' | 'history' | 'routine'>('today');
   const [editingDateStr, setEditingDateStr] = useState<string | null>(null);
@@ -100,6 +129,10 @@ export default function App() {
         const loadedPatients = loadedPatientsUnfiltered.filter((p) => p !== null) as any;
         const uniquePatients = Array.from(new Map(loadedPatients.map((p: any) => [p.id, p])).values());
         
+        try {
+          localStorage.setItem('duca_cached_context_patients', JSON.stringify(uniquePatients));
+        } catch {}
+
         setInitialPatients(uniquePatients);
         setNeedsContextSelection(true);
         setLoading(false);
@@ -137,6 +170,20 @@ export default function App() {
     }
   }
 
+  if (needsContextSelection) {
+    return (
+      <ContextSelectorScreen 
+        initialPatients={initialPatients || undefined}
+        onSelect={() => {
+          setNeedsContextSelection(false);
+          hasCheckedContextRef.current = true;
+          setLoading(true);
+          checkPatient();
+        }} 
+      />
+    );
+  }
+
   if (loading) {
     return (
       <div className="flex h-screen items-center justify-center bg-gray-50 dark:bg-gray-950 transition-colors"></div>
@@ -152,20 +199,6 @@ export default function App() {
       <ResetPasswordScreen 
         onComplete={() => {
           setIsRecoveringPassword(false);
-          setLoading(true);
-          checkPatient();
-        }} 
-      />
-    );
-  }
-
-  if (needsContextSelection) {
-    return (
-      <ContextSelectorScreen 
-        initialPatients={initialPatients || undefined}
-        onSelect={() => {
-          setNeedsContextSelection(false);
-          hasCheckedContextRef.current = true;
           setLoading(true);
           checkPatient();
         }} 

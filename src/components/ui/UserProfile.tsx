@@ -6,7 +6,7 @@ import { supabase } from '../../services/supabase';
 import { LogOut, Camera, Lock, UserPen, Users, Moon, Sun } from 'lucide-react';
 import { useTheme } from '../../contexts/ThemeContext';
 import { FamilyModal } from './FamilyModal';
-import { getCurrentProfile } from '../../services/api';
+import { getCurrentProfile, getPatient } from '../../services/api';
 
 export function UserProfile() {
   const { theme, toggleTheme } = useTheme();
@@ -35,17 +35,23 @@ export function UserProfile() {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
+  const [lovedOneName, setLovedOneName] = useState<string>('');
+
   async function loadProfile() {
     const p = await getCurrentProfile();
     if (p) {
       if (p.avatar_url) {
-        // Just in case it's a full URL or a storage path. If it's a path, we'd need to sign it.
-        // For avatars, a public bucket is best. Let's assume we use 'family-assets' bucket or just read it.
-        // Let's get signed URL if it's a path.
         const { data } = await supabase.storage.from('patient-profile').createSignedUrl(p.avatar_url, 60 * 60 * 24);
         p.avatarUrlSigned = data?.signedUrl || p.avatar_url;
       }
       setProfile(p);
+
+      if (p.family_id) {
+        const pat = await getPatient(p.family_id);
+        if (pat?.name) {
+          setLovedOneName(pat.name);
+        }
+      }
     }
   }
 
@@ -244,6 +250,7 @@ export function UserProfile() {
         <FamilyModal 
           familyId={profile.family_id} 
           currentUserId={profile.id}
+          lovedOneName={lovedOneName}
           onClose={() => setShowFamilyModal(false)} 
         />,
         document.body

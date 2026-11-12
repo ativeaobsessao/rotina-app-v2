@@ -606,3 +606,15 @@ export async function removeFamilyMember(userId: string, familyId: string) {
   const { error } = await (supabase as any).rpc('remove_family_member', { p_user_id: userId, p_family_id: familyId });
   if (error) throw error;
 }
+
+export async function updateFamilyMemberRole(userId: string, familyId: string, newRole: 'ADMIN' | 'MEMBER') {
+  const { data, error } = await (supabase as any)
+    .from('family_members')
+    .update({ role: newRole })
+    .eq('user_id', userId)
+    .eq('family_id', familyId)
+    .select();
+  if (error) throw error;
+  return data;
+}
+

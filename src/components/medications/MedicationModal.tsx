@@ -1,10 +1,11 @@
-import React, { useState } from 'react';
-import { AlertTriangle, Check } from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
+import { AlertTriangle, Check, Lock } from 'lucide-react';
 import { BottomSheet } from '../ui/BottomSheet';
 import { Button } from '../ui/Button';
 import { Spinner } from '../ui/Spinner';
 import { cn } from '../../utils/cn';
 import { createMedicationLog, updateMedicationLog } from '../../services/api';
+import { formatDateToTime } from '../../utils/date';
 import { triggerHapticFeedback } from '../../utils/haptics';
 import type { MedicationEventData } from '../../types/timeline';
 
@@ -15,31 +16,85 @@ interface MedicationModalProps {
   patientId: string;
   profileId: string;
   eventDate: string;
+  isDayClosed?: boolean;
   onSuccess: () => void;
+  onPartialSuccess?: () => void;
 }
 
-export function MedicationModal({ isOpen, onClose, event, patientId, profileId, eventDate, onSuccess }: MedicationModalProps) {
-  // Local state for checkboxes
-  const [mode, setMode] = useState<'view' | 'edit'>(event.logs.length > 0 ? 'view' : 'edit');
+export function MedicationModal({
+  isOpen,
+  onClose,
+  event,
+  patientId,
+  profileId,
+  eventDate,
+  isDayClosed = false,
+  onSuccess,
+  onPartialSuccess,
+}: MedicationModalProps) {
+  const [mode, setMode] = useState<'view' | 'edit'>(() =>
+    event.logs.length > 0 ? 'view' : 'edit'
+  );
   const [checkedIds, setCheckedIds] = useState<Set<string>>(() => {
     const initial = new Set<string>();
-    event.logs.forEach(log => {
-      if (log.status === 'administered') {
-        initial.add(log.medication_id);
-      }
+    event.logs.forEach((log) => {
+      if (log.status === 'administered') initial.add(log.medication_id);
     });
+    return initial;
+  });
+  const [savedMedIds, setSavedMedIds] = useState<Set<string>>(() => {
+    const initial = new Set<string>();
+    event.logs.forEach((log) => initial.add(log.medication_id));
     return initial;
   });
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  
+  const [partialSummary, setPartialSummary] = useState<string | null>(null);
+  const [confirmIncompletePending, setConfirmIncompletePending] = useState(false);
+
   // State for the "Not Administered" sub-flow
   const [notAdministeredMedId, setNotAdministeredMedId] = useState<string | null>(null);
   const [notAdminReason, setNotAdminReason] = useState('Recusou');
   const [notAdminNotes, setNotAdminNotes] = useState('');
 
+  const isSubmittingRef = useRef(false);
+  const isMountedRef = useRef(true);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
+
+  // Sync local state whenever the opened medication period or logs refresh
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const initialChecked = new Set<string>();
+    const initialSaved = new Set<string>();
+    event.logs.forEach((log) => {
+      initialSaved.add(log.medication_id);
+      if (log.status === 'administered') {
+        initialChecked.add(log.medication_id);
+      }
+    });
+
+    setMode(event.logs.length > 0 ? 'view' : 'edit');
+    setCheckedIds(initialChecked);
+    setSavedMedIds(initialSaved);
+    setNotAdministeredMedId(null);
+    setNotAdminReason('Recusou');
+    setNotAdminNotes('');
+    setError('');
+    setPartialSummary(null);
+    setConfirmIncompletePending(false);
+  }, [isOpen, event.id, eventDate, event.logs]);
+
   const handleToggleCheck = (medId: string) => {
+    if (loading || isDayClosed) return;
+    setConfirmIncompletePending(false);
     const next = new Set(checkedIds);
     if (next.has(medId)) {
       next.delete(medId);
@@ -49,70 +104,161 @@ export function MedicationModal({ isOpen, onClose, event, patientId, profileId, 
     setCheckedIds(next);
   };
 
-  const handleConfirmAll = async () => {
-    // If not all are checked, show a warning
-    if (checkedIds.size < event.medications.length) {
-      if (!window.confirm("Ainda existem medicamentos não confirmados. Deseja continuar?")) {
-        return;
-      }
+  const executeBatchConfirm = async () => {
+    if (isSubmittingRef.current || loading) return;
+    if (isDayClosed) {
+      setError('Este dia está encerrado. Reabra o dia antes de fazer alterações.');
+      return;
     }
 
+    isSubmittingRef.current = true;
     setLoading(true);
     setError('');
+    setPartialSummary(null);
+    setConfirmIncompletePending(false);
 
-    try {
-      // For each checked medication, ensure there's an 'administered' log
-      for (const medId of checkedIds) {
-        const existingLog = event.logs.find(l => l.medication_id === medId);
+    const targets = event.medications.filter((med) => {
+      if (!checkedIds.has(med.id)) return false;
+      const existingLog = event.logs.find((l) => l.medication_id === med.id);
+      if (existingLog?.status === 'administered' || savedMedIds.has(med.id) && existingLog?.status === 'administered') {
+        return false;
+      }
+      // If previously saved in a retry loop during this modal session, skip re-sending
+      if (!existingLog && savedMedIds.has(med.id)) {
+        return false;
+      }
+      return true;
+    });
+
+    if (targets.length === 0) {
+      isSubmittingRef.current = false;
+      setLoading(false);
+      onSuccess();
+      return;
+    }
+
+    const succeededNames: string[] = [];
+    const succeededMedIds: string[] = [];
+    const failedItems: { medId: string; name: string; reason: string }[] = [];
+
+    for (const med of targets) {
+      try {
+        const existingLog = event.logs.find((l) => l.medication_id === med.id);
         if (existingLog) {
-          if (existingLog.status !== 'administered') {
-            await updateMedicationLog(existingLog.id, {
-              status: 'administered',
-              reason: null,
-              notes: null,
-              updated_by: profileId,
-              administered_at: new Date().toISOString()
-            });
-          }
+          await updateMedicationLog(existingLog.id, {
+            patient_id: patientId,
+            event_date: eventDate,
+            status: 'administered',
+            reason: null,
+            notes: null,
+            updated_by: profileId,
+            administered_at: new Date().toISOString(),
+          });
         } else {
           await createMedicationLog({
-            medication_id: medId,
+            medication_id: med.id,
             patient_id: patientId,
             event_date: eventDate,
             status: 'administered',
             created_by: profileId,
             updated_by: profileId,
-            administered_at: new Date().toISOString()
+            administered_at: new Date().toISOString(),
           });
         }
+        succeededNames.push(med.name);
+        succeededMedIds.push(med.id);
+      } catch (err: any) {
+        const msg = String(err?.message || 'Erro de conexão');
+        failedItems.push({
+          medId: med.id,
+          name: med.name,
+          reason: msg.toLowerCase().includes('já foi encerrado')
+            ? 'Dia encerrado no servidor.'
+            : msg,
+        });
       }
+    }
 
+    isSubmittingRef.current = false;
+    if (!isMountedRef.current) return;
+    setLoading(false);
+
+    if (succeededMedIds.length > 0) {
+      setSavedMedIds((prev) => {
+        const next = new Set(prev);
+        succeededMedIds.forEach((id) => next.add(id));
+        return next;
+      });
+    }
+
+    if (failedItems.length === 0) {
       triggerHapticFeedback([40, 60, 40]);
       onSuccess();
-    } catch (err) {
-      console.error(err);
-      setError("Não foi possível salvar. Verifique sua conexão.");
-      setLoading(false);
+      return;
     }
+
+    // Partial or full failure: never show generic confirmation; keep modal open with exact breakdown
+    if (succeededNames.length > 0) {
+      onPartialSuccess?.();
+      setPartialSummary(
+        `Confirmados neste envio: ${succeededNames.join(', ')}.`
+      );
+    }
+
+    const failedList = failedItems.map((f) => `${f.name} (${f.reason})`).join('; ');
+    setError(`Não foi possível salvar: ${failedList}. Toque no botão para tentar novamente os pendentes.`);
+  };
+
+  const handleConfirmAllClick = () => {
+    if (isSubmittingRef.current || loading) return;
+    if (isDayClosed) {
+      setError('Este dia está encerrado. Reabra o dia antes de fazer alterações.');
+      return;
+    }
+
+    const notAdministeredCount = event.logs.filter((l) => l.status === 'not_administered').length;
+    const totalPendingToResolve = event.medications.filter((m) => {
+      const hasNotAdminLog = event.logs.some(
+        (l) => l.medication_id === m.id && l.status === 'not_administered'
+      );
+      return !checkedIds.has(m.id) && !hasNotAdminLog;
+    }).length;
+
+    if (totalPendingToResolve > 0 && checkedIds.size + notAdministeredCount < event.medications.length) {
+      setConfirmIncompletePending(true);
+      return;
+    }
+
+    executeBatchConfirm();
   };
 
   const handleSaveNotAdministered = async () => {
-    if (!notAdministeredMedId) return;
+    if (!notAdministeredMedId || isSubmittingRef.current || loading) return;
+    if (isDayClosed) {
+      setError('Este dia está encerrado. Reabra o dia antes de fazer alterações.');
+      return;
+    }
+
+    isSubmittingRef.current = true;
     setLoading(true);
     setError('');
 
     try {
-      const existingLog = event.logs.find(l => l.medication_id === notAdministeredMedId);
-      
+      const existingLog = event.logs.find((l) => l.medication_id === notAdministeredMedId);
+
       const logData = {
         status: 'not_administered' as const,
         reason: notAdminReason,
-        notes: notAdminNotes || null,
+        notes: notAdminNotes.trim() || null,
         updated_by: profileId,
       };
 
       if (existingLog) {
-        await updateMedicationLog(existingLog.id, logData);
+        await updateMedicationLog(existingLog.id, {
+          ...logData,
+          patient_id: patientId,
+          event_date: eventDate,
+        });
       } else {
         await createMedicationLog({
           medication_id: notAdministeredMedId,
@@ -122,23 +268,48 @@ export function MedicationModal({ isOpen, onClose, event, patientId, profileId, 
           created_by: profileId,
         });
       }
-      
+
       triggerHapticFeedback(50);
       onSuccess();
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
-      setError("Não foi possível salvar. Verifique sua conexão.");
-      setLoading(false);
+      if (!isMountedRef.current) return;
+      const msg = String(err?.message || '');
+      if (msg.toLowerCase().includes('já foi encerrado')) {
+        setError('Este dia está encerrado. Reabra o dia antes de salvar.');
+      } else {
+        setError(msg || 'Não foi possível salvar. Verifique sua conexão e tente novamente.');
+      }
+    } finally {
+      isSubmittingRef.current = false;
+      if (isMountedRef.current) {
+        setLoading(false);
+      }
     }
   };
 
+  const safeClose = () => {
+    if (loading || isSubmittingRef.current) return;
+    onClose();
+  };
+
   if (notAdministeredMedId) {
-    const med = event.medications.find(m => m.id === notAdministeredMedId);
+    const med = event.medications.find((m) => m.id === notAdministeredMedId);
     return (
-      <BottomSheet isOpen={isOpen} onClose={() => setNotAdministeredMedId(null)} title="Não administrado">
+      <BottomSheet
+        isOpen={isOpen}
+        onClose={() => {
+          if (!loading) setNotAdministeredMedId(null);
+        }}
+        title="Não administrado"
+      >
         <div className="space-y-6">
-          {error && <div className="p-3 bg-red-50 dark:bg-rose-950/40 dark:border dark:border-rose-800/50 text-red-700 dark:text-rose-300 rounded-xl text-sm">{error}</div>}
-          
+          {error && (
+            <div className="p-3 bg-red-50 dark:bg-rose-950/40 dark:border dark:border-rose-800/50 text-red-700 dark:text-rose-300 rounded-xl text-sm">
+              {error}
+            </div>
+          )}
+
           <div>
             <p className="text-gray-900 dark:text-zinc-100 font-medium mb-1">{med?.name}</p>
             <p className="text-gray-500 dark:text-zinc-400 text-sm">{med?.dosage}</p>
@@ -146,7 +317,8 @@ export function MedicationModal({ isOpen, onClose, event, patientId, profileId, 
 
           <div className="space-y-3">
             <label className="text-sm font-semibold text-gray-900 dark:text-zinc-100">Motivo</label>
-            <select 
+            <select
+              disabled={loading}
               className="flex h-12 w-full rounded-xl border border-gray-200 dark:border-white/[0.1] bg-white dark:bg-[#1c1c22] text-gray-900 dark:text-zinc-100 px-4 py-2 text-base focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 dark:focus-visible:ring-zinc-400"
               value={notAdminReason}
               onChange={(e) => setNotAdminReason(e.target.value)}
@@ -159,18 +331,37 @@ export function MedicationModal({ isOpen, onClose, event, patientId, profileId, 
           </div>
 
           <div className="space-y-3">
-            <label className="text-sm font-semibold text-gray-900 dark:text-zinc-100">Observação <span className="text-gray-400 dark:text-zinc-500 font-normal">(Opcional)</span></label>
-            <input 
+            <label className="text-sm font-semibold text-gray-900 dark:text-zinc-100">
+              Observação <span className="text-gray-400 dark:text-zinc-500 font-normal">(Opcional)</span>
+            </label>
+            <input
+              disabled={loading}
               className="flex h-12 w-full rounded-xl border border-gray-200 dark:border-white/[0.1] bg-white dark:bg-[#1c1c22] text-gray-900 dark:text-zinc-100 placeholder:text-gray-400 dark:placeholder:text-zinc-500 px-4 py-2 text-base focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 dark:focus-visible:ring-zinc-400"
-              placeholder="Detalhes..." 
+              placeholder="Detalhes..."
               value={notAdminNotes}
               onChange={(e) => setNotAdminNotes(e.target.value)}
             />
           </div>
 
           <div className="pt-4 flex space-x-3">
-            <Button variant="outline" className="flex-1" onClick={() => setNotAdministeredMedId(null)}>Voltar</Button>
-            <Button className="flex-1 bg-red-600 hover:bg-red-700 dark:bg-rose-600 dark:hover:bg-rose-500 text-white" onClick={handleSaveNotAdministered} disabled={loading}>
+            <Button
+              type="button"
+              variant="outline"
+              className="flex-1"
+              disabled={loading}
+              onClick={() => {
+                setError('');
+                setNotAdministeredMedId(null);
+              }}
+            >
+              Voltar
+            </Button>
+            <Button
+              type="button"
+              className="flex-1 bg-red-600 hover:bg-red-700 dark:bg-rose-600 dark:hover:bg-rose-500 text-white"
+              onClick={handleSaveNotAdministered}
+              disabled={loading || isDayClosed}
+            >
               {loading ? <Spinner className="text-white" /> : 'Confirmar'}
             </Button>
           </div>
@@ -180,27 +371,51 @@ export function MedicationModal({ isOpen, onClose, event, patientId, profileId, 
   }
 
   return (
-    <BottomSheet isOpen={isOpen} onClose={onClose} title={`Medicamentos - ${event.title}`}>
+    <BottomSheet isOpen={isOpen} onClose={safeClose} title={`Medicamentos - ${event.title}`}>
       <div className="space-y-6">
+        {isDayClosed && (
+          <div className="flex items-start gap-2.5 p-3.5 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/50 text-amber-800 dark:text-amber-200 text-xs">
+            <Lock className="w-4 h-4 shrink-0 mt-0.5" />
+            <span>
+              Dia encerrado — visualização protegida. Para alterar medicamentos, reabra o dia primeiro.
+            </span>
+          </div>
+        )}
 
         {mode === 'view' && event.logs.length > 0 ? (
           <div className="space-y-6">
             <div className="space-y-3">
-              {event.medications.map(med => {
-                const log = event.logs.find(l => l.medication_id === med.id);
+              {event.medications.map((med) => {
+                const log = event.logs.find((l) => l.medication_id === med.id);
                 if (!log) return null;
                 const isNotAdministered = log.status === 'not_administered';
                 return (
-                  <div key={med.id} className="bg-gray-50 dark:bg-[#1c1c22] dark:border dark:border-white/[0.08] rounded-2xl p-4 flex flex-col gap-3">
+                  <div
+                    key={med.id}
+                    className="bg-gray-50 dark:bg-[#1c1c22] dark:border dark:border-white/[0.08] rounded-2xl p-4 flex flex-col gap-3"
+                  >
                     <div className="flex justify-between items-start">
                       <div>
-                        <h4 className={cn("font-medium", isNotAdministered ? "text-gray-500 dark:text-zinc-500 line-through" : "text-gray-900 dark:text-zinc-100")}>{med.name}</h4>
+                        <h4
+                          className={cn(
+                            'font-medium',
+                            isNotAdministered
+                              ? 'text-gray-500 dark:text-zinc-500 line-through'
+                              : 'text-gray-900 dark:text-zinc-100'
+                          )}
+                        >
+                          {med.name}
+                        </h4>
                         <p className="text-sm text-gray-500 dark:text-zinc-400">{med.dosage}</p>
                       </div>
-                      <span className={cn(
-                        "text-[10px] font-bold uppercase tracking-widest px-2 py-1 rounded-full",
-                        isNotAdministered ? "bg-red-100 text-red-700 dark:bg-rose-950/60 dark:text-rose-300" : "bg-green-100 text-green-700 dark:bg-emerald-950/60 dark:text-emerald-300"
-                      )}>
+                      <span
+                        className={cn(
+                          'text-[10px] font-bold uppercase tracking-widest px-2 py-1 rounded-full',
+                          isNotAdministered
+                            ? 'bg-red-100 text-red-700 dark:bg-rose-950/60 dark:text-rose-300'
+                            : 'bg-green-100 text-green-700 dark:bg-emerald-950/60 dark:text-emerald-300'
+                        )}
+                      >
                         {isNotAdministered ? 'Não Admin' : 'Confirmado'}
                       </span>
                     </div>
@@ -210,17 +425,31 @@ export function MedicationModal({ isOpen, onClose, event, patientId, profileId, 
                         {log.notes && <span className="block text-xs mt-0.5">{log.notes}</span>}
                       </div>
                     )}
-                    
+
                     <div className="border-t border-gray-200/50 dark:border-white/[0.08] pt-3 mt-1 flex flex-col gap-2">
                       <div className="flex flex-col text-xs text-gray-500 dark:text-zinc-400">
-                        <span className="font-medium text-gray-700 dark:text-zinc-300 flex items-center gap-1"><span className="opacity-70">👤</span> Registrado por {log.creator?.name || 'Familiar'}</span>
-                        <span className="pl-5 text-[11px] text-gray-400 dark:text-zinc-500">Registrado às {new Date(log.created_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</span>
+                        <span className="font-medium text-gray-700 dark:text-zinc-300 flex items-center gap-1">
+                          <span className="opacity-70">👤</span> Registrado por{' '}
+                          {log.creator?.name || 'Familiar'}
+                        </span>
+                        {log.created_at && (
+                          <span className="pl-5 text-[11px] text-gray-400 dark:text-zinc-500">
+                            Registrado às {formatDateToTime(log.created_at)}
+                          </span>
+                        )}
                       </div>
-                      
-                      {log.updated_by !== log.created_by && (
+
+                      {log.updated_by && log.updated_by !== log.created_by && (
                         <div className="flex flex-col text-xs text-gray-500 dark:text-zinc-400">
-                          <span className="font-medium text-gray-700 dark:text-zinc-300 flex items-center gap-1"><span className="opacity-70">👤</span> Alterado por {log.updater?.name || 'Familiar'}</span>
-                          <span className="pl-5 text-[11px] text-gray-400 dark:text-zinc-500">Alterado às {new Date(log.updated_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</span>
+                          <span className="font-medium text-gray-700 dark:text-zinc-300 flex items-center gap-1">
+                            <span className="opacity-70">👤</span> Alterado por{' '}
+                            {log.updater?.name || 'Familiar'}
+                          </span>
+                          {log.updated_at && (
+                            <span className="pl-5 text-[11px] text-gray-400 dark:text-zinc-500">
+                              Alterado às {formatDateToTime(log.updated_at)}
+                            </span>
+                          )}
                         </div>
                       )}
                     </div>
@@ -228,96 +457,168 @@ export function MedicationModal({ isOpen, onClose, event, patientId, profileId, 
                 );
               })}
             </div>
-            
-            <div className="pt-2">
-              <Button onClick={() => setMode('edit')} className="w-full font-medium" variant="outline">
-                EDITAR REGISTRO
-              </Button>
-            </div>
+
+            {!isDayClosed && (
+              <div className="pt-2">
+                <Button
+                  type="button"
+                  onClick={() => setMode('edit')}
+                  className="w-full font-medium"
+                  variant="outline"
+                >
+                  EDITAR REGISTRO
+                </Button>
+              </div>
+            )}
           </div>
         ) : (
           <>
+            {partialSummary && (
+              <div className="p-3 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/50 text-emerald-800 dark:text-emerald-200 rounded-xl text-sm">
+                {partialSummary}
+              </div>
+            )}
 
-        {error && <div className="p-3 bg-red-50 dark:bg-rose-950/40 dark:border dark:border-rose-800/50 text-red-700 dark:text-rose-300 rounded-xl text-sm">{error}</div>}
+            {error && (
+              <div className="p-3 bg-red-50 dark:bg-rose-950/40 dark:border dark:border-rose-800/50 text-red-700 dark:text-rose-300 rounded-xl text-sm">
+                {error}
+              </div>
+            )}
 
-        <div className="space-y-3">
-          {event.medications.map(med => {
-            const isChecked = checkedIds.has(med.id);
-            const log = event.logs.find(l => l.medication_id === med.id);
-            const isNotAdministered = log?.status === 'not_administered';
-            
-            return (
-              <div key={med.id} className="flex items-center justify-between p-4 rounded-xl border border-gray-100 dark:border-white/[0.08] bg-white dark:bg-[#1c1c22] shadow-sm">
-                
-                {/* Left side: Checkbox and Info */}
-                <button 
-                  onClick={() => {
-                    if (isNotAdministered) return; // Prevent checking if explicitly not administered
-                    handleToggleCheck(med.id);
-                  }}
-                  className="flex items-start space-x-4 flex-1 text-left"
-                >
-                  <div className={cn(
-                    "w-6 h-6 rounded-md border-2 mt-0.5 flex items-center justify-center shrink-0 transition-colors",
-                    isChecked
-                      ? "bg-green-500 border-green-500 dark:bg-emerald-500 dark:border-emerald-500"
-                      : (isNotAdministered
-                        ? "bg-red-100 border-red-300 dark:bg-rose-950/60 dark:border-rose-700"
-                        : "bg-white border-gray-300 dark:bg-[#121216] dark:border-zinc-600")
-                  )}>
-                    {isChecked && <Check className="w-4 h-4 text-white" />}
-                    {isNotAdministered && <AlertTriangle className="w-4 h-4 text-red-500 dark:text-rose-400" />}
-                  </div>
-                  <div>
-                    <h4 className={cn("font-medium text-gray-900 dark:text-zinc-100", isNotAdministered && "line-through text-gray-500 dark:text-zinc-500")}>{med.name}</h4>
-                    <p className="text-sm text-gray-500 dark:text-zinc-400">{med.dosage}</p>
-                    {isNotAdministered && log.reason && (
-                      <p className="text-xs text-red-600 dark:text-rose-400 mt-1 font-medium">Não administrado: {log.reason}</p>
+            <div className="space-y-3">
+              {event.medications.map((med) => {
+                const isChecked = checkedIds.has(med.id);
+                const log = event.logs.find((l) => l.medication_id === med.id);
+                const isNotAdministered = log?.status === 'not_administered';
+
+                return (
+                  <div
+                    key={med.id}
+                    className="flex items-center justify-between p-4 rounded-xl border border-gray-100 dark:border-white/[0.08] bg-white dark:bg-[#1c1c22] shadow-sm"
+                  >
+                    <button
+                      type="button"
+                      disabled={loading || isDayClosed}
+                      onClick={() => {
+                        if (isNotAdministered) return;
+                        handleToggleCheck(med.id);
+                      }}
+                      className="flex items-start space-x-4 flex-1 text-left"
+                    >
+                      <div
+                        className={cn(
+                          'w-6 h-6 rounded-md border-2 mt-0.5 flex items-center justify-center shrink-0 transition-colors',
+                          isChecked
+                            ? 'bg-green-500 border-green-500 dark:bg-emerald-500 dark:border-emerald-500'
+                            : isNotAdministered
+                            ? 'bg-red-100 border-red-300 dark:bg-rose-950/60 dark:border-rose-700'
+                            : 'bg-white border-gray-300 dark:bg-[#121216] dark:border-zinc-600'
+                        )}
+                      >
+                        {isChecked && <Check className="w-4 h-4 text-white" />}
+                        {isNotAdministered && (
+                          <AlertTriangle className="w-4 h-4 text-red-500 dark:text-rose-400" />
+                        )}
+                      </div>
+                      <div>
+                        <h4
+                          className={cn(
+                            'font-medium text-gray-900 dark:text-zinc-100',
+                            isNotAdministered && 'line-through text-gray-500 dark:text-zinc-500'
+                          )}
+                        >
+                          {med.name}
+                        </h4>
+                        <p className="text-sm text-gray-500 dark:text-zinc-400">{med.dosage}</p>
+                        {isNotAdministered && log.reason && (
+                          <p className="text-xs text-red-600 dark:text-rose-400 mt-1 font-medium">
+                            Não administrado: {log.reason}
+                          </p>
+                        )}
+                      </div>
+                    </button>
+
+                    {!isChecked && !isNotAdministered && (
+                      <button
+                        type="button"
+                        disabled={loading || isDayClosed}
+                        onClick={() => {
+                          setError('');
+                          setNotAdminReason('Recusou');
+                          setNotAdminNotes('');
+                          setNotAdministeredMedId(med.id);
+                        }}
+                        className="ml-4 px-3 py-1.5 text-xs font-medium text-red-600 dark:text-rose-300 bg-red-50 dark:bg-rose-950/40 rounded-lg hover:bg-red-100 dark:hover:bg-rose-950/60 transition-colors disabled:opacity-50"
+                      >
+                        Não tomou
+                      </button>
+                    )}
+
+                    {isNotAdministered && (
+                      <button
+                        type="button"
+                        disabled={loading || isDayClosed}
+                        onClick={() => {
+                          setError('');
+                          setNotAdministeredMedId(med.id);
+                          setNotAdminReason(log.reason || 'Recusou');
+                          setNotAdminNotes(log.notes || '');
+                        }}
+                        className="ml-4 px-3 py-1.5 text-xs font-medium text-gray-600 dark:text-zinc-300 bg-gray-100 dark:bg-white/[0.08] rounded-lg hover:bg-gray-200 dark:hover:bg-white/[0.12] transition-colors disabled:opacity-50"
+                      >
+                        Editar
+                      </button>
                     )}
                   </div>
-                </button>
+                );
+              })}
+            </div>
 
-                {/* Right side: Actions */}
-                {!isChecked && !isNotAdministered && (
-                  <button 
-                    onClick={() => setNotAdministeredMedId(med.id)}
-                    className="ml-4 px-3 py-1.5 text-xs font-medium text-red-600 dark:text-rose-300 bg-red-50 dark:bg-rose-950/40 rounded-lg hover:bg-red-100 dark:hover:bg-rose-950/60 transition-colors"
+            {confirmIncompletePending ? (
+              <div className="p-4 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/50 space-y-3">
+                <p className="text-sm text-amber-900 dark:text-amber-200 font-medium">
+                  Ainda existem medicamentos sem confirmação neste horário. Deseja salvar apenas os selecionados?
+                </p>
+                <div className="flex gap-2.5">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="flex-1"
+                    disabled={loading}
+                    onClick={() => setConfirmIncompletePending(false)}
                   >
-                    Não tomou
-                  </button>
-                )}
-                
-                {isNotAdministered && (
-                  <button 
-                    onClick={() => {
-                      // Allow removing the "not_administered" status by simply setting it back
-                      // For MVP, we can just open the reason modal again to change it, or allow clearing.
-                      // Let's just open the modal to edit.
-                      setNotAdministeredMedId(med.id);
-                      setNotAdminReason(log.reason || 'Recusou');
-                      setNotAdminNotes(log.notes || '');
-                    }}
-                    className="ml-4 px-3 py-1.5 text-xs font-medium text-gray-600 dark:text-zinc-300 bg-gray-100 dark:bg-white/[0.08] rounded-lg hover:bg-gray-200 dark:hover:bg-white/[0.12] transition-colors"
+                    Voltar
+                  </Button>
+                  <Button
+                    type="button"
+                    className="flex-1"
+                    disabled={loading}
+                    onClick={executeBatchConfirm}
                   >
-                    Editar
-                  </button>
-                )}
-
+                    {loading ? <Spinner className="text-white dark:text-zinc-950" /> : 'Confirmar mesmo assim'}
+                  </Button>
+                </div>
               </div>
-            );
-          })}
-        </div>
-
-        <div className="pt-4">
-          <Button 
-            className="w-full" 
-            size="lg" 
-            onClick={handleConfirmAll}
-            disabled={loading}
-          >
-            {loading ? <Spinner className="text-white dark:text-zinc-950" /> : 'Confirmar Medicamentos'}
-          </Button>
-        </div>
+            ) : (
+              <div className="pt-4">
+                <Button
+                  type="button"
+                  className="w-full"
+                  size="lg"
+                  onClick={handleConfirmAllClick}
+                  disabled={loading || isDayClosed}
+                >
+                  {loading ? (
+                    <span className="inline-flex items-center gap-2">
+                      <Spinner className="text-white dark:text-zinc-950" />
+                      <span>Salvando...</span>
+                    </span>
+                  ) : (
+                    'Confirmar Medicamentos'
+                  )}
+                </Button>
+              </div>
+            )}
           </>
         )}
       </div>

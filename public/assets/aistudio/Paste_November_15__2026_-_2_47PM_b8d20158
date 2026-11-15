@@ -1,0 +1,940 @@
+# PROJETO ROTINA — AUDITORIA GLOBAL, CORREÇÃO DE BUGS E ESTABILIZAÇÃO DE PRODUÇÃO
+
+## 1. SEU PAPEL COMO ENGENHEIRO DE SOFTWARE
+
+Você será o engenheiro de software sênior responsável por realizar uma auditoria completa e uma intervenção técnica no aplicativo atual.
+
+Atue como especialista em:
+
+- React 19.
+- TypeScript.
+- Vite.
+- Supabase e PostgreSQL.
+- Arquitetura de aplicações mobile-first.
+- IndexedDB e sincronização offline.
+- Gerenciamento de estados React.
+- Operações assíncronas.
+- Supabase Realtime.
+- PWA e Service Workers.
+- Otimização de performance.
+- Integridade e consistência de dados.
+- Testes automatizados.
+
+Você possui acesso ao código-fonte do projeto.
+
+Sua missão é investigar, identificar, corrigir, implementar e testar os problemas existentes.
+
+**NÃO quero somente um diagnóstico, uma lista de sugestões ou exemplos de código. Quero que você trabalhe diretamente nos arquivos do projeto e entregue as correções implementadas.**
+
+Não reconstrua o aplicativo do zero.
+
+Preserve a arquitetura existente sempre que ela estiver tecnicamente adequada.
+
+---
+
+# 2. CONTEXTO DO APLICATIVO
+
+O aplicativo é uma plataforma de acompanhamento diário dos cuidados de idosos.
+
+As cuidadoras utilizam o sistema para registrar as atividades realizadas durante o dia.
+
+Os familiares acompanham essas informações para saber se os cuidados foram efetivamente realizados.
+
+As principais funcionalidades são:
+
+### Alimentação
+- Cadastro das refeições.
+- Registro de alimentação normal.
+- Registro de alimentação parcial.
+- Registro de alimentação não realizada.
+- Descrição dos alimentos consumidos.
+- Descrição de líquidos ingeridos.
+- Horário da refeição.
+- Observações.
+- Fotografias.
+
+### Medicamentos
+- Cadastro de medicamentos.
+- Organização por horários.
+- Dosagens.
+- Frequência diária ou semanal.
+- Confirmação de administração.
+- Registro de medicamentos não administrados.
+- Motivos e observações.
+
+### Rotina diária
+- Linha do tempo.
+- Indicadores de progresso.
+- Atividades pendentes.
+- Fechamento diário.
+- Reabertura de dias.
+
+### Histórico
+- Consulta de dias anteriores.
+- Consulta de refeições.
+- Consulta de medicamentos.
+- Fotografias.
+- Identificação dos responsáveis pelos registros.
+- Edição de atividades anteriores.
+- Fechamentos anteriores.
+
+### Bem-estar
+- Registro do estado emocional.
+- Registro de intensidade de dores.
+- Localização das dores.
+- Observações.
+
+### Infraestrutura
+- Supabase.
+- IndexedDB.
+- Fila de sincronização offline.
+- Supabase Realtime.
+- PWA.
+- Armazenamento de fotografias.
+
+Todas essas funcionalidades precisam continuar funcionando depois das correções.
+
+---
+
+# 3. PRIORIDADE ZERO — INVESTIGAR ANTES DE MODIFICAR
+
+Antes de alterar qualquer arquivo, examine a estrutura atual do projeto.
+
+Não utilize referências de versões anteriores.
+
+Os caminhos prioritários desta versão são:
+
+- `src/App.tsx`
+- `src/main.tsx`
+- `src/pages/Today.tsx`
+- `src/pages/History.tsx`
+- `src/pages/Routine.tsx`
+- `src/components/meals/MealModal.tsx`
+- `src/components/medications/MedicationModal.tsx`
+- `src/components/history/DayEditModal.tsx`
+- `src/components/history/ReportModal.tsx`
+- `src/components/timeline/TimelineItem.tsx`
+- `src/components/timeline/DailyProgressBar.tsx`
+- `src/services/api.ts`
+- `src/services/supabase.ts`
+- `src/services/syncQueue.ts`
+- `src/contexts/NetworkContext.tsx`
+- `src/components/ErrorBoundary.tsx`
+- `src/components/ui/BottomSheet.tsx`
+- `src/utils/image.ts`
+- `src/utils/date.ts`
+- `src/types/database.types.ts`
+- `src/layouts/MainLayout.tsx`
+- `vite.config.ts`
+
+Examine também:
+
+- `supabase/migrations/`
+- `supabase/setup_everything.sql`
+- `full_setup.sql`
+- Todos os scripts de testes existentes.
+- Scripts de correção e manutenção existentes na raiz.
+
+Compare as migrations com os arquivos de configuração do banco para identificar divergências.
+
+Não execute scripts antigos de correção automaticamente. Primeiro determine se ainda são necessários.
+
+---
+
+# 4. CORREÇÃO DO SISTEMA DE ALIMENTAÇÃO
+
+Esta é uma das áreas de maior prioridade.
+
+O registro de alimentação apresenta lentidão, pequenos travamentos e comportamentos que precisam ser investigados.
+
+Analise integralmente o fluxo do `MealModal.tsx`.
+
+### 4.1. Abertura e carregamento
+
+Investigue:
+
+- Lentidão ao abrir o modal.
+- Carregamento desnecessário de dados.
+- Estados antigos reaproveitados.
+- Renderizações excessivas.
+- Problemas de atualização dos componentes.
+- Recuperação de fotografias.
+- Estados de carregamento que não terminam.
+- Falhas de abertura e fechamento.
+
+O modal deve abrir rapidamente e apresentar os dados corretos da refeição selecionada.
+
+### 4.2. Salvamento
+
+Investigue profundamente a função `handleSave`.
+
+Corrija:
+
+- Cliques duplicados.
+- Requisições concorrentes.
+- Estados de loading inconsistentes.
+- Salvamentos incompletos.
+- Falhas silenciosas.
+- Dados perdidos.
+- Atualizações que não aparecem na linha do tempo.
+- Registros que aparecem somente depois de atualizar a página.
+
+Implemente proteção contra múltiplos envios, utilizando um mecanismo confiável de bloqueio da operação.
+
+O botão deve apresentar claramente quando estiver salvando.
+
+Não permita que o usuário envie novamente enquanto a operação anterior ainda estiver em andamento.
+
+### 4.3. Fotografias — correção crítica
+
+Investigue todo o processo de compressão, upload, atualização e exclusão.
+
+Existe um risco importante na implementação atual:
+
+A fotografia antiga pode ser excluída do Storage antes de o banco confirmar que o novo registro foi salvo.
+
+Isso pode provocar perda da fotografia anterior caso a atualização falhe.
+
+Implemente uma sequência segura:
+
+1. Selecionar a fotografia.
+2. Comprimir a imagem.
+3. Enviar a nova fotografia ao Storage.
+4. Atualizar o registro no banco.
+5. Confirmar o sucesso da atualização.
+6. Somente depois excluir a fotografia antiga.
+
+Se a atualização do banco falhar:
+
+- Preserve a fotografia antiga.
+- Não deixe o registro apontando para um arquivo inexistente.
+- Exclua a nova fotografia enviada, se ela não tiver sido vinculada ao registro.
+- Preserve os dados preenchidos no formulário.
+- Permita tentar novamente.
+
+Para remoção de fotografia, atualize primeiro o registro no banco e só depois remova o arquivo antigo.
+
+Trate falhas de exclusão como operações de limpeza recuperáveis.
+
+### 4.4. Compressão e memória
+
+Examine `src/utils/image.ts`.
+
+Verifique:
+
+- Processamento de imagens grandes.
+- Uso de Canvas.
+- Conversão para JPEG.
+- Consumo de memória.
+- Liberação de Object URLs.
+- Erros de leitura.
+- Arquivos inválidos.
+- Fotografias de câmeras de celulares.
+- Imagens com orientação EXIF.
+
+Otimize o processamento sem reduzir desnecessariamente a qualidade visual das fotografias.
+
+Evite que a compressão bloqueie excessivamente a interface.
+
+### 4.5. Atualização da linha do tempo
+
+Depois de salvar uma refeição:
+
+- Atualize somente os dados necessários.
+- Não recarregue toda a aplicação.
+- Evite consultas redundantes.
+- Não mantenha o modal aberto indefinidamente.
+- Não apresente informações antigas.
+- Preserve o histórico.
+
+A experiência deve ser rápida e previsível.
+
+---
+
+# 5. CORREÇÃO DO FECHAMENTO DIÁRIO
+
+Esta funcionalidade precisa ser corrigida completamente.
+
+Analise:
+
+- `src/pages/Today.tsx`
+- `src/pages/History.tsx`
+- `src/services/api.ts`
+- Migration `0005_daily_closures.sql`
+- Migration `0009_performance_safety.sql`
+
+## 5.1. Problema atual
+
+Na implementação atual de `Today.tsx`, a exibição do botão de encerramento depende de:
+
+- Todas as atividades estarem resolvidas; ou
+- O dia ter sido reaberto anteriormente.
+
+Isso impede o encerramento normal de uma rotina que possui atividades pendentes.
+
+Esse comportamento precisa ser corrigido.
+
+## 5.2. Nova regra obrigatória
+
+**O encerramento administrativo do dia deve ser independente da conclusão de todas as atividades.**
+
+Uma cuidadora pode encerrar a rotina mesmo quando não conseguiu registrar todos os cuidados.
+
+O sistema deve diferenciar:
+
+- Dia encerrado.
+- Atividades realizadas.
+- Atividades não realizadas.
+- Atividades sem registro.
+
+Não transforme automaticamente pendências em atividades realizadas.
+
+### Comportamento esperado
+
+O botão "Encerrar Dia" deve estar disponível sempre que o dia ainda não estiver encerrado, independentemente da porcentagem de conclusão.
+
+Ao pressionar, apresente um modal de confirmação.
+
+Se houver pendências, apresente a quantidade.
+
+Exemplo:
+
+"Existem 3 atividades sem registro neste dia. Deseja encerrá-lo mesmo assim?"
+
+Apresente duas opções:
+
+- Voltar.
+- Encerrar mesmo assim.
+
+Depois da confirmação:
+
+1. Registre o fechamento.
+2. Identifique o usuário responsável.
+3. Registre a data e o horário.
+4. Preserve todos os registros existentes.
+5. Preserve as atividades pendentes.
+6. Atualize a interface.
+7. Atualize o histórico.
+
+Se não houver atividades configuradas, trate essa situação explicitamente, sem inventar registros ou marcar atividades como realizadas.
+
+## 5.3. Integridade do fechamento
+
+A tabela `daily_closures` possui restrição UNIQUE para paciente e data.
+
+Investigue o comportamento de:
+
+- Fechamentos duplicados.
+- Cliques repetidos.
+- Requisições interrompidas.
+- Respostas demoradas.
+- Falhas de conexão.
+- Fechamentos já existentes.
+- Reaberturas.
+- Tentativas de encerramento novamente.
+
+O fechamento deve ser idempotente: repetir uma solicitação não pode produzir registros duplicados nem alterar indevidamente quem realizou o fechamento original.
+
+Investigue também o tratamento de erros no `createDailyClosure`.
+
+Não permita que o histórico considere uma operação bem-sucedida quando a função retornar `false`.
+
+## 5.4. Reabertura
+
+A reabertura precisa continuar funcionando.
+
+Quando um dia for reaberto:
+
+- Remova o estado de fechamento corretamente.
+- Permita editar as atividades.
+- Atualize a linha do tempo.
+- Atualize o histórico.
+- Preserve os registros anteriores.
+- Permita encerrar novamente.
+
+Verifique a compatibilidade com o trigger de proteção existente na migration `0009_performance_safety.sql`, que impede alterações nos registros de alimentação e medicamentos quando o dia está encerrado.
+
+Não remova essa proteção sem apresentar uma justificativa técnica.
+
+---
+
+# 6. AUDITORIA COMPLETA DA FILA OFFLINE
+
+Esta é uma área crítica da arquitetura atual.
+
+O aplicativo utiliza:
+
+- `src/services/syncQueue.ts`
+- `src/contexts/NetworkContext.tsx`
+- `idb-keyval`
+- IndexedDB.
+
+A fila permite registrar atividades sem conexão e sincronizá-las posteriormente.
+
+Entretanto, existem riscos na implementação atual.
+
+## 6.1. Tratamento de erros
+
+Investigue a função `processSyncQueue`.
+
+A biblioteca Supabase normalmente retorna um objeto contendo `data` e `error`, em vez de lançar uma exceção automaticamente.
+
+A implementação atual pode remover uma operação da fila sem verificar se o Supabase realmente confirmou o salvamento.
+
+Isso precisa ser corrigido.
+
+Uma operação só poderá ser removida da fila quando:
+
+- O salvamento tiver sido confirmado; ou
+- Uma condição de duplicidade tiver sido verificada e comprovadamente corresponder a uma operação já realizada.
+
+Nunca descarte silenciosamente registros.
+
+## 6.2. Concorrência
+
+Investigue:
+
+- Processamentos simultâneos.
+- Eventos de reconexão.
+- Temporizadores.
+- Múltiplas abas.
+- Escritas concorrentes no IndexedDB.
+- Duplicação de operações.
+- Perda de itens da fila.
+
+Implemente um mecanismo confiável para impedir que dois processos sincronizem a mesma fila simultaneamente.
+
+Preserve a ordem das operações.
+
+Se uma operação dependente falhar, não permita que operações posteriores sejam processadas de maneira que provoquem inconsistências.
+
+## 6.3. Integridade da sincronização
+
+Cada operação precisa ter identificação própria.
+
+Avalie mecanismos de idempotência para impedir duplicidades durante tentativas de sincronização.
+
+Não presuma que uma requisição que sofreu timeout não foi executada no servidor.
+
+Considere a possibilidade de o servidor ter confirmado o registro enquanto a resposta se perdeu.
+
+## 6.4. Operações que precisam ser verificadas
+
+A fila atualmente contempla:
+
+- createMealLog.
+- updateMealLog.
+- createMedicationLog.
+- updateMedicationLog.
+- createDailyClosure.
+- deleteDailyClosure.
+
+Verifique se todas essas operações estão realmente integradas ao fluxo de gravação offline.
+
+Em especial, examine o fechamento e a reabertura de dias, que atualmente não utilizam a fila nas funções correspondentes de `api.ts`.
+
+Também examine `upsertDailyMoodLog`, que possui armazenamento local de contingência, mas precisa de uma estratégia consistente de sincronização.
+
+Não permita que uma operação apareça como definitivamente salva quando está apenas armazenada localmente.
+
+Diferencie visualmente:
+
+- Salvo no servidor.
+- Salvo no dispositivo, aguardando sincronização.
+- Falha ao sincronizar.
+
+## 6.5. Indicador de conexão
+
+Analise o `MainLayout.tsx`.
+
+O indicador de sincronização precisa refletir o estado real.
+
+Não apresente "Sincronizando..." permanentemente quando existe uma operação pendente que está falhando.
+
+Apresente estados coerentes de conexão e sincronização.
+
+---
+
+# 7. OTIMIZAÇÃO DO SUPABASE REALTIME E DAS CONSULTAS
+
+Investigue profundamente o `Today.tsx` e o `api.ts`.
+
+### Problemas a investigar
+
+Atualmente existem:
+
+- Inscrições Realtime para alimentação.
+- Inscrições Realtime para medicamentos.
+- Inscrições Realtime para bem-estar.
+- Atualizações por evento de foco.
+- Atualizações por mudança de visibilidade da página.
+- Atualizações após salvar registros.
+
+Esses mecanismos podem disparar várias chamadas de `refreshTimeline` em um curto intervalo.
+
+As inscrições Realtime atuais também não possuem filtro explícito pelo paciente.
+
+### Correções esperadas
+
+1. Filtrar eventos pelo paciente correspondente, quando suportado.
+2. Evitar consultas redundantes.
+3. Evitar atualizações concorrentes da mesma linha do tempo.
+4. Evitar que uma consulta antiga sobrescreva uma mais recente.
+5. Implementar controle de operações em andamento.
+6. Descartar respostas obsoletas.
+7. Evitar múltiplos refreshes quando focus e visibilitychange ocorrerem juntos.
+8. Remover corretamente os canais ao desmontar componentes.
+
+O sistema precisa atualizar os dados em tempo real sem provocar recarregamentos desnecessários.
+
+---
+
+# 8. CORREÇÃO DOS CARREGAMENTOS E TRAVAMENTOS
+
+Investigue especificamente os seguintes problemas.
+
+## 8.1. Carregamento de fotografias
+
+No `Today.tsx` e no `History.tsx`, existem operações de recuperação de URLs de fotografias realizadas sequencialmente.
+
+Avalie a possibilidade de executar essas operações de maneira paralela e controlada.
+
+Não faça requisições ilimitadas.
+
+Utilize concorrência controlada e evite bloquear a renderização principal.
+
+## 8.2. Tela de carregamento infinita
+
+Investigue o fluxo:
+
+- `refreshTimeline`
+- `setLoadedDate`
+- `loadData`
+- `isTransitioning`
+- `loading`
+
+Atualmente, uma falha no carregamento pode deixar `loadedDate` desatualizado, mantendo o aplicativo preso no indicador de carregamento.
+
+Corrija isso.
+
+A aplicação precisa apresentar um estado de erro recuperável quando uma consulta falhar.
+
+Não deixe a cuidadora presa em uma tela de carregamento infinito.
+
+## 8.3. Cache
+
+Examine `fetchWithCache` no `api.ts`.
+
+O cache offline é importante e não deve ser removido indiscriminadamente.
+
+Entretanto, investigue:
+
+- Dados desatualizados.
+- Cache que não é invalidado após mutações.
+- Falhas de sincronização.
+- Resultados antigos substituindo dados recentes.
+- Cache de pacientes diferentes.
+- Cache após troca de família.
+- Dados locais apresentados como se fossem dados confirmados no servidor.
+
+Implemente invalidação e atualização consistentes.
+
+Quando dados antigos forem apresentados por contingência, o aplicativo deve conseguir identificar essa condição.
+
+## 8.4. Histórico
+
+Otimize o carregamento do histórico.
+
+Verifique:
+
+- Consultas excessivas.
+- Recuperação de fotografias.
+- Montagem das atividades por data.
+- Atualização após edição.
+- Fechamento de dias antigos.
+- Filtros.
+- Paginação ou limitação de resultados, se necessária.
+
+O histórico deve permanecer rápido mesmo com muitos dias de registros.
+
+Não sacrifique a precisão das informações para melhorar a velocidade.
+
+---
+
+# 9. AUDITORIA DOS MEDICAMENTOS
+
+Analise completamente `MedicationModal.tsx`.
+
+Investigue:
+
+- Confirmação de vários medicamentos.
+- Registro de medicamento não administrado.
+- Edição de justificativas.
+- Atualização de registros anteriores.
+- Cliques repetidos.
+- Salvamentos parciais.
+- Falhas de conexão.
+- Atualizações concorrentes.
+- Sincronização offline.
+
+Atualmente, o fluxo de confirmação pode executar várias operações individuais em sequência.
+
+Avalie uma otimização segura, respeitando as restrições e relacionamentos do banco.
+
+Se uma operação falhar no meio de um conjunto de medicamentos, deixe claro quais foram confirmados e quais não foram.
+
+Não apresente uma confirmação geral se parte dos registros não tiver sido efetivamente salva ou enfileirada.
+
+Preserve os motivos e observações dos medicamentos não administrados.
+
+---
+
+# 10. AUDITORIA DO HISTÓRICO E DA EDIÇÃO DE DIAS ANTERIORES
+
+Analise:
+
+- `History.tsx`
+- `DayEditModal.tsx`
+- `MealModal.tsx`
+- `MedicationModal.tsx`
+
+Garanta que:
+
+- O dia selecionado seja respeitado.
+- As atividades carregadas pertençam à data correta.
+- As edições sejam persistidas corretamente.
+- O histórico seja atualizado depois das alterações.
+- As fotografias continuem vinculadas aos registros.
+- Os horários não sejam deslocados por problemas de fuso horário.
+- As informações de criação e atualização sejam preservadas.
+
+Investigue particularmente as datas utilizando o fuso `America/Sao_Paulo`.
+
+Não permita que uma atividade registrada próximo da meia-noite apareça em outro dia por erro de conversão de data.
+
+---
+
+# 11. AUDITORIA DE AUTENTICAÇÃO, ESTADOS E CICLO DE VIDA
+
+Examine:
+
+- `App.tsx`
+- `main.tsx`
+- `ErrorBoundary.tsx`
+- `BottomSheet.tsx`
+- `NetworkContext.tsx`
+- `ThemeContext.tsx`
+
+Verifique:
+
+- Eventos de autenticação duplicados.
+- Assinaturas não removidas.
+- Efeitos executados repetidamente.
+- Problemas causados pelo React StrictMode.
+- Estados atualizados depois da desmontagem.
+- Modais que permanecem com dados antigos.
+- Vazamentos de memória.
+- Travamentos após voltar de segundo plano.
+- Comportamento de navegação.
+
+O ErrorBoundary deve apresentar uma interface de recuperação amigável, sem expor detalhes técnicos desnecessários ao usuário.
+
+Os detalhes técnicos devem continuar disponíveis para diagnóstico seguro.
+
+---
+
+# 12. AUDITORIA DO PWA E DO ARMAZENAMENTO
+
+Analise `vite.config.ts` e a configuração do Service Worker.
+
+Verifique:
+
+- Cache de arquivos.
+- Atualizações automáticas.
+- Cache de fotografias assinadas do Supabase.
+- Expiração de URLs.
+- Dados privados.
+- Troca de usuários.
+- Sessões expiradas.
+- Atualizações do aplicativo instalado.
+
+As fotografias dos idosos e registros familiares devem respeitar as permissões de acesso.
+
+Não permita que dados privados de uma sessão sejam apresentados indevidamente em outra.
+
+Verifique o comportamento em Android, especialmente:
+
+- Retorno da câmera.
+- Seleção de imagens.
+- Aplicativo em segundo plano.
+- Reconexão.
+- Recarregamento automático.
+- Teclado virtual.
+
+---
+
+# 13. AUDITORIA DE BANCO DE DADOS E TIPAGEM
+
+Examine todas as migrations de `0001` até `0012`.
+
+Verifique:
+
+- Integridade referencial.
+- Restrições UNIQUE.
+- Índices.
+- Foreign Keys.
+- Políticas RLS.
+- Triggers.
+- Permissões.
+- Relacionamentos.
+- Compatibilidade com as consultas atuais.
+
+Compare também com:
+
+- `supabase/setup_everything.sql`
+- `full_setup.sql`
+
+O arquivo `database.types.ts` possui vários campos tipados como `any`.
+
+Avalie a geração de tipos reais a partir do esquema atual do Supabase.
+
+Não invente colunas ou relacionamentos.
+
+Se não conseguir consultar o banco real, utilize as migrations como referência e informe claramente essa limitação.
+
+Não remova dados existentes.
+
+Não execute operações destrutivas em produção.
+
+Se precisar alterar o banco, prepare migrations SQL seguras e explique exatamente o que precisam fazer.
+
+---
+
+# 14. PERFORMANCE GERAL
+
+Realize uma revisão da aplicação inteira.
+
+Investigue:
+
+- Componentes excessivamente renderizados.
+- Estados redundantes.
+- Requisições repetidas.
+- Operações síncronas pesadas.
+- Processamentos de imagem.
+- Listas extensas.
+- Consultas sem necessidade.
+- Atualizações concorrentes.
+- Consumo de memória.
+- Animações pesadas.
+- Modais que demoram para abrir.
+
+Priorize a experiência mobile.
+
+O aplicativo precisa funcionar de maneira fluida em celulares Android comuns.
+
+Não faça uma reformulação visual.
+
+Não altere cores, identidade visual, disposição das telas ou funcionalidades sem necessidade técnica.
+
+O objetivo é melhorar a estabilidade mantendo a experiência visual atual.
+
+---
+
+# 15. TESTES OBRIGATÓRIOS DE REGRESSÃO
+
+Depois das correções, execute os testes abaixo.
+
+## TESTE A — Alimentação
+
+1. Abrir uma refeição.
+2. Registrar alimentação normal.
+3. Registrar alimentação parcial.
+4. Registrar alimentação não realizada.
+5. Inserir descrição.
+6. Inserir descrição de líquidos.
+7. Inserir observações.
+8. Adicionar fotografia.
+9. Salvar.
+10. Editar.
+11. Substituir fotografia.
+12. Remover fotografia.
+13. Fechar e reabrir o modal.
+14. Atualizar a página.
+15. Conferir a persistência dos dados.
+
+## TESTE B — Falhas durante o salvamento
+
+Simule:
+
+- Internet lenta.
+- Internet interrompida.
+- Erro no upload.
+- Erro no banco.
+- Timeout.
+- Duplo clique.
+- Repetição da requisição.
+
+Confirme que não existem perdas ou duplicidades.
+
+## TESTE C — Fechamento incompleto
+
+Execute os seguintes cenários:
+
+1. Todas as atividades concluídas.
+2. Uma atividade pendente.
+3. Três atividades pendentes.
+4. Todas as atividades pendentes.
+5. Dia com refeições registradas e medicamentos pendentes.
+6. Dia com medicamentos registrados e refeições pendentes.
+
+Em todos os casos aplicáveis, o fechamento deve ser possível.
+
+Confirme que:
+
+- O aviso de pendências aparece corretamente.
+- As atividades pendentes permanecem pendentes.
+- O fechamento é persistido.
+- O responsável é identificado.
+- O histórico é atualizado.
+- A reabertura funciona.
+- A edição posterior funciona.
+- O novo fechamento funciona.
+
+## TESTE D — Sincronização offline
+
+1. Desconectar a internet.
+2. Registrar uma refeição.
+3. Registrar um medicamento.
+4. Atualizar informações.
+5. Recarregar o aplicativo.
+6. Verificar a persistência local.
+7. Reconectar.
+8. Acompanhar a sincronização.
+9. Conferir os dados no Supabase.
+10. Confirmar que não existem duplicidades.
+
+Teste também falhas durante a sincronização e operações que dependem de outras operações anteriores.
+
+## TESTE E — Histórico
+
+- Abrir dias antigos.
+- Editar refeições.
+- Editar medicamentos.
+- Fechar dias incompletos.
+- Reabrir dias.
+- Conferir fotografias.
+- Conferir datas e horários.
+- Testar filtros.
+
+## TESTE F — Estabilidade geral
+
+- Alternar entre Hoje, Histórico e Rotina.
+- Abrir e fechar modais.
+- Minimizar e restaurar o aplicativo.
+- Alternar conexão.
+- Simular atualizações Realtime.
+- Navegar rapidamente entre telas.
+- Repetir operações.
+- Monitorar o console.
+
+## TESTE G — Build
+
+Execute:
+
+`npm run lint`
+
+`npm run build`
+
+O comando lint atualmente executa `tsc --noEmit`. Não confunda isso com uma suíte completa de testes.
+
+O `package.json` atual não possui um script padrão `test`.
+
+Examine os testes existentes e organize uma estratégia de testes executável, aproveitando as dependências disponíveis antes de introduzir novas bibliotecas.
+
+Não declare que um teste foi aprovado se ele não foi executado.
+
+---
+
+# 16. REGRAS DE IMPLEMENTAÇÃO
+
+Durante todo o trabalho:
+
+1. Modifique diretamente os arquivos existentes.
+2. Preserve as funcionalidades atuais.
+3. Preserve a identidade visual.
+4. Preserve o funcionamento do Supabase.
+5. Preserve o sistema offline.
+6. Não remova recursos para esconder bugs.
+7. Não utilize dados fictícios como substitutos dos salvamentos reais.
+8. Não crie componentes redundantes sem necessidade.
+9. Não adicione dependências desnecessárias.
+10. Não altere o banco de produção de maneira destrutiva.
+11. Não modifique segredos ou credenciais.
+12. Não faça mudanças visuais fora do escopo.
+13. Não substitua a arquitetura inteira por uma implementação nova.
+14. Corrija a origem dos problemas, não apenas seus sintomas.
+
+Antes de uma alteração estrutural, preserve uma versão de referência do código.
+
+Se encontrar uma limitação que impeça a execução de algum teste, documente-a claramente.
+
+---
+
+# 17. RELATÓRIO TÉCNICO FINAL
+
+Quando terminar, apresente um relatório contendo:
+
+### 1. Diagnóstico
+Quais problemas foram encontrados e suas causas.
+
+### 2. Arquivos modificados
+Liste os arquivos e explique as alterações.
+
+### 3. Alimentação
+Informe quais correções foram feitas no processo de registro.
+
+### 4. Fechamento diário
+Explique como foi corrigido o encerramento de dias incompletos.
+
+### 5. Sincronização offline
+Informe como foram corrigidas as falhas de sincronização e duplicidade.
+
+### 6. Performance
+Informe quais gargalos foram encontrados e eliminados.
+
+### 7. Integridade
+Explique como os dados passaram a ser protegidos contra perdas e inconsistências.
+
+### 8. Testes
+Apresente os testes executados e os resultados reais.
+
+### 9. Banco de dados
+Informe se foram necessárias migrations e se elas foram efetivamente aplicadas ou apenas preparadas.
+
+### 10. Pendências
+Informe qualquer problema que ainda não tenha sido resolvido.
+
+### 11. Resultado final
+Informe se a versão está tecnicamente pronta para testes reais com cuidadoras e familiares.
+
+---
+
+# INSTRUÇÃO FINAL — EXECUTE O TRABALHO
+
+Comece imediatamente pela auditoria da versão atual.
+
+Não interrompa o trabalho depois de identificar os problemas.
+
+Não responda apenas com um plano de ação.
+
+Não me peça para implementar manualmente as correções.
+
+Trabalhe diretamente no código, corrigindo os problemas encontrados e validando as alterações.
+
+A prioridade absoluta é entregar um aplicativo estável, rápido e confiável.
+
+Uma cuidadora precisa conseguir registrar alimentação, medicamentos e demais cuidados sem enfrentar travamentos, erros ou perda de informações.
+
+Um familiar precisa confiar que aquilo que aparece no aplicativo corresponde ao que foi efetivamente registrado.
+
+**A integridade dos dados é inegociável. A estabilidade operacional vem antes de novas funcionalidades.**

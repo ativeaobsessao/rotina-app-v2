@@ -1,6 +1,6 @@
 import { formatTime } from '../utils/date';
-import React, { useEffect, useState } from 'react';
-import { Plus, Edit2, Camera } from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
+import { Plus, Edit2, Camera, AlertCircle, RotateCcw } from 'lucide-react';
 import { MainLayout } from '../layouts/MainLayout';
 import { 
   getCurrentProfile, 
@@ -11,6 +11,7 @@ import {
   getMedications 
 } from '../services/api';
 import { Spinner } from '../components/ui/Spinner';
+import { Button } from '../components/ui/Button';
 import { UserProfile } from '../components/ui/UserProfile';
 import { PatientEditModal } from '../components/routine/PatientEditModal';
 import { TimeEditModal } from '../components/routine/TimeEditModal';
@@ -22,6 +23,7 @@ interface RoutineScreenProps {
 
 export function RoutineScreen({ onTabChange }: RoutineScreenProps) {
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [patient, setPatient] = useState<any>(null);
   const [patientPhoto, setPatientPhoto] = useState<string | null>(null);
   const [meals, setMeals] = useState<any[]>([]);
@@ -39,42 +41,72 @@ export function RoutineScreen({ onTabChange }: RoutineScreenProps) {
   const [isMedicationModalOpen, setIsMedicationModalOpen] = useState(false);
   const [toastMessage, setToastMessage] = useState('');
 
+  const isMountedRef = useRef(true);
+  const loadSeqRef = useRef(0);
+  const toastTimerRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+      if (toastTimerRef.current !== null) {
+        window.clearTimeout(toastTimerRef.current);
+      }
+    };
+  }, []);
+
   const showToast = (msg: string) => {
     setToastMessage(msg);
-    setTimeout(() => setToastMessage(''), 3000);
+    if (toastTimerRef.current !== null) {
+      window.clearTimeout(toastTimerRef.current);
+    }
+    toastTimerRef.current = window.setTimeout(() => {
+      if (isMountedRef.current) setToastMessage('');
+    }, 3000);
   };
 
   const loadData = async () => {
+    const seq = ++loadSeqRef.current;
     setLoading(true);
+    setLoadError(null);
     try {
       const prof = await getCurrentProfile();
-      if (!prof) return;
-
-      const pat = await getPatient(prof.family_id);
-      if (!pat) return;
-      setPatient(pat);
-
-      if (pat.photo_url) {
-        const url = await getPatientPhotoUrl(pat.id, pat.photo_url);
-        setPatientPhoto(url);
-      } else {
-        setPatientPhoto(null);
+      if (!isMountedRef.current || seq !== loadSeqRef.current) return;
+      if (!prof) {
+        setLoadError('Não foi possível identificar sua conta no momento.');
+        return;
       }
 
-      const [loadedMeals, loadedPeriods, loadedMeds] = await Promise.all([
+      const pat = await getPatient(prof.family_id);
+      if (!isMountedRef.current || seq !== loadSeqRef.current) return;
+      if (!pat) {
+        setLoadError('Não foi possível carregar os dados do paciente.');
+        return;
+      }
+      setPatient(pat);
+
+      const [photoUrl, loadedMeals, loadedPeriods, loadedMeds] = await Promise.all([
+        pat.photo_url ? getPatientPhotoUrl(pat.id, pat.photo_url) : Promise.resolve(null),
         getMealConfigs(pat.id),
         getMedicationPeriods(pat.id),
         getMedications(pat.id)
       ]);
+      if (!isMountedRef.current || seq !== loadSeqRef.current) return;
 
+      setPatientPhoto(photoUrl);
       setMeals(loadedMeals.sort((a, b) => a.scheduled_time.localeCompare(b.scheduled_time)));
       setPeriods(loadedPeriods.sort((a, b) => a.scheduled_time.localeCompare(b.scheduled_time)));
       setMedications(loadedMeds);
 
-    } catch (err) {
-      console.error(err);
+    } catch (err: any) {
+      console.error('[Routine] Erro ao carregar rotina:', err);
+      if (isMountedRef.current && seq === loadSeqRef.current) {
+        setLoadError(err?.message || 'Não foi possível carregar a rotina. Verifique sua conexão.');
+      }
     } finally {
-      setLoading(false);
+      if (isMountedRef.current && seq === loadSeqRef.current) {
+        setLoading(false);
+      }
     }
   };
 
@@ -101,6 +133,27 @@ export function RoutineScreen({ onTabChange }: RoutineScreenProps) {
     showToast('Medicamento adicionado/atualizado.');
     loadData();
   };
+
+  if (loadError && !patient) {
+    return (
+      <MainLayout activeTab="routine" onTabChange={onTabChange}>
+        <div className="flex flex-col h-[75vh] items-center justify-center px-6 text-center max-w-md mx-auto">
+          <div className="w-12 h-12 rounded-2xl bg-rose-50 dark:bg-rose-950/50 border border-rose-200 dark:border-rose-900/50 flex items-center justify-center mb-4">
+            <AlertCircle className="w-6 h-6 text-rose-500" />
+          </div>
+          <h2 className="text-lg font-bold text-gray-900 dark:text-zinc-100 mb-2">
+            Não foi possível carregar a rotina
+          </h2>
+          <p className="text-sm text-gray-500 dark:text-zinc-400 mb-6 leading-relaxed">
+            {loadError}
+          </p>
+          <Button onClick={loadData} className="rounded-2xl px-6 py-3">
+            <RotateCcw className="w-4 h-4 mr-2" /> Tentar novamente
+          </Button>
+        </div>
+      </MainLayout>
+    );
+  }
 
   if (loading && !patient) {
     return (

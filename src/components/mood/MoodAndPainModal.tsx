@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { X, Heart, Smile, Sparkles, AlertTriangle, Check, CheckCircle2, MapPin, Clock } from 'lucide-react';
 import { BottomSheet } from '../ui/BottomSheet';
 import { Button } from '../ui/Button';
@@ -68,6 +68,7 @@ export function MoodAndPainModal({
   const [notes, setNotes] = useState(currentLog?.notes || '');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const isSavingRef = useRef(false);
 
   useEffect(() => {
     if (isOpen) {
@@ -90,6 +91,8 @@ export function MoodAndPainModal({
   };
 
   const handleSave = async () => {
+    if (isSavingRef.current) return;
+    isSavingRef.current = true;
     setLoading(true);
     setError('');
 
@@ -113,8 +116,9 @@ export function MoodAndPainModal({
       onClose();
     } catch (err: any) {
       console.error(err);
-      setError('Não foi possível salvar o estado de espírito. Verifique sua conexão.');
+      setError(err?.message || 'Não foi possível salvar o estado de espírito. Verifique sua conexão.');
     } finally {
+      isSavingRef.current = false;
       setLoading(false);
     }
   };

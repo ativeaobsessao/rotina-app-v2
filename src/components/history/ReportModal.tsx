@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { X, CalendarDays, FileDown, CheckCircle2, AlertCircle } from 'lucide-react';
 import { getHistoricalMealLogs, getHistoricalMedicationLogs, getHistoricalMoodLogs } from '../../services/api';
-import { getLocalDateString, formatFriendlyDate } from '../../utils/date';
+import { getLocalDateString, formatFriendlyDate, shiftDateString } from '../../utils/date';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { cn } from '../../utils/cn';
@@ -32,10 +32,8 @@ export function ReportModal({ isOpen, onClose, patientId, patientName }: ReportM
         throw new Error('A data inicial não pode ser posterior à data final.');
       }
 
-      // Add 1 day to endDate to make it fully inclusive
-      const endD = new Date(endDate + 'T00:00:00');
-      endD.setDate(endD.getDate() + 1);
-      const beforeDate = endD.toISOString().split('T')[0];
+      // Add 1 calendar day safely using pure YYYY-MM-DD arithmetic (America/Sao_Paulo safe)
+      const beforeDate = shiftDateString(endDate, 1);
 
       // Fetch data
       const [mealLogs, medLogs, moodLogs] = await Promise.all([

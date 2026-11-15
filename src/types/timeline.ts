@@ -1,4 +1,5 @@
 export type EventStatus = 'waiting' | 'pending' | 'confirmed' | 'attention';
+export type EventSyncStatus = 'synced' | 'pending' | 'failed';
 
 export interface TimelineEventBase {
   id: string; // The config or period ID
@@ -6,6 +7,8 @@ export interface TimelineEventBase {
   time: string; // '08:00:00'
   title: string;
   status: EventStatus;
+  _syncStatus?: EventSyncStatus;
+  _syncError?: string | null;
 }
 
 export interface MealEventData extends TimelineEventBase {

@@ -13,6 +13,7 @@ export default defineConfig(() => {
         registerType: 'autoUpdate',
 
         workbox: {
+          cleanupOutdatedCaches: true,
           globPatterns: ['**/*.{js,css,html,ico,png,svg,json}'],
           navigateFallback: 'index.html',
           navigateFallbackDenylist: [/^\/api\//, /\/[^/?]+\.[^/]+$/],
@@ -24,7 +25,7 @@ export default defineConfig(() => {
                 cacheName: 'supabase-images-cache',
                 expiration: {
                   maxEntries: 50,
-                  maxAgeSeconds: 60 * 60 * 24 * 7 // 7 days
+                  maxAgeSeconds: 60 * 60 * 24 * 5 // 5 days (aligned with signed URL expiry & cleared on logout)
                 },
                 cacheableResponse: {
                   statuses: [0, 200]

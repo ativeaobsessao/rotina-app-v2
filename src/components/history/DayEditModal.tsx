@@ -1,14 +1,17 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { X } from 'lucide-react';
 import { TimelineItem } from '../timeline/TimelineItem';
 import { MealModal } from '../meals/MealModal';
 import { MedicationModal } from '../medications/MedicationModal';
-import { 
-  getMealConfigs, 
-  getMedicationPeriods, 
-  getMedications, 
-  getMealLogs, 
+import {
+  getMealConfigs,
+  getMedicationPeriods,
+  getMedications,
+  getMealLogs,
   getMedicationLogs,
+  getDailyClosure,
+  getMealPhotoUrl,
+  mapWithConcurrency,
 } from '../../services/api';
 import { getWeekdayName } from '../../utils/date';
 import { Spinner } from '../ui/Spinner';
@@ -17,96 +20,103 @@ import type { TimelineEvent, MealEventData, MedicationEventData } from '../../ty
 interface DayEditModalProps {
   isOpen: boolean;
   onClose: () => void;
-  dateStr: string; // '2026-08-24'
-  friendlyDate: string; // 'Segunda-feira, 24 de agosto'
+  dateStr: string;
+  friendlyDate: string;
   patientId: string;
   profileId: string;
-  onSuccess: () => void; // Triggered when a child edit succeeds
+  patientGender?: string | null;
+  onSuccess: () => void;
 }
 
-export function DayEditModal({ 
-  isOpen, 
-  onClose, 
-  dateStr, 
+export function DayEditModal({
+  isOpen,
+  onClose,
+  dateStr,
   friendlyDate,
-  patientId, 
+  patientId,
   profileId,
-  onSuccess
+  patientGender,
+  onSuccess,
 }: DayEditModalProps) {
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [events, setEvents] = useState<TimelineEvent[]>([]);
+  const [isDayClosed, setIsDayClosed] = useState(false);
 
-  // Modals state
   const [selectedMealEvent, setSelectedMealEvent] = useState<MealEventData | null>(null);
   const [selectedMedEvent, setSelectedMedEvent] = useState<MedicationEventData | null>(null);
 
-  useEffect(() => {
-    if (isOpen) {
-      loadTimeline();
-    }
-  }, [isOpen, dateStr]);
+  const reqSeqRef = useRef(0);
+  const isMountedRef = useRef(true);
 
-  async function loadTimeline() {
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
+
+  const loadTimeline = useCallback(async () => {
+    const seq = ++reqSeqRef.current;
     setLoading(true);
+    setError(null);
     try {
-      const [meals, medPeriods, allMeds, mealLogs, medLogs] = await Promise.all([
+      const [meals, medPeriods, allMeds, mealLogs, medLogs, closure] = await Promise.all([
         getMealConfigs(patientId),
         getMedicationPeriods(patientId),
         getMedications(patientId),
         getMealLogs(patientId, dateStr),
-        getMedicationLogs(patientId, dateStr)
+        getMedicationLogs(patientId, dateStr),
+        getDailyClosure(patientId, dateStr),
       ]);
 
+      if (!isMountedRef.current || seq !== reqSeqRef.current) return;
+      setIsDayClosed(Boolean(closure));
+
       const currentWeekday = getWeekdayName(dateStr);
-      const timeline: TimelineEvent[] = [];
 
-      // 1. Process Meals
-      for (const meal of meals) {
-        const log = mealLogs.find(l => l.meal_config_id === meal.id);
-        let status: 'waiting' | 'pending' | 'confirmed' = 'waiting';
-        
-        let photoSignedUrl = null;
-
-        if (log) {
-          status = 'confirmed';
-        } else {
-          status = 'pending';
-        }
-
-        timeline.push({
+      const resolvedMeals: MealEventData[] = await mapWithConcurrency(meals, 5, async (meal) => {
+        const log = mealLogs.find((l) => l.meal_config_id === meal.id);
+        const photoSignedUrl = log?.photo_url ? await getMealPhotoUrl(log.photo_url) : null;
+        return {
           id: meal.id,
           type: 'meal',
           time: meal.scheduled_time,
           title: meal.name,
-          status,
+          status: log ? 'confirmed' : 'pending',
           mealConfig: meal,
           log,
-          photoSignedUrl
-        });
-      }
+          photoSignedUrl,
+        };
+      });
 
-      // 2. Process Medication Periods
+      if (!isMountedRef.current || seq !== reqSeqRef.current) return;
+
+      const timeline: TimelineEvent[] = [...resolvedMeals];
+
       for (const period of medPeriods) {
-        const periodMeds = allMeds.filter(m => {
+        const periodMeds = allMeds.filter((m) => {
           if (m.medication_period_id !== period.id) return false;
           if (m.frequency === 'daily') return true;
           if (m.frequency === 'weekly') return m.weekday === currentWeekday;
           return false;
         });
 
-        if (periodMeds.length === 0) continue; 
+        if (periodMeds.length === 0) continue;
 
-        const periodLogs = medLogs.filter(l => periodMeds.some(m => m.id === l.medication_id));
-        
+        const periodLogs = medLogs.filter((l) =>
+          periodMeds.some((m) => m.id === l.medication_id)
+        );
+
         let status: 'waiting' | 'pending' | 'confirmed' | 'attention' = 'waiting';
-        
+
         if (periodLogs.length === periodMeds.length) {
-          const anyNotAdministered = periodLogs.some(l => l.status === 'not_administered');
+          const anyNotAdministered = periodLogs.some((l) => l.status === 'not_administered');
           status = anyNotAdministered ? 'attention' : 'confirmed';
         } else if (periodLogs.length > 0) {
-          status = 'attention'; 
+          status = 'attention';
         } else {
-          status = 'pending'; 
+          status = 'pending';
         }
 
         timeline.push({
@@ -117,26 +127,35 @@ export function DayEditModal({
           status,
           period,
           medications: periodMeds,
-          logs: periodLogs
+          logs: periodLogs,
         });
       }
 
       timeline.sort((a, b) => a.time.localeCompare(b.time));
       setEvents(timeline);
-    } catch (err) {
+    } catch (err: any) {
+      if (!isMountedRef.current || seq !== reqSeqRef.current) return;
       console.error(err);
+      setError(err?.message || 'Não foi possível carregar os registros deste dia.');
     } finally {
-      setLoading(false);
+      if (isMountedRef.current && seq === reqSeqRef.current) {
+        setLoading(false);
+      }
     }
-  }
+  }, [patientId, dateStr]);
+
+  useEffect(() => {
+    if (isOpen) {
+      loadTimeline();
+    }
+  }, [isOpen, loadTimeline]);
 
   if (!isOpen) return null;
 
   return (
     <>
       <div className="fixed inset-0 z-50 flex flex-col justify-end bg-black/60 dark:bg-black/75 backdrop-blur-sm sm:items-center sm:justify-center p-0 sm:p-4 animate-in fade-in duration-200">
-        <div className="bg-gray-50 dark:bg-[#09090b] w-full sm:max-w-md h-[90vh] sm:h-auto sm:max-h-[85vh] rounded-t-3xl sm:rounded-3xl shadow-2xl border border-transparent dark:border-white/[0.08] flex flex-col overflow-hidden animate-in slide-in-from-bottom-10 sm:slide-in-from-bottom-0 sm:zoom-in-95 duration-300">
-          
+        <div className="bg-gray-50 dark:bg-[#09090b] w-full sm:max-w-md h-[90dvh] sm:h-auto sm:max-h-[85dvh] rounded-t-3xl sm:rounded-3xl shadow-2xl border border-transparent dark:border-white/[0.08] flex flex-col overflow-hidden animate-in slide-in-from-bottom-10 sm:slide-in-from-bottom-0 sm:zoom-in-95 duration-300">
           {/* Header */}
           <div className="flex items-center justify-between px-6 py-4 bg-white dark:bg-[#121216] border-b border-gray-100 dark:border-white/[0.08]">
             <div>
@@ -146,6 +165,7 @@ export function DayEditModal({
               <h2 className="text-lg font-bold text-gray-900 dark:text-zinc-100">{friendlyDate}</h2>
             </div>
             <button
+              type="button"
               onClick={onClose}
               className="p-2 -mr-2 text-gray-400 dark:text-zinc-400 hover:text-gray-600 dark:hover:text-zinc-200 bg-gray-50 dark:bg-[#1c1c22] hover:bg-gray-100 dark:hover:bg-white/[0.08] rounded-full transition-colors"
             >
@@ -154,10 +174,21 @@ export function DayEditModal({
           </div>
 
           {/* Content */}
-          <div className="flex-1 overflow-y-auto p-6">
+          <div className="flex-1 overflow-y-auto p-6 overscroll-contain">
             {loading ? (
               <div className="flex items-center justify-center py-12">
                 <Spinner className="w-8 h-8 text-indigo-600 dark:text-indigo-400" />
+              </div>
+            ) : error ? (
+              <div className="p-4 rounded-2xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800/50 text-sm text-rose-700 dark:text-rose-300 text-center space-y-3">
+                <p>{error}</p>
+                <button
+                  type="button"
+                  onClick={loadTimeline}
+                  className="px-4 py-2 rounded-xl bg-rose-600 text-white text-xs font-semibold"
+                >
+                  Tentar novamente
+                </button>
               </div>
             ) : (
               <div className="space-y-4">
@@ -165,10 +196,10 @@ export function DayEditModal({
                   Toque em um registro abaixo para editá-lo ou adicionar os dados deste dia.
                 </p>
                 <div className="relative border-l-2 border-gray-100 dark:border-white/[0.08] pl-4 space-y-6 pb-6">
-                  {events.map((event, index) => (
+                  {events.map((event) => (
                     <TimelineItem
                       profileId={profileId}
-                      key={event.id + index}
+                      key={event.id}
                       event={event}
                       onClick={() => {
                         if (event.type === 'meal') setSelectedMealEvent(event as MealEventData);
@@ -176,7 +207,7 @@ export function DayEditModal({
                       }}
                     />
                   ))}
-                  
+
                   {events.length === 0 && (
                     <div className="text-center py-12">
                       <p className="text-gray-500 dark:text-zinc-400">Nenhum evento configurado.</p>
@@ -191,13 +222,15 @@ export function DayEditModal({
 
       {/* Sub-modals */}
       {selectedMealEvent && (
-        <MealModal 
+        <MealModal
           isOpen={!!selectedMealEvent}
           onClose={() => setSelectedMealEvent(null)}
           event={selectedMealEvent}
           patientId={patientId}
           profileId={profileId}
           eventDate={dateStr}
+          patientGender={patientGender}
+          isDayClosed={isDayClosed}
           onSuccess={() => {
             loadTimeline();
             onSuccess();
@@ -207,17 +240,22 @@ export function DayEditModal({
       )}
 
       {selectedMedEvent && (
-        <MedicationModal 
+        <MedicationModal
           isOpen={!!selectedMedEvent}
           onClose={() => setSelectedMedEvent(null)}
           event={selectedMedEvent}
           patientId={patientId}
           profileId={profileId}
           eventDate={dateStr}
+          isDayClosed={isDayClosed}
           onSuccess={() => {
             loadTimeline();
             onSuccess();
             setSelectedMedEvent(null);
+          }}
+          onPartialSuccess={() => {
+            loadTimeline();
+            onSuccess();
           }}
         />
       )}

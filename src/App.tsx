@@ -12,6 +12,39 @@ import { ContextSelectorScreen } from './pages/ContextSelector';
 import { ResetPasswordScreen } from './pages/ResetPassword';
 import { getMyFamilyMemberships } from './services/api';
 
+function hasActiveSelectedContext(): boolean {
+  try {
+    if (sessionStorage.getItem('duca_context_selected') === '1') return true;
+    const activeUntil = Number(localStorage.getItem('duca_active_flow_until') || '0');
+    if (activeUntil > Date.now()) {
+      sessionStorage.setItem('duca_context_selected', '1');
+      return true;
+    }
+  } catch {}
+  return false;
+}
+
+function getInviteStateFromUrl(): { token: string | null; isAuthFlow: boolean } {
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const queryToken = params.get('invite')?.trim();
+    const isAuthFlow = params.get('auth') === '1';
+    if (queryToken) {
+      return { token: queryToken, isAuthFlow };
+    }
+
+    const pathname = window.location.pathname;
+    if (pathname.startsWith('/invite/')) {
+      const pathToken = pathname.split('/')[2]?.trim();
+      return { token: pathToken || '__INVALID__', isAuthFlow };
+    }
+    if (pathname === '/invite') {
+      return { token: '__INVALID__', isAuthFlow };
+    }
+  } catch {}
+  return { token: null, isAuthFlow: false };
+}
+
 export default function App() {
   // Synchronous cache checks to render ContextSelector immediately on tap
   const cachedPatients = (() => {
@@ -42,21 +75,36 @@ export default function App() {
     return null;
   });
 
-  // If we already know the user has cached patients, we do NOT show a blank/loading screen!
-  const [loading, setLoading] = useState(!cachedPatients);
+  const restoredContext = hasActiveSelectedContext();
+
+  // If we already know the user has cached patients (and isn't returning from camera/active session), show ContextSelector immediately
+  const [loading, setLoading] = useState(!cachedPatients && !restoredContext);
   const [needsSetup, setNeedsSetup] = useState(false);
-  const [needsContextSelection, setNeedsContextSelection] = useState(!!cachedPatients);
+  const [needsContextSelection, setNeedsContextSelection] = useState(!!cachedPatients && !restoredContext);
   const [isRecoveringPassword, setIsRecoveringPassword] = useState(false);
   const [initialPatients, setInitialPatients] = useState<any[] | null>(cachedPatients);
-  const hasCheckedContextRef = useRef(false);
+  const hasCheckedContextRef = useRef(restoredContext);
+  const lastUserIdRef = useRef<string | null>(null);
   const [currentTab, setCurrentTab] = useState<'today' | 'history' | 'routine'>('today');
   const [editingDateStr, setEditingDateStr] = useState<string | null>(null);
+
+  const { token: urlInviteToken, isAuthFlow: isInviteAuthFlow } = getInviteStateFromUrl();
 
   useEffect(() => {
     // Check existing session on mount
     supabase.auth.getSession().then(async ({ data: { session: s } }) => {
       setSession(s);
-      // We don't check for recovery in getSession directly, we rely on the hash event or auth listener
+      lastUserIdRef.current = s?.user?.id || null;
+
+      if (urlInviteToken) {
+        if (s && isInviteAuthFlow && urlInviteToken !== '__INVALID__') {
+          window.location.replace(`/?invite=${encodeURIComponent(urlInviteToken)}`);
+          return;
+        }
+        setLoading(false);
+        return;
+      }
+
       if (s) {
         await checkPatient();
       } else {
@@ -68,13 +116,47 @@ export default function App() {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, s) => {
       if (_event === 'PASSWORD_RECOVERY') {
         setIsRecoveringPassword(true);
+        setSession(s);
+        return;
       }
-      setSession(s);
-      if (s && _event !== 'PASSWORD_RECOVERY') {
-        await checkPatient();
-      } else if (!s) {
+
+      // Nunca reinicia a tela nem volta ao ContextSelector quando o token apenas é renovado
+      // (isso acontecia ao voltar da câmera do celular ou alternar abas)
+      if (_event === 'TOKEN_REFRESHED' || _event === 'USER_UPDATED' || _event === 'INITIAL_SESSION') {
+        setSession(prev => (prev?.access_token === s?.access_token ? prev : s));
+        return;
+      }
+
+      if (_event === 'SIGNED_OUT' || !s) {
+        try {
+          sessionStorage.removeItem('duca_context_selected');
+          localStorage.removeItem('duca_active_flow_until');
+        } catch {}
+        hasCheckedContextRef.current = false;
+        lastUserIdRef.current = null;
+        setSession(null);
         setNeedsSetup(false);
+        setNeedsContextSelection(false);
         setLoading(false);
+        return;
+      }
+
+      if (urlInviteToken) {
+        setSession(s);
+        if (isInviteAuthFlow && urlInviteToken !== '__INVALID__') {
+          window.location.replace(`/?invite=${encodeURIComponent(urlInviteToken)}`);
+        }
+        return;
+      }
+
+      const incomingUserId = s.user?.id || null;
+      const isSameActiveUser = lastUserIdRef.current && incomingUserId === lastUserIdRef.current && hasCheckedContextRef.current;
+      lastUserIdRef.current = incomingUserId;
+      setSession(s);
+
+      // Se o mesmo usuário já está dentro do acompanhamento (ex: retornou do app da câmera), não re-executa checkPatient()
+      if (!isSameActiveUser) {
+        await checkPatient();
       }
     });
 
@@ -83,14 +165,13 @@ export default function App() {
 
   async function checkPatient() {
     try {
-      const pendingInvite = localStorage.getItem('pending_invite');
+      const pendingInvite = localStorage.getItem('pending_invite')?.trim();
       if (pendingInvite) {
-        localStorage.removeItem('pending_invite');
-        window.location.href = `/invite/${pendingInvite}`;
+        window.location.replace(`/?invite=${encodeURIComponent(pendingInvite)}`);
         return;
       }
 
-      if (!hasCheckedContextRef.current) {
+      if (!hasCheckedContextRef.current && !hasActiveSelectedContext()) {
         const [prof, memberships] = await Promise.all([
           getCurrentProfile(),
           getMyFamilyMemberships()
@@ -156,18 +237,27 @@ export default function App() {
       
     } catch (err) {
       console.error('Error checking patient:', err);
-      setNeedsSetup(true);
+      // Não força Setup se já tínhamos um contexto selecionado ativo (evita perder tela por falha momentânea de rede após câmera)
+      if (!hasCheckedContextRef.current) {
+        setNeedsSetup(true);
+      }
     } finally {
       setLoading(false);
     }
   }
 
-  const pathname = window.location.pathname;
-  if (pathname.startsWith('/invite/')) {
-    const token = pathname.split('/')[2];
-    if (token) {
-      return <InviteScreen token={token} />;
+  if (urlInviteToken) {
+    if (isInviteAuthFlow && urlInviteToken !== '__INVALID__') {
+      if (!session) {
+        return <LoginScreen inviteToken={urlInviteToken} />;
+      }
+      return (
+        <div className="flex h-[100dvh] items-center justify-center bg-gray-50">
+          <div className="w-8 h-8 rounded-full border-4 border-indigo-200 border-t-indigo-600 animate-spin" />
+        </div>
+      );
     }
+    return <InviteScreen token={urlInviteToken} />;
   }
 
   if (needsContextSelection) {
@@ -175,6 +265,9 @@ export default function App() {
       <ContextSelectorScreen 
         initialPatients={initialPatients || undefined}
         onSelect={() => {
+          try {
+            sessionStorage.setItem('duca_context_selected', '1');
+          } catch {}
           setNeedsContextSelection(false);
           hasCheckedContextRef.current = true;
           setLoading(true);

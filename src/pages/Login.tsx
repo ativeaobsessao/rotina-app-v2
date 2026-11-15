@@ -5,8 +5,8 @@ import { Input } from '../components/ui/Input';
 import { Spinner } from '../components/ui/Spinner';
 import { PWAInstallBanner } from '../components/pwa/PWAInstallBanner';
 
-export function LoginScreen() {
-  const [isSignUp, setIsSignUp] = useState(false);
+export function LoginScreen({ inviteToken }: { inviteToken?: string } = {}) {
+  const [isSignUp, setIsSignUp] = useState(Boolean(inviteToken));
   const [isForgotPassword, setIsForgotPassword] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -41,10 +41,15 @@ export function LoginScreen() {
         setLoading(false);
         return;
       }
-      const { error: authError } = await supabase.auth.signUp({
+      const emailRedirectTo = inviteToken
+        ? `${window.location.origin}/?invite=${encodeURIComponent(inviteToken)}`
+        : window.location.origin;
+
+      const { data: signUpData, error: authError } = await supabase.auth.signUp({
         email,
         password,
         options: {
+          emailRedirectTo,
           data: {
             full_name: name,
           }
@@ -53,9 +58,17 @@ export function LoginScreen() {
 
       if (authError) {
         setError(authError.message || 'Não foi possível criar a conta.');
+      } else if (signUpData?.session) {
+        setSuccessMsg(inviteToken ? 'Conta criada! Concluindo seu convite...' : 'Conta criada! Entrando...');
       } else {
-        setSuccessMsg('Conta criada! Você já pode entrar.');
-        setIsSignUp(false);
+        setSuccessMsg(
+          inviteToken
+            ? 'Conta criada! Enviamos um link de confirmação no seu e-mail. Toque nele para entrar na família.'
+            : 'Conta criada! Você já pode entrar.'
+        );
+        if (!inviteToken) {
+          setIsSignUp(false);
+        }
       }
     } else {
       const { error: authError } = await supabase.auth.signInWithPassword({
@@ -86,6 +99,15 @@ export function LoginScreen() {
             {isForgotPassword ? 'Enviaremos um link para redefinir sua senha' : (isSignUp ? 'Cadastre-se para começar' : 'Como está a vó hoje?')}
           </p>
         </div>
+
+        {inviteToken && (
+          <div className="rounded-2xl bg-indigo-50 border border-indigo-100 p-4 text-sm text-indigo-800 text-left">
+            <p className="font-semibold">Convite familiar pendente</p>
+            <p className="mt-1 text-xs text-indigo-700 leading-relaxed">
+              Crie sua conta ou entre com seu e-mail para aceitar o convite automaticamente.
+            </p>
+          </div>
+        )}
 
         <form className="space-y-6" onSubmit={handleLogin}>
           {error && (
@@ -167,6 +189,21 @@ export function LoginScreen() {
                 ? 'Voltar para o login' 
                 : (isSignUp ? 'Já possui conta? Entre aqui' : 'Ainda não tem conta? Crie aqui')}
             </button>
+
+            {inviteToken && (
+              <button
+                type="button"
+                onClick={() => {
+                  try {
+                    localStorage.removeItem('pending_invite');
+                  } catch {}
+                  window.location.replace('/');
+                }}
+                className="text-xs text-gray-400 hover:text-gray-600 pt-2"
+              >
+                Voltar sem aceitar este convite
+              </button>
+            )}
           </div>
         </form>
       </div>

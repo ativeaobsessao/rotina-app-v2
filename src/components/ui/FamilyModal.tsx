@@ -28,6 +28,7 @@ export function FamilyModal({ familyId, currentUserId, lovedOneName, onClose }: 
   
   const [showInviteModal, setShowInviteModal] = useState(false);
   const [inviteLink, setInviteLink] = useState('');
+  const [linkCopied, setLinkCopied] = useState(false);
   const [memberToRemove, setMemberToRemove] = useState<any>(null);
   const [memberToChangeRole, setMemberToChangeRole] = useState<any>(null);
   
@@ -59,10 +60,11 @@ export function FamilyModal({ familyId, currentUserId, lovedOneName, onClose }: 
   async function handleCreateInvite() {
     setActionLoading(true);
     setError('');
+    setLinkCopied(false);
     try {
       const res = await createFamilyInvite();
       const origin = window.location.origin;
-      setInviteLink(`${origin}/invite/${res.token}`);
+      setInviteLink(`${origin}/?invite=${encodeURIComponent(res.token)}`);
       loadData();
     } catch (err: any) {
       setError(err.message || 'Não foi possível gerar o convite.');
@@ -113,7 +115,7 @@ export function FamilyModal({ familyId, currentUserId, lovedOneName, onClose }: 
 
       await updateFamilyMemberRole(member.user_id, familyId, newRole);
       setMemberToChangeRole(null);
-      setSuccessMsg(`Papel de ${member.profile?.name || 'membro'} alterado para ${newRole === 'ADMIN' ? 'Administrador' : 'Membro com sucesso!'}`);
+      setSuccessMsg(`Papel de ${member.profile?.name || 'membro'} alterado para ${newRole === 'ADMIN' ? 'Administrador (ADM)' : 'Acompanhante'} com sucesso!`);
       await loadData();
       setTimeout(() => setSuccessMsg(''), 3500);
     } catch (err: any) {
@@ -127,22 +129,25 @@ export function FamilyModal({ familyId, currentUserId, lovedOneName, onClose }: 
   const warmShareMessage = `Oi! Estou te convidando para acompanhar com a gente a rotina de cuidados de ${targetName} no DUCA ❤️.\n\nPor aqui, você poderá ver e acompanhar os horários de medicamentos, refeições e o bem-estar do dia a dia com todo o carinho e união da nossa família.\n\nPara acessar, é só entrar por este link seguro:\n${inviteLink}`;
 
   async function handleCopy() {
-    if (inviteLink) {
-      if (navigator.share) {
-        try {
-          await navigator.share({
-            title: `Acompanhar ${targetName} no DUCA`,
-            text: warmShareMessage,
-            url: inviteLink
-          });
-        } catch {
-          await navigator.clipboard.writeText(warmShareMessage);
-          alert('Mensagem e link de convite copiados com sucesso! Você pode colar no WhatsApp da família.');
-        }
-      } else {
-        await navigator.clipboard.writeText(warmShareMessage);
-        alert('Mensagem e link de convite copiados com sucesso! Você pode colar no WhatsApp da família.');
+    if (!inviteLink) return;
+    if (navigator.share) {
+      try {
+        await navigator.share({
+          title: `Acompanhar ${targetName} no DUCA`,
+          text: warmShareMessage,
+        });
+        return;
+      } catch (err: any) {
+        if (err?.name === 'AbortError') return;
       }
+    }
+
+    try {
+      await navigator.clipboard.writeText(warmShareMessage);
+      setLinkCopied(true);
+      setTimeout(() => setLinkCopied(false), 3500);
+    } catch {
+      setError('Não foi possível copiar o convite automaticamente. Copie o texto acima.');
     }
   }
 
@@ -188,10 +193,17 @@ export function FamilyModal({ familyId, currentUserId, lovedOneName, onClose }: 
                       <span className="text-[11px] font-bold uppercase tracking-wider text-indigo-600">Prévia da Mensagem</span>
                       <span className="px-2 py-0.5 bg-indigo-100 text-indigo-700 text-[10px] font-bold rounded-full">Válido por 24h</span>
                     </div>
-                    <p className="text-xs text-gray-600 italic leading-relaxed whitespace-pre-line bg-white p-3 rounded-xl border border-gray-100">
+                    <p className="text-xs text-gray-600 italic leading-relaxed whitespace-pre-line bg-white p-3 rounded-xl border border-gray-100 select-all">
                       {warmShareMessage}
                     </p>
                   </div>
+
+                  {linkCopied && (
+                    <div className="text-emerald-700 text-xs font-semibold bg-emerald-50 border border-emerald-200 px-4 py-3 rounded-2xl w-full flex items-center justify-center gap-2">
+                      <Check className="w-4 h-4 text-emerald-600 shrink-0" />
+                      <span>Mensagem e link copiados! Agora é só colar no WhatsApp da família.</span>
+                    </div>
+                  )}
                 </>
               )}
             </div>
@@ -249,6 +261,9 @@ export function FamilyModal({ familyId, currentUserId, lovedOneName, onClose }: 
                       </h4>
                       <span className="text-xs text-gray-400 font-medium">{members.length} {members.length === 1 ? 'membro' : 'membros'}</span>
                     </div>
+                    <div className="px-5 py-3 bg-indigo-50/40 border-b border-indigo-100/60 text-[11px] text-indigo-900/80 leading-relaxed">
+                      <strong>Administrador (ADM):</strong> registra o bem-estar diário, dores e gerencia convites. <strong>Acompanhante:</strong> apenas acompanha a rotina com tranquilidade.
+                    </div>
                     <div className="divide-y divide-gray-50">
                       {members.map(m => (
                         <div key={m.user_id} className="p-4 sm:px-5 flex items-center justify-between hover:bg-gray-50/50 transition-colors">
@@ -263,11 +278,11 @@ export function FamilyModal({ familyId, currentUserId, lovedOneName, onClose }: 
                               <div className="flex items-center gap-1.5 mt-0.5">
                                 {m.role === 'ADMIN' ? (
                                   <span className="inline-flex items-center gap-1 text-xs font-semibold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-md">
-                                    <ShieldCheck className="w-3.5 h-3.5 text-indigo-600" /> Administrador
+                                    <ShieldCheck className="w-3.5 h-3.5 text-indigo-600" /> Administrador (ADM)
                                   </span>
                                 ) : (
                                   <span className="inline-flex items-center gap-1 text-xs text-gray-500 bg-gray-100 px-2 py-0.5 rounded-md">
-                                    <Users className="w-3.5 h-3.5 text-gray-400" /> Membro
+                                    <Users className="w-3.5 h-3.5 text-gray-400" /> Acompanhante
                                   </span>
                                 )}
                               </div>
@@ -281,11 +296,11 @@ export function FamilyModal({ familyId, currentUserId, lovedOneName, onClose }: 
                                 onClick={() => setMemberToChangeRole(m)}
                                 disabled={actionLoading}
                                 className="p-2 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-xl transition-all text-xs font-semibold flex items-center gap-1 active:scale-95"
-                                title={m.role === 'ADMIN' ? 'Alterar para Membro' : 'Promover a Administrador'}
+                                title={m.role === 'ADMIN' ? 'Alterar para Acompanhante' : 'Promover a Administrador (Cuidadora/Responsável)'}
                               >
                                 <Shield className="w-4 h-4" />
                                 <span className="hidden sm:inline">
-                                  {m.role === 'ADMIN' ? 'Tornar Membro' : 'Tornar ADM'}
+                                  {m.role === 'ADMIN' ? 'Tornar Acompanhante' : 'Tornar ADM'}
                                 </span>
                               </button>
                               <button
@@ -381,8 +396,8 @@ export function FamilyModal({ familyId, currentUserId, lovedOneName, onClose }: 
             </h3>
             <p className="text-sm text-gray-500 text-center mb-8 font-medium px-2 leading-relaxed">
               {memberToChangeRole.role === 'ADMIN'
-                ? `${memberToChangeRole.profile?.name} passará a ser Membro e não poderá mais convidar pessoas nem gerenciar permissões.`
-                : `${memberToChangeRole.profile?.name} terá privilégios de Administrador, podendo convidar outros familiares e gerenciar acessos.`
+                ? `${memberToChangeRole.profile?.name} passará a ser Acompanhante e não poderá mais registrar humor/dores, convidar pessoas nem gerenciar permissões.`
+                : `${memberToChangeRole.profile?.name} terá privilégios de Administrador (ADM), podendo registrar o estado de humor e dores diárias, além de convidar familiares.`
               }
             </p>
             

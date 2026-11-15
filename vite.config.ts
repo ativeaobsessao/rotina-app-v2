@@ -14,6 +14,8 @@ export default defineConfig(() => {
 
         workbox: {
           globPatterns: ['**/*.{js,css,html,ico,png,svg,json}'],
+          navigateFallback: 'index.html',
+          navigateFallbackDenylist: [/^\/api\//, /\/[^/?]+\.[^/]+$/],
           runtimeCaching: [
             {
               urlPattern: /^https:\/\/.*\.supabase\.co\/storage\/v1\/object\/sign\/.*/i,

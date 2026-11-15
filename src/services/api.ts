@@ -1,4 +1,4 @@
-import { get, set } from 'idb-keyval';
+import { get, set, del } from 'idb-keyval';
 import { addToSyncQueue } from './syncQueue';
 // @ts-nocheck
 
@@ -295,7 +295,16 @@ export async function upsertDailyMoodLog(log: DailyMoodLog): Promise<DailyMoodLo
     // Update local cache
     await set(`mood_${log.patient_id}_${log.date}`, data);
     return data;
-  } catch (err) {
+  } catch (err: any) {
+    // Se for erro de permissão (RLS / não-ADMIN), propaga o erro real sem mascarar com cache local
+    const isPermissionError =
+      err?.code === '42501' ||
+      String(err?.message || '').toLowerCase().includes('row-level security') ||
+      String(err?.message || '').toLowerCase().includes('permission');
+    if (isPermissionError) {
+      throw new Error('Apenas contas Administrador podem registrar ou alterar o estado de bem-estar.');
+    }
+
     console.warn('Failed to upsert mood to supabase, caching locally:', err);
     await set(`mood_${log.patient_id}_${log.date}`, log);
     return log;
@@ -488,26 +497,44 @@ export async function updateMedicationLog(id: string, log: Database['public']['T
 
 export async function getPatientPhotoUrl(_patientId: string, path: string): Promise<string | null> {
   if (!path) return null;
-  return fetchWithCache(`photo_url_patient_${path}`, async () => {
-    const { data, error } = await supabase.storage.from('patient-profile').createSignedUrl(path, 60 * 60 * 24 * 7); // 7 days
-    if (error) {
-      console.error('Error getting patient photo:', error);
-      return null;
+  if (path.startsWith('http://') || path.startsWith('https://')) return path;
+
+  const cacheKey = `photo_url_patient_${path}`;
+  if (navigator.onLine) {
+    try {
+      const { data, error } = await supabase.storage.from('patient-profile').createSignedUrl(path, 60 * 60 * 24 * 7);
+      if (!error && data?.signedUrl) {
+        await set(cacheKey, data.signedUrl);
+        return data.signedUrl;
+      }
+      if (error) console.error('Error getting patient photo:', error);
+    } catch (err) {
+      console.warn('Network error getting patient photo:', err);
     }
-    return data.signedUrl;
-  }, null);
+  }
+  const cached = await get<string>(cacheKey);
+  return cached || null;
 }
 
 export async function getMealPhotoUrl(path: string): Promise<string | null> {
   if (!path) return null;
-  return fetchWithCache(`photo_url_meal_${path}`, async () => {
-    const { data, error } = await supabase.storage.from('meal-photos').createSignedUrl(path, 60 * 60 * 24 * 7); // 7 days
-    if (error) {
-      console.error('Error getting meal photo:', error);
-      return null;
+  if (path.startsWith('http://') || path.startsWith('https://')) return path;
+
+  const cacheKey = `photo_url_meal_${path}`;
+  if (navigator.onLine) {
+    try {
+      const { data, error } = await supabase.storage.from('meal-records').createSignedUrl(path, 60 * 60 * 24 * 7);
+      if (!error && data?.signedUrl) {
+        await set(cacheKey, data.signedUrl);
+        return data.signedUrl;
+      }
+      if (error) console.error('Error getting meal photo:', error);
+    } catch (err) {
+      console.warn('Network error getting meal photo:', err);
     }
-    return data.signedUrl;
-  }, null);
+  }
+  const cached = await get<string>(cacheKey);
+  return cached || null;
 }
 
 export async function uploadMealPhoto(patientId: string, file: File, fileName: string) {
@@ -516,10 +543,16 @@ export async function uploadMealPhoto(patientId: string, file: File, fileName: s
   const { data, error } = await supabase
     .storage
     .from('meal-records')
-    .upload(filePath, file);
+    .upload(filePath, file, {
+      upsert: false,
+      contentType: file.type || 'image/jpeg',
+    });
 
   if (error) throw error;
-  return data || [];
+  return {
+    ...(data || {}),
+    path: data?.path || filePath,
+  };
 }
 
 export async function deleteStorageFile(bucket: string, path: string) {
@@ -633,6 +666,13 @@ export async function getMyFamilyMemberships(): Promise<any[]> {
   );
 }
 
+export async function getMyFamilyRole(familyId: string): Promise<'ADMIN' | 'MEMBER'> {
+  if (!familyId) return 'MEMBER';
+  const memberships = await getMyFamilyMemberships();
+  const match = memberships.find((m: any) => m.family_id === familyId);
+  return match?.role === 'ADMIN' ? 'ADMIN' : 'MEMBER';
+}
+
 export async function getFamilyMembers(familyId: string): Promise<any[]> {
   const { data, error } = await supabase
     .from('family_members')
@@ -692,19 +732,29 @@ export async function setActiveFamily(familyId: string) {
   cache.clear();
 }
 
+export async function clearFamilyAndProfileCaches() {
+  cache.clear();
+  try {
+    await Promise.all([
+      del('myFamilyMemberships'),
+      del('currentProfile'),
+    ]);
+  } catch {}
+}
+
 export async function removeFamilyMember(userId: string, familyId: string) {
   const { error } = await (supabase as any).rpc('remove_family_member', { p_user_id: userId, p_family_id: familyId });
   if (error) throw error;
 }
 
 export async function updateFamilyMemberRole(userId: string, familyId: string, newRole: 'ADMIN' | 'MEMBER') {
-  const { data, error } = await (supabase as any)
-    .from('family_members')
-    .update({ role: newRole })
-    .eq('user_id', userId)
-    .eq('family_id', familyId)
-    .select();
+  const { data, error } = await (supabase as any).rpc('update_family_member_role', {
+    p_user_id: userId,
+    p_family_id: familyId,
+    p_new_role: newRole
+  });
   if (error) throw error;
+  cache.clear();
   return data;
 }
 

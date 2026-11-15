@@ -1,52 +1,89 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { supabase } from '../services/supabase';
-import { acceptFamilyInvite } from '../services/api';
+import { acceptFamilyInvite, setActiveFamily, clearFamilyAndProfileCaches } from '../services/api';
 import { Spinner } from '../components/ui/Spinner';
 import { Button } from '../components/ui/Button';
 import { CheckCircle2, UserPlus } from 'lucide-react';
 
 export function InviteScreen({ token }: { token: string }) {
+  const isInvalidToken = !token || token === '__INVALID__';
   const [session, setSession] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(!isInvalidToken);
+  const [error, setError] = useState(
+    isInvalidToken ? 'Este link de convite está incompleto ou é inválido.' : ''
+  );
   const [success, setSuccess] = useState(false);
   const [accepting, setAccepting] = useState(false);
+  const autoAcceptRef = useRef(false);
 
   useEffect(() => {
+    let mounted = true;
+    if (isInvalidToken) {
+      setLoading(false);
+      return;
+    }
+
     supabase.auth.getSession().then(({ data: { session: s } }) => {
+      if (!mounted) return;
       setSession(s);
-      
-      // If we are logged in AND we just came from a signup flow (pending_invite exists),
-      // we can automatically accept it.
-      const pending = localStorage.getItem('pending_invite');
-      if (s && pending === token) {
-         localStorage.removeItem('pending_invite');
-         handleAccept();
+
+      let pending: string | null = null;
+      try {
+        pending = localStorage.getItem('pending_invite');
+      } catch {}
+
+      if (s && pending === token && !autoAcceptRef.current) {
+        autoAcceptRef.current = true;
+        try {
+          localStorage.removeItem('pending_invite');
+        } catch {}
+        handleAccept();
       } else {
-         setLoading(false);
+        setLoading(false);
       }
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, s) => {
-      setSession(s);
+      if (mounted) setSession(s);
     });
 
-    return () => subscription.unsubscribe();
-  }, [token]);
+    return () => {
+      mounted = false;
+      subscription.unsubscribe();
+    };
+  }, [token, isInvalidToken]);
 
   async function handleAccept() {
+    if (isInvalidToken) return;
     setAccepting(true);
     setError('');
-    
+
     try {
-      await acceptFamilyInvite(token);
+      const res = await acceptFamilyInvite(token);
+      try {
+        localStorage.removeItem('pending_invite');
+      } catch {}
+
+      if (res?.family_id) {
+        try {
+          await setActiveFamily(res.family_id);
+        } catch (switchErr) {
+          console.warn('Erro ao definir família ativa após convite:', switchErr);
+        }
+      }
+
+      try {
+        localStorage.removeItem('duca_cached_context_patients');
+        localStorage.removeItem('duca_active_flow_until');
+        sessionStorage.removeItem('duca_context_selected');
+      } catch {}
+      await clearFamilyAndProfileCaches();
+
       setSuccess(true);
-      
-      // After 2 seconds, automatically go to the app
+
       setTimeout(() => {
-        window.location.href = '/';
-      }, 2000);
-      
+        window.location.replace('/');
+      }, 1500);
     } catch (err: any) {
       let msg = err.message || 'Não foi possível concluir esta ação. Tente novamente.';
       const lower = msg.toLowerCase();
@@ -54,7 +91,7 @@ export function InviteScreen({ token }: { token: string }) {
       else if (lower.includes('revogado') || lower.includes('utilizado')) msg = 'Este convite não está mais disponível ou já foi utilizado.';
       else if (lower.includes('inválido') || lower.includes('encontrado')) msg = 'Este convite não está mais disponível ou é inválido.';
       else if (lower.includes('já pertence')) msg = 'Você já faz parte desta família.';
-      
+
       setError(msg);
     } finally {
       setAccepting(false);
@@ -63,19 +100,26 @@ export function InviteScreen({ token }: { token: string }) {
   }
 
   function handleAction() {
+    if (isInvalidToken) {
+      cancel();
+      return;
+    }
+
     if (!session) {
-      // Redirect to create account
-      localStorage.setItem('pending_invite', token);
-      window.location.href = '/';
+      try {
+        localStorage.setItem('pending_invite', token);
+      } catch {}
+      window.location.href = `/?invite=${encodeURIComponent(token)}&auth=1`;
     } else {
-      // Already logged in, just accept
       handleAccept();
     }
   }
 
   function cancel() {
-    localStorage.removeItem('pending_invite');
-    window.location.href = '/';
+    try {
+      localStorage.removeItem('pending_invite');
+    } catch {}
+    window.location.replace('/');
   }
 
   if (loading) {
@@ -89,7 +133,7 @@ export function InviteScreen({ token }: { token: string }) {
   return (
     <div className="flex min-h-[100dvh] flex-col bg-gray-50 items-center justify-center p-6 sm:p-12">
       <div className="w-full max-w-md bg-white p-8 sm:p-10 rounded-[2rem] shadow-xl border border-gray-100/50 text-center relative overflow-hidden">
-        
+
         {success ? (
           <div className="flex flex-col items-center animate-in fade-in zoom-in duration-500">
             <div className="w-20 h-20 bg-green-50 rounded-full flex items-center justify-center mb-6 border border-green-100 shadow-sm">
@@ -109,28 +153,30 @@ export function InviteScreen({ token }: { token: string }) {
             <p className="text-gray-500 mt-3 text-sm sm:text-base mb-8 max-w-xs mx-auto leading-relaxed">
               Você foi convidado com carinho para fazer parte desta família no DUCA e acompanhar a rotina diária de cuidados.
             </p>
-            
+
             {error && (
               <div className="text-red-600 text-sm font-medium bg-red-50 p-4 rounded-2xl mb-8 w-full border border-red-100">
                 {error}
               </div>
             )}
-            
+
             <div className="w-full space-y-3">
-              <Button 
-                className="w-full py-6 text-lg font-bold rounded-2xl shadow-lg active:scale-95 transition-all" 
-                onClick={handleAction} 
-                disabled={accepting}
-              >
-                {accepting ? <Spinner className="text-white" /> : 'Aceitar convite'}
-              </Button>
-              <Button 
-                variant="ghost" 
-                className="w-full py-4 text-base font-medium rounded-2xl text-gray-500 hover:text-gray-700 bg-gray-50 hover:bg-gray-100 transition-colors" 
+              {!isInvalidToken && (
+                <Button
+                  className="w-full py-6 text-lg font-bold rounded-2xl shadow-lg active:scale-95 transition-all"
+                  onClick={handleAction}
+                  disabled={accepting}
+                >
+                  {accepting ? <Spinner className="text-white" /> : 'Aceitar convite'}
+                </Button>
+              )}
+              <Button
+                variant="ghost"
+                className="w-full py-4 text-base font-medium rounded-2xl text-gray-500 hover:text-gray-700 bg-gray-50 hover:bg-gray-100 transition-colors"
                 onClick={cancel}
                 disabled={accepting}
               >
-                Cancelar
+                {isInvalidToken || error.includes('já faz parte') ? 'Ir para o início' : 'Cancelar'}
               </Button>
             </div>
           </div>

@@ -227,11 +227,17 @@ export function UserProfile() {
           />
           
           <button 
-            onClick={() => window.location.reload()}
+            onClick={() => {
+              try {
+                sessionStorage.removeItem('duca_context_selected');
+                localStorage.removeItem('duca_active_flow_until');
+              } catch {}
+              window.location.reload();
+            }}
             className="w-full text-left px-4 py-3 text-sm text-gray-700 hover:bg-gray-50 flex items-center transition-colors border-b border-gray-100"
           >
             <Users className="w-4 h-4 mr-2 text-gray-400" />
-            Trocar Paciente
+            Trocar Familiar
           </button>
           
           <button 

@@ -110,8 +110,15 @@ export function TimelineItem({ event, onClick, profileId }: TimelineItemProps) {
             <p className="text-sm text-gray-600 mt-1">{subLabel}</p>
           )}
           
-          {event.type === 'meal' && event.log?.description && (
-            <p className="text-sm text-gray-500 mt-2 truncate">"{event.log.description}"</p>
+          {event.type === 'meal' && (event.log?.description || event.log?.drink_description) && (
+            <div className="mt-2 space-y-0.5">
+              {event.log?.description && (
+                <p className="text-sm text-gray-500 truncate">🍽️ "{event.log.description}"</p>
+              )}
+              {event.log?.drink_description && (
+                <p className="text-xs text-sky-700/80 truncate">🥤 Bebeu: {event.log.drink_description}</p>
+              )}
+            </div>
           )}
           
           {(event.status === 'confirmed' || event.status === 'attention') && (() => {

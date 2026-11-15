@@ -1,35 +1,58 @@
-export async function compressImage(file: File, maxWidth = 1024): Promise<File> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.readAsDataURL(file);
-    reader.onload = (event) => {
-      const img = new Image();
-      img.src = event.target?.result as string;
-      img.onload = () => {
-        const canvas = document.createElement('canvas');
-        const scaleSize = maxWidth / img.width;
-        
-        if (scaleSize >= 1) {
-          resolve(file); // Already small enough
+export async function compressImage(file: File, maxWidth = 1280): Promise<File> {
+  return new Promise((resolve) => {
+    const objectUrl = URL.createObjectURL(file);
+    const img = new Image();
+
+    img.onload = () => {
+      try {
+        const needsResize = img.width > maxWidth;
+        const targetWidth = needsResize ? maxWidth : img.width;
+        const targetHeight = needsResize ? Math.round((img.height * maxWidth) / img.width) : img.height;
+
+        // Se já é JPEG pequeno e menor que 800KB, retorna direto sem reprocessar
+        if (!needsResize && file.type === 'image/jpeg' && file.size <= 800 * 1024) {
+          URL.revokeObjectURL(objectUrl);
+          resolve(file);
           return;
         }
 
-        canvas.width = maxWidth;
-        canvas.height = img.height * scaleSize;
+        const canvas = document.createElement('canvas');
+        canvas.width = targetWidth;
+        canvas.height = targetHeight;
 
         const ctx = canvas.getContext('2d');
-        ctx?.drawImage(img, 0, 0, canvas.width, canvas.height);
+        if (!ctx) {
+          URL.revokeObjectURL(objectUrl);
+          resolve(file);
+          return;
+        }
 
-        canvas.toBlob((blob) => {
-          if (blob) {
-            resolve(new File([blob], file.name, { type: 'image/jpeg', lastModified: Date.now() }));
-          } else {
-            resolve(file); // Fallback
-          }
-        }, 'image/jpeg', 0.9); // 90% quality
-      };
-      img.onerror = reject;
+        ctx.drawImage(img, 0, 0, targetWidth, targetHeight);
+
+        canvas.toBlob(
+          (blob) => {
+            URL.revokeObjectURL(objectUrl);
+            if (blob) {
+              const safeName = file.name.replace(/\.[^.]+$/, '') + '.jpg';
+              resolve(new File([blob], safeName, { type: 'image/jpeg', lastModified: Date.now() }));
+            } else {
+              resolve(file);
+            }
+          },
+          'image/jpeg',
+          0.85
+        );
+      } catch {
+        URL.revokeObjectURL(objectUrl);
+        resolve(file);
+      }
     };
-    reader.onerror = reject;
+
+    img.onerror = () => {
+      URL.revokeObjectURL(objectUrl);
+      resolve(file);
+    };
+
+    img.src = objectUrl;
   });
 }

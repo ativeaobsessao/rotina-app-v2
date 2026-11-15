@@ -111,12 +111,88 @@ export function ReportModal({ isOpen, onClose, patientId, patientName }: ReportM
       ].filter(Boolean).join(' • ');
       doc.text(summaryParts || 'Sem registros', rightColX + 16, 31);
 
-      let currentY = 40;
+      // ─── Faixa de Resumo Clínico e Nutricional Rápido ────────────────
+      const totalMeds = medLogs.length;
+      const administeredMeds = medLogs.filter(m => m.status === 'administered').length;
+      const medRate = totalMeds > 0 ? Math.round((administeredMeds / totalMeds) * 100) : null;
+
+      const normalMeals = mealLogs.filter(m => m.consumption_status === 'normal').length;
+      const partialMeals = mealLogs.filter(m => m.consumption_status === 'partial').length;
+      const skippedMeals = mealLogs.filter(m => m.consumption_status === 'none').length;
+      const mealsWithDrink = mealLogs.filter(m => m.drink_description && String(m.drink_description).trim().length > 0).length;
+
+      const painFreeDays = moodLogs.filter(m => m.pain_level === 'none').length;
+      const painDays = moodLogs.filter(m => m.pain_level !== 'none').length;
+
+      const boxGap = 3;
+      const contentW = pageWidth - margin * 2;
+      const boxW = (contentW - boxGap * 2) / 3;
+      const boxY = 38.5;
+      const boxH = 13;
+
+      // Box 1: Medicamentos
+      doc.setFillColor(255, 241, 242);
+      doc.setDrawColor(254, 205, 211);
+      doc.roundedRect(margin, boxY, boxW, boxH, 1.5, 1.5, 'FD');
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(7);
+      doc.setTextColor(190, 18, 60);
+      doc.text('ADESÃO MEDICAMENTOSA', margin + 2.5, boxY + 4.5);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(8.5);
+      doc.setTextColor(15, 23, 42);
+      doc.text(
+        medRate !== null ? `${administeredMeds}/${totalMeds} doses (${medRate}%)` : 'Sem registros',
+        margin + 2.5,
+        boxY + 10
+      );
+
+      // Box 2: Alimentação e Hidratação
+      const box2X = margin + boxW + boxGap;
+      doc.setFillColor(238, 242, 255);
+      doc.setDrawColor(199, 210, 254);
+      doc.roundedRect(box2X, boxY, boxW, boxH, 1.5, 1.5, 'FD');
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(7);
+      doc.setTextColor(67, 56, 202);
+      doc.text('NUTRIÇÃO E HIDRATAÇÃO', box2X + 2.5, boxY + 4.5);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(8);
+      doc.setTextColor(15, 23, 42);
+      doc.text(
+        mealLogs.length > 0
+          ? `${normalMeals}N • ${partialMeals}P • ${skippedMeals}NC | ${mealsWithDrink} líq.`
+          : 'Sem registros',
+        box2X + 2.5,
+        boxY + 10
+      );
+
+      // Box 3: Bem-Estar e Dor
+      const box3X = box2X + boxW + boxGap;
+      doc.setFillColor(240, 253, 250);
+      doc.setDrawColor(153, 246, 228);
+      doc.roundedRect(box3X, boxY, boxW, boxH, 1.5, 1.5, 'FD');
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(7);
+      doc.setTextColor(15, 118, 110);
+      doc.text('BEM-ESTAR E QUEIXAS', box3X + 2.5, boxY + 4.5);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(8);
+      doc.setTextColor(15, 23, 42);
+      doc.text(
+        moodLogs.length > 0
+          ? `${painFreeDays} sem dor • ${painDays} com queixa`
+          : 'Sem registros',
+        box3X + 2.5,
+        boxY + 10
+      );
+
+      let currentY = boxY + boxH + 6;
 
       // ─── Tabela 1: Medicamentos (Prioridade Clínica) ─────────────────
       if (medLogs.length > 0) {
         doc.setFont('helvetica', 'bold');
-        doc.setFontSize(11);
+        doc.setFontSize(10.5);
         doc.setTextColor(190, 18, 60); // Rose 700
         doc.text('1. Administração de Medicamentos', margin, currentY);
         currentY += 2;
@@ -136,22 +212,22 @@ export function ReportModal({ isOpen, onClose, patientId, patientName }: ReportM
 
         autoTable(doc, {
           startY: currentY,
-          margin: { left: margin, right: margin, bottom: 15 },
+          margin: { left: margin, right: margin, bottom: 14 },
           head: [['Data', 'Hora', 'Medicamento', 'Dosagem', 'Período', 'Status', 'Cuidador', 'Observações / Motivo']],
           body: medTableData,
           theme: 'grid',
           headStyles: {
             fillColor: [225, 29, 72], // Rose 600
             textColor: [255, 255, 255],
-            fontSize: 8,
+            fontSize: 7.8,
             fontStyle: 'bold',
             halign: 'left',
-            cellPadding: 1.8,
+            cellPadding: 1.6,
           },
           bodyStyles: {
-            fontSize: 7.5,
+            fontSize: 7.3,
             textColor: [30, 41, 59],
-            cellPadding: 1.6,
+            cellPadding: 1.5,
             lineColor: [226, 232, 240],
             lineWidth: 0.1,
           },
@@ -160,16 +236,15 @@ export function ReportModal({ isOpen, onClose, patientId, patientName }: ReportM
           },
           columnStyles: {
             0: { cellWidth: 16, halign: 'center' }, // Data
-            1: { cellWidth: 12, halign: 'center' }, // Hora
+            1: { cellWidth: 11, halign: 'center' }, // Hora
             2: { cellWidth: 32, fontStyle: 'bold' }, // Medicamento
-            3: { cellWidth: 20 },                  // Dose
+            3: { cellWidth: 19 },                  // Dose
             4: { cellWidth: 22 },                  // Período
             5: { cellWidth: 24, fontStyle: 'bold' }, // Status
             6: { cellWidth: 20 },                  // Cuidador
             7: { cellWidth: 'auto' },              // Observações
           },
           didParseCell: (data) => {
-            // Destaque visual clínico no status de medicação
             if (data.section === 'body' && data.column.index === 5) {
               if (data.cell.raw === 'Administrado') {
                 data.cell.styles.textColor = [22, 101, 52]; // Green 800
@@ -181,21 +256,20 @@ export function ReportModal({ isOpen, onClose, patientId, patientName }: ReportM
           },
         });
 
-        currentY = (doc as any).lastAutoTable.finalY + 8;
+        currentY = (doc as any).lastAutoTable.finalY + 7;
       }
 
-      // ─── Tabela 2: Refeições e Nutrição ─────────────────────────────
+      // ─── Tabela 2: Refeições, Nutrição e Hidratação ──────────────────
       if (mealLogs.length > 0) {
-        // Se o espaço restante for menor que 30mm, cria página nova de forma inteligente
-        if (currentY > pageHeight - 35) {
+        if (currentY > pageHeight - 34) {
           doc.addPage();
-          currentY = 16;
+          currentY = 15;
         }
 
         doc.setFont('helvetica', 'bold');
-        doc.setFontSize(11);
+        doc.setFontSize(10.5);
         doc.setTextColor(67, 56, 202); // Indigo 700
-        doc.text('2. Registro Nutricional e Alimentação', margin, currentY);
+        doc.text('2. Registro Nutricional, Alimentação e Hidratação', margin, currentY);
         currentY += 2;
 
         const mealTableData = mealLogs.map(log => {
@@ -207,32 +281,32 @@ export function ReportModal({ isOpen, onClose, patientId, patientName }: ReportM
           if (log.consumption_status === 'partial') consumption = 'Parcial';
           else if (log.consumption_status === 'none') consumption = 'Não Comeu';
 
+          const ate = log.description || '-';
+          const drank = log.drink_description || '-';
           const caregiver = log.creator?.name || 'Familiar';
-          const desc = log.description ? `Desc: ${log.description}` : '';
-          const notes = log.notes ? `Obs: ${log.notes}` : '';
-          const combinedNotes = [desc, notes].filter(Boolean).join(' | ') || '-';
+          const obs = log.notes ? `${caregiver}: ${log.notes}` : caregiver;
 
-          return [dateFormatted, timeFormatted, mealName, consumption, caregiver, combinedNotes];
+          return [dateFormatted, timeFormatted, mealName, consumption, ate, drank, obs];
         });
 
         autoTable(doc, {
           startY: currentY,
-          margin: { left: margin, right: margin, bottom: 15 },
-          head: [['Data', 'Hora', 'Refeição', 'Consumo', 'Cuidador', 'Descrição / Observações Nutricionais']],
+          margin: { left: margin, right: margin, bottom: 14 },
+          head: [['Data', 'Hora', 'Refeição', 'Consumo', 'O que comeu', 'O que bebeu (Hidratação)', 'Cuidador / Obs.']],
           body: mealTableData,
           theme: 'grid',
           headStyles: {
             fillColor: [79, 70, 229], // Indigo 600
             textColor: [255, 255, 255],
-            fontSize: 8,
+            fontSize: 7.8,
             fontStyle: 'bold',
             halign: 'left',
-            cellPadding: 1.8,
+            cellPadding: 1.6,
           },
           bodyStyles: {
-            fontSize: 7.5,
+            fontSize: 7.3,
             textColor: [30, 41, 59],
-            cellPadding: 1.6,
+            cellPadding: 1.5,
             lineColor: [226, 232, 240],
             lineWidth: 0.1,
           },
@@ -240,12 +314,13 @@ export function ReportModal({ isOpen, onClose, patientId, patientName }: ReportM
             fillColor: [248, 250, 252], // Slate 50 suave
           },
           columnStyles: {
-            0: { cellWidth: 16, halign: 'center' }, // Data
-            1: { cellWidth: 12, halign: 'center' }, // Hora
-            2: { cellWidth: 32, fontStyle: 'bold' }, // Refeição
-            3: { cellWidth: 22, fontStyle: 'bold' }, // Consumo
-            4: { cellWidth: 26 },                  // Cuidador
-            5: { cellWidth: 'auto' },              // Observações
+            0: { cellWidth: 15, halign: 'center' }, // Data
+            1: { cellWidth: 11, halign: 'center' }, // Hora
+            2: { cellWidth: 24, fontStyle: 'bold' }, // Refeição
+            3: { cellWidth: 17, fontStyle: 'bold' }, // Consumo
+            4: { cellWidth: 44 },                  // O que comeu
+            5: { cellWidth: 38 },                  // O que bebeu
+            6: { cellWidth: 'auto' },              // Cuidador / Obs
           },
           didParseCell: (data) => {
             if (data.section === 'body' && data.column.index === 3) {
@@ -260,7 +335,7 @@ export function ReportModal({ isOpen, onClose, patientId, patientName }: ReportM
           },
         });
 
-        currentY = (doc as any).lastAutoTable.finalY + 8;
+        currentY = (doc as any).lastAutoTable.finalY + 7;
       }
 
       // ─── Tabela 3: Estado de Espírito, Humor e Dores ─────────────────

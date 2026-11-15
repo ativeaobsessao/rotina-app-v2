@@ -46,6 +46,10 @@ export interface Database {
         Args: { p_user_id: string, p_family_id: string }
         Returns: undefined
       }
+      update_family_member_role: {
+        Args: { p_user_id: string, p_family_id: string, p_new_role: string }
+        Returns: { success: boolean, user_id: string, role: string }
+      }
     }
     Enums: {
       [_ in never]: never

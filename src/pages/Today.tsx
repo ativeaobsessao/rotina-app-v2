@@ -9,6 +9,7 @@ import {
   getMealLogs,
   getMedicationLogs,
   getDailyMoodLog,
+  getMyFamilyRole,
   type DailyMoodLog,
   getPatientPhotoUrl,
   getMealPhotoUrl,
@@ -22,7 +23,7 @@ import { Spinner } from '../components/ui/Spinner';
 
 import { TimelineItem } from '../components/timeline/TimelineItem';
 import { DailyProgressBar } from '../components/timeline/DailyProgressBar';
-import { MealModal } from '../components/meals/MealModal';
+import { MealModal, MEAL_DRAFT_KEY } from '../components/meals/MealModal';
 import { UserProfile } from '../components/ui/UserProfile';
 import { MedicationModal } from '../components/medications/MedicationModal';
 import { MoodAndPainModal } from '../components/mood/MoodAndPainModal';
@@ -47,6 +48,7 @@ export function TodayScreen({ onTabChange, editingDateStr, onClearEditDate }: { 
   const [todayMood, setTodayMood] = useState<DailyMoodLog | null>(null);
   const [showMoodModal, setShowMoodModal] = useState(false);
   const [moodModalMode, setMoodModalMode] = useState<'view' | 'edit'>('view');
+  const [isAdmin, setIsAdmin] = useState(false);
 
   // Modals state
   const [selectedMealEvent, setSelectedMealEvent] = useState<MealEventData | null>(null);
@@ -63,7 +65,11 @@ export function TodayScreen({ onTabChange, editingDateStr, onClearEditDate }: { 
       if (!prof) return;
       setProfile(prof);
 
-      const pat = await getPatient(prof.family_id);
+      const [pat, role] = await Promise.all([
+        getPatient(prof.family_id),
+        getMyFamilyRole(prof.family_id)
+      ]);
+      setIsAdmin(role === 'ADMIN');
       if (!pat) return;
       setPatient(pat);
 
@@ -172,6 +178,25 @@ export function TodayScreen({ onTabChange, editingDateStr, onClearEditDate }: { 
       timeline.sort((a, b) => a.time.localeCompare(b.time));
       setEvents(timeline);
       setLoadedDate(dateStr);
+
+      // Se o celular recarregou a página enquanto a cuidadora tirava foto na câmera, reabre a refeição em andamento
+      try {
+        const rawDraft = sessionStorage.getItem(MEAL_DRAFT_KEY) || localStorage.getItem(MEAL_DRAFT_KEY);
+        if (rawDraft) {
+          const parsedDraft = JSON.parse(rawDraft);
+          if (
+            parsedDraft &&
+            parsedDraft.patientId === patientId &&
+            parsedDraft.eventDate === dateStr &&
+            Date.now() - (parsedDraft.ts || 0) < 15 * 60 * 1000
+          ) {
+            const targetEvent = timeline.find(e => e.type === 'meal' && e.id === parsedDraft.mealId) as MealEventData | undefined;
+            if (targetEvent) {
+              setSelectedMealEvent(prev => prev || targetEvent);
+            }
+          }
+        }
+      } catch {}
     } catch (error) {
       console.error("Error refreshing timeline:", error);
     }
@@ -338,11 +363,11 @@ export function TodayScreen({ onTabChange, editingDateStr, onClearEditDate }: { 
             <button
               type="button"
               onClick={() => {
-                setMoodModalMode(todayMood ? 'view' : 'edit');
+                setMoodModalMode(todayMood || !isAdmin ? 'view' : 'edit');
                 setShowMoodModal(true);
               }}
               className="relative group transition-transform active:scale-95 focus:outline-none shrink-0"
-              title={todayMood ? 'Ver avaliação de bem-estar de hoje' : 'Registrar como está hoje'}
+              title={todayMood ? 'Ver avaliação de bem-estar de hoje' : isAdmin ? 'Registrar como está hoje' : 'Ver bem-estar de hoje'}
             >
               <div className="w-16 h-16 rounded-full bg-gray-100 border-2 border-white shadow-md overflow-hidden flex items-center justify-center ring-2 ring-indigo-100 group-hover:ring-indigo-300 transition-all">
                 {patientPhoto ? (
@@ -366,20 +391,20 @@ export function TodayScreen({ onTabChange, editingDateStr, onClearEditDate }: { 
                    todayMood.mood === 'tired' ? '🥱' :
                    todayMood.mood === 'sad' ? '😢' : '😣'}
                 </div>
-              ) : (
+              ) : isAdmin ? (
                 <div 
                   className="absolute -bottom-1 -right-1 w-6 h-6 rounded-full bg-indigo-50 border-2 border-white ring-1 ring-indigo-200 flex items-center justify-center text-[10px] text-indigo-600 shadow-sm animate-pulse"
                 >
                   ✨
                 </div>
-              )}
+              ) : null}
             </button>
 
             <div className="flex-1 min-w-0">
               <h2 className="text-xl font-semibold text-gray-900 truncate">{patient.name}</h2>
               <p className="text-xs text-gray-500 mb-1.5">Hoje, {friendlyDate}</p>
 
-              {/* Status pill para rápida leitura e registro com zero ruído */}
+              {/* Status pill para rápida leitura e registro com zero ruído para acompanhantes */}
               {todayMood ? (
                 <button
                   type="button"
@@ -417,7 +442,7 @@ export function TodayScreen({ onTabChange, editingDateStr, onClearEditDate }: { 
                         })`}
                   </span>
                 </button>
-              ) : (
+              ) : isAdmin ? (
                 <button
                   type="button"
                   onClick={() => {
@@ -429,7 +454,7 @@ export function TodayScreen({ onTabChange, editingDateStr, onClearEditDate }: { 
                   <span className="text-indigo-500 font-bold">+</span>
                   <span>Registrar bem-estar de hoje</span>
                 </button>
-              )}
+              ) : null}
             </div>
           </div>
 
@@ -590,6 +615,7 @@ export function TodayScreen({ onTabChange, editingDateStr, onClearEditDate }: { 
           patientId={patient.id}
           profileId={profile.id}
           eventDate={localDate}
+          patientGender={patient.gender}
           onSuccess={handleMealRefresh}
         />
       )}
@@ -618,6 +644,7 @@ export function TodayScreen({ onTabChange, editingDateStr, onClearEditDate }: { 
           dateStr={localDate}
           currentLog={todayMood}
           mode={moodModalMode}
+          canEdit={isAdmin}
           onSuccess={(updatedLog) => {
             setTodayMood(updatedLog);
           }}

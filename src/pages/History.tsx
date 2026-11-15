@@ -28,6 +28,7 @@ interface HistoryMealEntry {
   time: string;         // meal_time or scheduled_time
   consumption_status: 'normal' | 'partial' | 'none';
   description: string | null;
+  drink_description: string | null;
   notes: string | null;
   photo_url: string | null;
   photoSignedUrl: string | null;
@@ -100,7 +101,10 @@ function MealRow({ meal, onEdit, profileId }: { meal: HistoryMealEntry; onEdit: 
         )}
 
         {meal.description && (
-          <p className="text-sm text-gray-600 ml-6 mb-2 italic">"{meal.description}"</p>
+          <p className="text-sm text-gray-600 ml-6 mb-1 italic">🍽️ "{meal.description}"</p>
+        )}
+        {meal.drink_description && (
+          <p className="text-xs text-sky-700 ml-6 mb-2">🥤 Bebeu: {meal.drink_description}</p>
         )}
 
         <div className="ml-6 pt-2 border-t border-gray-50 flex items-center gap-1.5 mt-2">
@@ -474,6 +478,7 @@ export function HistoryScreen({ onTabChange, onEditPastDay }: { onTabChange?: (t
           time: log.meal_time || mealConfig.scheduled_time || '00:00:00',
           consumption_status: log.consumption_status ?? 'normal',
           description: log.description ?? null,
+          drink_description: log.drink_description ?? null,
           notes: log.notes ?? null,
           photo_url: log.photo_url ?? null,
           photoSignedUrl,
@@ -702,6 +707,7 @@ export function HistoryScreen({ onTabChange, onEditPastDay }: { onTabChange?: (t
           patientId={patient.id}
           profileId={profile.id}
           eventDate={selectedMeal.dateStr}
+          patientGender={patient.gender}
           onSuccess={() => { loadData(); setSelectedMeal(null); }}
         />
       )}

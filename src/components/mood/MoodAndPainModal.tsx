@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { X, Heart, Smile, Sparkles, AlertTriangle, Check, CheckCircle2, MapPin } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { X, Heart, Smile, Sparkles, AlertTriangle, Check, CheckCircle2, MapPin, Clock } from 'lucide-react';
 import { BottomSheet } from '../ui/BottomSheet';
 import { Button } from '../ui/Button';
 import { Spinner } from '../ui/Spinner';
@@ -17,6 +17,7 @@ interface MoodAndPainModalProps {
   currentLog?: DailyMoodLog | null;
   onSuccess: (updatedLog: DailyMoodLog) => void;
   mode?: 'view' | 'edit';
+  canEdit?: boolean;
 }
 
 const MOOD_OPTIONS = [
@@ -56,14 +57,28 @@ export function MoodAndPainModal({
   currentLog,
   onSuccess,
   mode = 'edit',
+  canEdit = false,
 }: MoodAndPainModalProps) {
-  const [currentMode, setCurrentMode] = useState<'view' | 'edit'>(currentLog && mode === 'view' ? 'view' : 'edit');
+  const [currentMode, setCurrentMode] = useState<'view' | 'edit'>(
+    !canEdit ? 'view' : currentLog && mode === 'view' ? 'view' : 'edit'
+  );
   const [selectedMood, setSelectedMood] = useState<DailyMoodLog['mood']>(currentLog?.mood || 'happy');
   const [painLevel, setPainLevel] = useState<DailyMoodLog['pain_level']>(currentLog?.pain_level || 'none');
   const [painLocations, setPainLocations] = useState<string[]>(currentLog?.pain_locations || []);
   const [notes, setNotes] = useState(currentLog?.notes || '');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (isOpen) {
+      setCurrentMode(!canEdit ? 'view' : currentLog && mode === 'view' ? 'view' : 'edit');
+      setSelectedMood(currentLog?.mood || 'happy');
+      setPainLevel(currentLog?.pain_level || 'none');
+      setPainLocations(currentLog?.pain_locations || []);
+      setNotes(currentLog?.notes || '');
+      setError('');
+    }
+  }, [isOpen, currentLog, mode, canEdit]);
 
   if (!isOpen) return null;
 
@@ -117,8 +132,30 @@ export function MoodAndPainModal({
           </div>
         )}
 
-        {/* ─── MODO VISUALIZAÇÃO (Acolhedor para familiares) ─── */}
-        {currentMode === 'view' && currentLog ? (
+        {/* ─── MODO VISUALIZAÇÃO SEM REGISTRO AINDA (Apenas para Acompanhantes) ─── */}
+        {(!canEdit && !currentLog) ? (
+          <div className="space-y-6 animate-in fade-in duration-300">
+            <div className="p-7 rounded-3xl bg-gradient-to-br from-slate-50 via-white to-indigo-50/40 border border-gray-100 shadow-sm flex flex-col items-center text-center">
+              <div className="w-14 h-14 rounded-full bg-indigo-50 border border-indigo-100 flex items-center justify-center mb-4">
+                <Clock className="w-6 h-6 text-indigo-500" />
+              </div>
+              <h3 className="text-lg font-bold text-gray-900 tracking-tight">
+                Aguardando atualização de hoje
+              </h3>
+              <p className="text-xs text-gray-500 mt-2 max-w-xs leading-relaxed">
+                Assim que o responsável ou cuidadora registrar como {patientName} está se sentindo hoje, o resumo completo aparecerá aqui.
+              </p>
+            </div>
+            <Button
+              variant="ghost"
+              onClick={onClose}
+              className="w-full py-3.5 text-sm font-semibold text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-2xl"
+            >
+              Fechar
+            </Button>
+          </div>
+        ) : currentMode === 'view' && currentLog ? (
+          /* ─── MODO VISUALIZAÇÃO (Acolhedor para familiares) ─── */
           <div className="space-y-6 animate-in fade-in duration-300">
             {/* Card Principal de Resumo */}
             <div className="p-6 rounded-3xl bg-gradient-to-br from-indigo-50/80 via-white to-purple-50/60 border border-indigo-100/80 shadow-sm flex flex-col items-center text-center">
@@ -185,17 +222,28 @@ export function MoodAndPainModal({
               </div>
             )}
 
+            {/* Assinatura discreta de quem registrou */}
+            {currentLog.updater?.name && (
+              <p className="text-center text-[11px] text-gray-400 font-medium">
+                Registrado por {currentLog.updater.name}
+              </p>
+            )}
+
             <div className="pt-2 flex flex-col gap-2">
-              <Button
-                onClick={() => setCurrentMode('edit')}
-                className="w-full py-4 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-sm rounded-2xl shadow-md"
-              >
-                Atualizar Bem-estar de Hoje
-              </Button>
+              {canEdit && (
+                <Button
+                  onClick={() => setCurrentMode('edit')}
+                  className="w-full py-4 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-sm rounded-2xl shadow-md"
+                >
+                  Atualizar Bem-estar de Hoje
+                </Button>
+              )}
               <Button
                 variant="ghost"
                 onClick={onClose}
-                className="w-full py-3.5 text-xs text-gray-500 font-medium rounded-2xl"
+                className={`w-full py-3.5 text-xs font-medium rounded-2xl ${
+                  canEdit ? 'text-gray-500' : 'text-gray-700 bg-gray-100 hover:bg-gray-200 font-semibold text-sm'
+                }`}
               >
                 Fechar
               </Button>

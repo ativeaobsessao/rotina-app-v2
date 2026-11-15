@@ -74,14 +74,14 @@ export function SetupScreen({ onComplete }: SetupScreenProps) {
   };
 
   return (
-    <div className="flex h-screen flex-col bg-gray-50 p-6 items-center justify-center">
-      <div className="w-full max-w-md space-y-8 bg-white p-8 rounded-3xl shadow-sm border border-gray-100 text-center">
+    <div className="flex h-screen flex-col bg-gray-50 dark:bg-[#09090b] p-6 items-center justify-center">
+      <div className="w-full max-w-md space-y-8 bg-white dark:bg-[#121216] p-8 rounded-3xl shadow-sm border border-gray-100 dark:border-white/[0.08] text-center">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-gray-900">Bem-vindo ao DUCA</h1>
-          <p className="text-gray-500 mt-2">Vamos configurar a rotina. Primeiro, quem estamos acompanhando?</p>
+          <h1 className="text-2xl font-bold tracking-tight text-gray-900 dark:text-zinc-100">Bem-vindo ao DUCA</h1>
+          <p className="text-gray-500 dark:text-zinc-400 mt-2">Vamos configurar a rotina. Primeiro, quem estamos acompanhando?</p>
         </div>
 
-        {error && <div className="text-red-600 text-sm bg-red-50 p-3 rounded-xl">{error}</div>}
+        {error && <div className="text-red-600 dark:text-rose-300 text-sm bg-red-50 dark:bg-rose-950/40 dark:border dark:border-rose-800/50 p-3 rounded-xl">{error}</div>}
 
         <div className="space-y-4">
           <Input 
@@ -91,21 +91,21 @@ export function SetupScreen({ onComplete }: SetupScreenProps) {
           />
 
           <div className="space-y-2">
-            <label className="text-sm font-semibold text-gray-900 block text-left">Foto <span className="text-gray-400 font-normal">(Opcional)</span></label>
+            <label className="text-sm font-semibold text-gray-900 dark:text-zinc-100 block text-left">Foto <span className="text-gray-400 dark:text-zinc-500 font-normal">(Opcional)</span></label>
             {showPhotoMenu ? (
-              <div className="p-4 rounded-xl border border-gray-200 bg-gray-50 space-y-2 animate-in fade-in duration-200 text-left">
+              <div className="p-4 rounded-xl border border-gray-200 dark:border-white/[0.08] bg-gray-50 dark:bg-[#1c1c22] space-y-2 animate-in fade-in duration-200 text-left">
                 <Button variant="outline" className="w-full justify-start" onClick={() => { cameraInputRef.current?.click(); setShowPhotoMenu(false); }}>
-                  <Camera className="w-5 h-5 mr-3 text-gray-500" /> Tirar foto
+                  <Camera className="w-5 h-5 mr-3 text-gray-500 dark:text-zinc-400" /> Tirar foto
                 </Button>
                 <Button variant="outline" className="w-full justify-start" onClick={() => { galleryInputRef.current?.click(); setShowPhotoMenu(false); }}>
-                  <ImageIcon className="w-5 h-5 mr-3 text-gray-500" /> Escolher da galeria
+                  <ImageIcon className="w-5 h-5 mr-3 text-gray-500 dark:text-zinc-400" /> Escolher da galeria
                 </Button>
                 <Button variant="ghost" className="w-full" onClick={() => setShowPhotoMenu(false)}>
                   Cancelar
                 </Button>
               </div>
             ) : photoPreview ? (
-              <div className="relative w-32 h-32 mx-auto rounded-full overflow-hidden bg-gray-100 border-2 border-gray-200">
+              <div className="relative w-32 h-32 mx-auto rounded-full overflow-hidden bg-gray-100 dark:bg-[#1c1c22] border-2 border-gray-200 dark:border-white/[0.12]">
                 <img src={photoPreview} alt="Preview" className="w-full h-full object-cover" />
                 <button 
                   onClick={() => { setPhotoPreview(null); setPhotoFile(null); }}
@@ -116,7 +116,7 @@ export function SetupScreen({ onComplete }: SetupScreenProps) {
               </div>
             ) : (
               <Button variant="outline" className="w-full" onClick={() => setShowPhotoMenu(true)}>
-                <Camera className="w-5 h-5 mr-2 text-gray-500" /> Adicionar foto
+                <Camera className="w-5 h-5 mr-2 text-gray-500 dark:text-zinc-400" /> Adicionar foto
               </Button>
             )}
 
@@ -126,7 +126,7 @@ export function SetupScreen({ onComplete }: SetupScreenProps) {
         </div>
 
         <Button className="w-full" size="lg" onClick={handleStart} disabled={loading || !name.trim()}>
-          {loading ? <Spinner className="text-white" /> : 'Começar'}
+          {loading ? <Spinner className="text-white dark:text-zinc-950" /> : 'Começar'}
         </Button>
       </div>
     </div>

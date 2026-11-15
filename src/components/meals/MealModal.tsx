@@ -251,7 +251,7 @@ export function MealModal({
               <button
                 type="button"
                 onClick={() => setIsPhotoZoomed(true)}
-                className="w-full aspect-[4/3] bg-gray-100 rounded-2xl overflow-hidden relative block group focus:outline-none"
+                className="w-full aspect-[4/3] bg-gray-100 dark:bg-[#1c1c22] rounded-2xl overflow-hidden relative block group focus:outline-none border border-transparent dark:border-white/[0.08]"
                 title="Toque para ampliar a foto"
               >
                 <img src={photoPreview} alt={event.title} className="w-full h-full object-cover" />
@@ -261,10 +261,10 @@ export function MealModal({
               </button>
             )}
 
-            <div className="bg-gray-50 rounded-2xl p-5 space-y-4">
+            <div className="bg-gray-50 dark:bg-[#1c1c22] dark:border dark:border-white/[0.08] rounded-2xl p-5 space-y-4">
               <div>
-                <span className="block text-[10px] font-bold uppercase tracking-widest text-gray-400 mb-1">Status</span>
-                <p className="font-medium text-gray-900">
+                <span className="block text-[10px] font-bold uppercase tracking-widest text-gray-400 dark:text-zinc-500 mb-1">Status</span>
+                <p className="font-medium text-gray-900 dark:text-zinc-100">
                   {event.log.consumption_status === 'normal'
                     ? 'Comeu normalmente'
                     : event.log.consumption_status === 'partial'
@@ -274,59 +274,59 @@ export function MealModal({
               </div>
 
               <div>
-                <span className="block text-[10px] font-bold uppercase tracking-widest text-gray-400 mb-1">Horário</span>
-                <p className="font-medium text-gray-900">
+                <span className="block text-[10px] font-bold uppercase tracking-widest text-gray-400 dark:text-zinc-500 mb-1">Horário</span>
+                <p className="font-medium text-gray-900 dark:text-zinc-100">
                   {event.log.meal_time ? event.log.meal_time.substring(0, 5) : 'Não informado'}
                 </p>
               </div>
 
               {event.log.description && (
                 <div>
-                  <span className="block text-[10px] font-bold uppercase tracking-widest text-gray-400 mb-1">
+                  <span className="block text-[10px] font-bold uppercase tracking-widest text-gray-400 dark:text-zinc-500 mb-1">
                     O que {pronoun} comeu
                   </span>
-                  <p className="font-medium text-gray-900">{event.log.description}</p>
+                  <p className="font-medium text-gray-900 dark:text-zinc-100">{event.log.description}</p>
                 </div>
               )}
 
               {event.log.drink_description && (
                 <div>
-                  <span className="block text-[10px] font-bold uppercase tracking-widest text-gray-400 mb-1">
+                  <span className="block text-[10px] font-bold uppercase tracking-widest text-gray-400 dark:text-zinc-500 mb-1">
                     O que {pronoun} bebeu
                   </span>
-                  <p className="font-medium text-gray-900">{event.log.drink_description}</p>
+                  <p className="font-medium text-gray-900 dark:text-zinc-100">{event.log.drink_description}</p>
                 </div>
               )}
 
               {event.log.notes && (
                 <div>
-                  <span className="block text-[10px] font-bold uppercase tracking-widest text-gray-400 mb-1">Observações</span>
-                  <p className="font-medium text-gray-900">{event.log.notes}</p>
+                  <span className="block text-[10px] font-bold uppercase tracking-widest text-gray-400 dark:text-zinc-500 mb-1">Observações</span>
+                  <p className="font-medium text-gray-900 dark:text-zinc-100">{event.log.notes}</p>
                 </div>
               )}
             </div>
 
             <div className="space-y-4">
-              <div className="border-t border-gray-100 pt-4">
-                <h4 className="text-[10px] font-bold uppercase tracking-widest text-gray-400 mb-2">Registro Original</h4>
+              <div className="border-t border-gray-100 dark:border-white/[0.08] pt-4">
+                <h4 className="text-[10px] font-bold uppercase tracking-widest text-gray-400 dark:text-zinc-500 mb-2">Registro Original</h4>
                 <div className="flex items-center text-sm">
                   <span className="mr-2 opacity-70">👤</span>
-                  <span className="font-medium text-gray-900">{event.log.creator?.name || 'Familiar'}</span>
+                  <span className="font-medium text-gray-900 dark:text-zinc-100">{event.log.creator?.name || 'Familiar'}</span>
                 </div>
-                <div className="text-xs text-gray-500 pl-6 mt-0.5">
+                <div className="text-xs text-gray-500 dark:text-zinc-400 pl-6 mt-0.5">
                   Registrado às{' '}
                   {new Date(event.log.created_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
                 </div>
               </div>
 
               {event.log.updated_by !== event.log.created_by && (
-                <div className="border-t border-gray-100 pt-4">
-                  <h4 className="text-[10px] font-bold uppercase tracking-widest text-gray-400 mb-2">Última Alteração</h4>
+                <div className="border-t border-gray-100 dark:border-white/[0.08] pt-4">
+                  <h4 className="text-[10px] font-bold uppercase tracking-widest text-gray-400 dark:text-zinc-500 mb-2">Última Alteração</h4>
                   <div className="flex items-center text-sm">
                     <span className="mr-2 opacity-70">👤</span>
-                    <span className="font-medium text-gray-900">{event.log.updater?.name || 'Familiar'}</span>
+                    <span className="font-medium text-gray-900 dark:text-zinc-100">{event.log.updater?.name || 'Familiar'}</span>
                   </div>
-                  <div className="text-xs text-gray-500 pl-6 mt-0.5">
+                  <div className="text-xs text-gray-500 dark:text-zinc-400 pl-6 mt-0.5">
                     Alterado às{' '}
                     {new Date(event.log.updated_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
                   </div>
@@ -343,31 +343,33 @@ export function MealModal({
         ) : (
           <>
             {error && (
-              <div className="p-3 bg-red-50 text-red-700 rounded-xl text-sm">
+              <div className="p-3 bg-red-50 dark:bg-rose-950/40 dark:border dark:border-rose-800/50 text-red-700 dark:text-rose-300 rounded-xl text-sm">
                 {error}
               </div>
             )}
 
             <div className="space-y-3">
-              <label className="text-sm font-semibold text-gray-900">Como foi a refeição?</label>
+              <label className="text-sm font-semibold text-gray-900 dark:text-zinc-100">Como foi a refeição?</label>
               <div className="grid grid-cols-1 gap-2">
                 <button
                   type="button"
                   onClick={() => setConsumption('normal')}
                   className={cn(
                     'p-4 rounded-xl border text-left flex items-center space-x-3 transition-colors',
-                    consumption === 'normal' ? 'bg-green-50 border-green-200' : 'bg-white border-gray-200'
+                    consumption === 'normal'
+                      ? 'bg-green-50 border-green-200 dark:bg-emerald-950/35 dark:border-emerald-800/60'
+                      : 'bg-white border-gray-200 dark:bg-[#1c1c22] dark:border-white/[0.08] dark:hover:bg-[#222229]'
                   )}
                 >
                   <div
                     className={cn(
                       'w-5 h-5 rounded-full border-2 flex items-center justify-center',
-                      consumption === 'normal' ? 'border-green-500' : 'border-gray-300'
+                      consumption === 'normal' ? 'border-green-500 dark:border-emerald-400' : 'border-gray-300 dark:border-zinc-600'
                     )}
                   >
-                    {consumption === 'normal' && <div className="w-2.5 h-2.5 bg-green-500 rounded-full" />}
+                    {consumption === 'normal' && <div className="w-2.5 h-2.5 bg-green-500 dark:bg-emerald-400 rounded-full" />}
                   </div>
-                  <span className={cn('font-medium', consumption === 'normal' ? 'text-green-900' : 'text-gray-700')}>
+                  <span className={cn('font-medium', consumption === 'normal' ? 'text-green-900 dark:text-emerald-300' : 'text-gray-700 dark:text-zinc-200')}>
                     Comeu normalmente
                   </span>
                 </button>
@@ -376,18 +378,20 @@ export function MealModal({
                   onClick={() => setConsumption('partial')}
                   className={cn(
                     'p-4 rounded-xl border text-left flex items-center space-x-3 transition-colors',
-                    consumption === 'partial' ? 'bg-yellow-50 border-yellow-200' : 'bg-white border-gray-200'
+                    consumption === 'partial'
+                      ? 'bg-yellow-50 border-yellow-200 dark:bg-amber-950/35 dark:border-amber-800/60'
+                      : 'bg-white border-gray-200 dark:bg-[#1c1c22] dark:border-white/[0.08] dark:hover:bg-[#222229]'
                   )}
                 >
                   <div
                     className={cn(
                       'w-5 h-5 rounded-full border-2 flex items-center justify-center',
-                      consumption === 'partial' ? 'border-yellow-500' : 'border-gray-300'
+                      consumption === 'partial' ? 'border-yellow-500 dark:border-amber-400' : 'border-gray-300 dark:border-zinc-600'
                     )}
                   >
-                    {consumption === 'partial' && <div className="w-2.5 h-2.5 bg-yellow-500 rounded-full" />}
+                    {consumption === 'partial' && <div className="w-2.5 h-2.5 bg-yellow-500 dark:bg-amber-400 rounded-full" />}
                   </div>
-                  <span className={cn('font-medium', consumption === 'partial' ? 'text-yellow-900' : 'text-gray-700')}>
+                  <span className={cn('font-medium', consumption === 'partial' ? 'text-yellow-900 dark:text-amber-300' : 'text-gray-700 dark:text-zinc-200')}>
                     Comeu parcialmente
                   </span>
                 </button>
@@ -396,18 +400,20 @@ export function MealModal({
                   onClick={() => setConsumption('none')}
                   className={cn(
                     'p-4 rounded-xl border text-left flex items-center space-x-3 transition-colors',
-                    consumption === 'none' ? 'bg-red-50 border-red-200' : 'bg-white border-gray-200'
+                    consumption === 'none'
+                      ? 'bg-red-50 border-red-200 dark:bg-rose-950/35 dark:border-rose-800/60'
+                      : 'bg-white border-gray-200 dark:bg-[#1c1c22] dark:border-white/[0.08] dark:hover:bg-[#222229]'
                   )}
                 >
                   <div
                     className={cn(
                       'w-5 h-5 rounded-full border-2 flex items-center justify-center',
-                      consumption === 'none' ? 'border-red-500' : 'border-gray-300'
+                      consumption === 'none' ? 'border-red-500 dark:border-rose-400' : 'border-gray-300 dark:border-zinc-600'
                     )}
                   >
-                    {consumption === 'none' && <div className="w-2.5 h-2.5 bg-red-500 rounded-full" />}
+                    {consumption === 'none' && <div className="w-2.5 h-2.5 bg-red-500 dark:bg-rose-400 rounded-full" />}
                   </div>
-                  <span className={cn('font-medium', consumption === 'none' ? 'text-red-900' : 'text-gray-700')}>
+                  <span className={cn('font-medium', consumption === 'none' ? 'text-red-900 dark:text-rose-300' : 'text-gray-700 dark:text-zinc-200')}>
                     Não comeu
                   </span>
                 </button>
@@ -415,13 +421,13 @@ export function MealModal({
             </div>
 
             <div className="space-y-3">
-              <label className="text-sm font-semibold text-gray-900">Horário da Refeição</label>
+              <label className="text-sm font-semibold text-gray-900 dark:text-zinc-100">Horário da Refeição</label>
               <Input type="time" value={mealTime} onChange={(e) => setMealTime(e.target.value)} />
             </div>
 
             <div className="space-y-3">
-              <label className="text-sm font-semibold text-gray-900">
-                O que {pronoun} comeu? <span className="text-gray-400 font-normal">(Opcional)</span>
+              <label className="text-sm font-semibold text-gray-900 dark:text-zinc-100">
+                O que {pronoun} comeu? <span className="text-gray-400 dark:text-zinc-500 font-normal">(Opcional)</span>
               </label>
               <Input
                 placeholder="Ex: Arroz, feijão, frango e salada."
@@ -431,8 +437,8 @@ export function MealModal({
             </div>
 
             <div className="space-y-3">
-              <label className="text-sm font-semibold text-gray-900">
-                O que {pronoun} bebeu? <span className="text-gray-400 font-normal">(Opcional)</span>
+              <label className="text-sm font-semibold text-gray-900 dark:text-zinc-100">
+                O que {pronoun} bebeu? <span className="text-gray-400 dark:text-zinc-500 font-normal">(Opcional)</span>
               </label>
               <Input
                 placeholder="Ex: 200ml de água, suco natural ou chá."
@@ -442,12 +448,12 @@ export function MealModal({
             </div>
 
             <div className="space-y-3">
-              <label className="text-sm font-semibold text-gray-900">
-                Foto <span className="text-gray-400 font-normal">(Opcional)</span>
+              <label className="text-sm font-semibold text-gray-900 dark:text-zinc-100">
+                Foto <span className="text-gray-400 dark:text-zinc-500 font-normal">(Opcional)</span>
               </label>
 
               {photoPreview ? (
-                <div className="relative rounded-2xl overflow-hidden bg-gray-100 aspect-video border border-gray-200">
+                <div className="relative rounded-2xl overflow-hidden bg-gray-100 dark:bg-[#1c1c22] aspect-video border border-gray-200 dark:border-white/[0.1]">
                   <img src={photoPreview} alt="Preview" className="w-full h-full object-cover" />
                   <button
                     type="button"
@@ -477,7 +483,7 @@ export function MealModal({
                       cameraInputRef.current?.click();
                     }}
                   >
-                    <Camera className="w-4 h-4 text-indigo-600" />
+                    <Camera className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
                     <span>Tirar foto</span>
                   </Button>
                   <Button
@@ -489,7 +495,7 @@ export function MealModal({
                       galleryInputRef.current?.click();
                     }}
                   >
-                    <ImageIcon className="w-4 h-4 text-indigo-600" />
+                    <ImageIcon className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
                     <span>Da galeria</span>
                   </Button>
                 </div>
@@ -513,8 +519,8 @@ export function MealModal({
             </div>
 
             <div className="space-y-3">
-              <label className="text-sm font-semibold text-gray-900">
-                Observação <span className="text-gray-400 font-normal">(Opcional)</span>
+              <label className="text-sm font-semibold text-gray-900 dark:text-zinc-100">
+                Observação <span className="text-gray-400 dark:text-zinc-500 font-normal">(Opcional)</span>
               </label>
               <Input
                 placeholder="Alguma observação?"
@@ -525,7 +531,7 @@ export function MealModal({
 
             <div className="pt-4">
               <Button className="w-full" size="lg" onClick={handleSave} disabled={loading}>
-                {loading ? <Spinner className="text-white" /> : 'Confirmar Refeição'}
+                {loading ? <Spinner className="text-white dark:text-zinc-950" /> : 'Confirmar Refeição'}
               </Button>
             </div>
           </>

@@ -161,60 +161,60 @@ export function UserProfile() {
     <div className="relative" ref={dropdownRef}>
       <button 
         onClick={() => setIsOpen(!isOpen)}
-        className="w-10 h-10 rounded-full bg-gray-100 border border-gray-200 flex items-center justify-center overflow-hidden active:scale-95 transition-transform relative group"
+        className="w-10 h-10 rounded-full bg-gray-100 dark:bg-[#1c1c22] border border-gray-200 dark:border-white/[0.1] flex items-center justify-center overflow-hidden active:scale-95 transition-transform relative group"
       >
         {profile?.avatarUrlSigned ? (
           <img src={profile.avatarUrlSigned} alt={profile.name} className="w-full h-full object-cover" />
         ) : (
-          <span className="font-semibold text-gray-600">{getInitials(profile?.name || '')}</span>
+          <span className="font-semibold text-gray-600 dark:text-zinc-200">{getInitials(profile?.name || '')}</span>
         )}
       </button>
 
       {isOpen && (
-        <div className="absolute right-0 mt-2 w-56 bg-white rounded-xl shadow-lg border border-gray-100 py-2 z-50 overflow-hidden">
-          <div className="px-4 py-3 border-b border-gray-100">
-            <p className="text-sm font-semibold text-gray-900 truncate">{profile?.name || 'Carregando...'}</p>
-            <p className="text-xs text-gray-500 truncate">{profile?.email}</p>
+        <div className="absolute right-0 mt-2 w-56 bg-white dark:bg-[#141419] rounded-xl shadow-lg dark:shadow-black/60 border border-gray-100 dark:border-white/[0.08] py-2 z-50 overflow-hidden">
+          <div className="px-4 py-3 border-b border-gray-100 dark:border-white/[0.08]">
+            <p className="text-sm font-semibold text-gray-900 dark:text-zinc-100 truncate">{profile?.name || 'Carregando...'}</p>
+            <p className="text-xs text-gray-500 dark:text-zinc-400 truncate">{profile?.email}</p>
           </div>
           
           <button 
             onClick={() => { setIsOpen(false); setShowFamilyModal(true); }}
-            className="w-full text-left px-4 py-3 text-sm text-gray-700 hover:bg-gray-50 flex items-center transition-colors border-b border-gray-100"
+            className="w-full text-left px-4 py-3 text-sm text-gray-700 dark:text-zinc-200 hover:bg-gray-50 dark:hover:bg-white/[0.06] flex items-center transition-colors border-b border-gray-100 dark:border-white/[0.06]"
           >
-            <Users className="w-4 h-4 mr-2 text-gray-400" />
+            <Users className="w-4 h-4 mr-2 text-gray-400 dark:text-zinc-400" />
             Família e Convites
           </button>
           
           <button 
             onClick={() => { setIsOpen(false); setNewName(profile?.name || ''); setShowNameModal(true); }}
-            className="w-full text-left px-4 py-3 text-sm text-gray-700 hover:bg-gray-50 flex items-center transition-colors border-b border-gray-100"
+            className="w-full text-left px-4 py-3 text-sm text-gray-700 dark:text-zinc-200 hover:bg-gray-50 dark:hover:bg-white/[0.06] flex items-center transition-colors border-b border-gray-100 dark:border-white/[0.06]"
           >
-            <UserPen className="w-4 h-4 mr-2 text-gray-400" />
+            <UserPen className="w-4 h-4 mr-2 text-gray-400 dark:text-zinc-400" />
             Alterar nome
           </button>
           
           <button 
             onClick={() => { setIsOpen(false); setShowPasswordModal(true); }}
-            className="w-full text-left px-4 py-3 text-sm text-gray-700 hover:bg-gray-50 flex items-center transition-colors border-b border-gray-100"
+            className="w-full text-left px-4 py-3 text-sm text-gray-700 dark:text-zinc-200 hover:bg-gray-50 dark:hover:bg-white/[0.06] flex items-center transition-colors border-b border-gray-100 dark:border-white/[0.06]"
           >
-            <Lock className="w-4 h-4 mr-2 text-gray-400" />
+            <Lock className="w-4 h-4 mr-2 text-gray-400 dark:text-zinc-400" />
             Alterar senha
           </button>
           
-                    <button 
+          <button 
             onClick={() => { setIsOpen(false); toggleTheme(); }}
-            className="w-full text-left px-4 py-3 text-sm text-gray-700 hover:bg-gray-50 flex items-center transition-colors border-b border-gray-100"
+            className="w-full text-left px-4 py-3 text-sm text-gray-700 dark:text-zinc-200 hover:bg-gray-50 dark:hover:bg-white/[0.06] flex items-center transition-colors border-b border-gray-100 dark:border-white/[0.06]"
           >
-            {theme === 'light' ? <Moon className="w-4 h-4 mr-2 text-gray-400" /> : <Sun className="w-4 h-4 mr-2 text-gray-400" />}
+            {theme === 'light' ? <Moon className="w-4 h-4 mr-2 text-gray-400 dark:text-zinc-400" /> : <Sun className="w-4 h-4 mr-2 text-amber-400" />}
             {theme === 'light' ? 'Modo Escuro' : 'Modo Claro'}
           </button>
           
           <button 
             onClick={() => fileInputRef.current?.click()}
             disabled={uploading}
-            className="w-full text-left px-4 py-3 text-sm text-gray-700 hover:bg-gray-50 flex items-center transition-colors"
+            className="w-full text-left px-4 py-3 text-sm text-gray-700 dark:text-zinc-200 hover:bg-gray-50 dark:hover:bg-white/[0.06] flex items-center transition-colors border-b border-gray-100 dark:border-white/[0.06]"
           >
-            <Camera className="w-4 h-4 mr-2 text-gray-400" />
+            <Camera className="w-4 h-4 mr-2 text-gray-400 dark:text-zinc-400" />
             {uploading ? 'Enviando...' : 'Trocar foto'}
           </button>
           
@@ -234,15 +234,15 @@ export function UserProfile() {
               } catch {}
               window.location.reload();
             }}
-            className="w-full text-left px-4 py-3 text-sm text-gray-700 hover:bg-gray-50 flex items-center transition-colors border-b border-gray-100"
+            className="w-full text-left px-4 py-3 text-sm text-gray-700 dark:text-zinc-200 hover:bg-gray-50 dark:hover:bg-white/[0.06] flex items-center transition-colors border-b border-gray-100 dark:border-white/[0.06]"
           >
-            <Users className="w-4 h-4 mr-2 text-gray-400" />
+            <Users className="w-4 h-4 mr-2 text-gray-400 dark:text-zinc-400" />
             Trocar Familiar
           </button>
           
           <button 
             onClick={handleSignOut}
-            className="w-full text-left px-4 py-3 text-sm text-red-600 hover:bg-red-50 flex items-center transition-colors"
+            className="w-full text-left px-4 py-3 text-sm text-red-600 dark:text-rose-400 hover:bg-red-50 dark:hover:bg-rose-950/30 flex items-center transition-colors"
           >
             <LogOut className="w-4 h-4 mr-2" />
             Sair
@@ -264,10 +264,10 @@ export function UserProfile() {
       
       {showNameModal && createPortal(
 (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4">
-          <div className="bg-white rounded-2xl p-6 w-full max-w-sm shadow-xl">
-            <h3 className="text-lg font-bold text-gray-900 mb-2">Alterar Nome</h3>
-            <p className="text-sm text-gray-500 mb-6">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 dark:bg-black/75 backdrop-blur-sm p-4">
+          <div className="bg-white dark:bg-[#121216] dark:border dark:border-white/[0.08] rounded-2xl p-6 w-full max-w-sm shadow-xl">
+            <h3 className="text-lg font-bold text-gray-900 dark:text-zinc-100 mb-2">Alterar Nome</h3>
+            <p className="text-sm text-gray-500 dark:text-zinc-400 mb-6">
               Este é o nome que aparecerá nos registros de refeições e medicamentos.
             </p>
             <form onSubmit={handleUpdateName}>
@@ -276,14 +276,14 @@ export function UserProfile() {
                 placeholder="Seu nome"
                 value={newName}
                 onChange={e => setNewName(e.target.value)}
-                className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 transition-all outline-none mb-6"
+                className="w-full px-4 py-3 rounded-xl border border-gray-200 dark:border-white/[0.1] bg-white dark:bg-[#1c1c22] text-gray-900 dark:text-zinc-100 placeholder:text-gray-400 dark:placeholder:text-zinc-500 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 dark:focus:ring-indigo-500/30 transition-all outline-none mb-6"
                 required
               />
               <div className="flex justify-end space-x-3">
                 <button
                   type="button"
                   onClick={() => { setShowNameModal(false); setNewName(''); }}
-                  className="px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-xl"
+                  className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-zinc-300 hover:bg-gray-100 dark:hover:bg-white/[0.06] rounded-xl"
                 >
                   Cancelar
                 </button>
@@ -303,10 +303,10 @@ export function UserProfile() {
       )}
       {showPasswordModal && createPortal(
 (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4">
-          <div className="bg-white rounded-2xl p-6 w-full max-w-sm shadow-xl">
-            <h3 className="text-lg font-bold text-gray-900 mb-2">Alterar Senha</h3>
-            <p className="text-sm text-gray-500 mb-6">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 dark:bg-black/75 backdrop-blur-sm p-4">
+          <div className="bg-white dark:bg-[#121216] dark:border dark:border-white/[0.08] rounded-2xl p-6 w-full max-w-sm shadow-xl">
+            <h3 className="text-lg font-bold text-gray-900 dark:text-zinc-100 mb-2">Alterar Senha</h3>
+            <p className="text-sm text-gray-500 dark:text-zinc-400 mb-6">
               Defina uma nova senha para o acesso desta família.
             </p>
             <form onSubmit={handleUpdatePassword}>
@@ -315,14 +315,14 @@ export function UserProfile() {
                 placeholder="Nova senha (mín. 6 caracteres)"
                 value={newPassword}
                 onChange={e => setNewPassword(e.target.value)}
-                className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 transition-all outline-none mb-6"
+                className="w-full px-4 py-3 rounded-xl border border-gray-200 dark:border-white/[0.1] bg-white dark:bg-[#1c1c22] text-gray-900 dark:text-zinc-100 placeholder:text-gray-400 dark:placeholder:text-zinc-500 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 dark:focus:ring-indigo-500/30 transition-all outline-none mb-6"
                 required
               />
               <div className="flex justify-end space-x-3">
                 <button
                   type="button"
                   onClick={() => { setShowPasswordModal(false); setNewPassword(''); }}
-                  className="px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-xl"
+                  className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-zinc-300 hover:bg-gray-100 dark:hover:bg-white/[0.06] rounded-xl"
                 >
                   Cancelar
                 </button>

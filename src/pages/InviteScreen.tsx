@@ -74,6 +74,7 @@ export function InviteScreen({ token }: { token: string }) {
 
       try {
         localStorage.removeItem('duca_cached_context_patients');
+        localStorage.removeItem('duca_cached_context_moods');
         localStorage.removeItem('duca_active_flow_until');
         sessionStorage.removeItem('duca_context_selected');
       } catch {}
@@ -124,38 +125,38 @@ export function InviteScreen({ token }: { token: string }) {
 
   if (loading) {
     return (
-      <div className="flex h-[100dvh] items-center justify-center bg-gray-50">
-        <Spinner className="w-10 h-10 text-indigo-600" />
+      <div className="flex h-[100dvh] items-center justify-center bg-gray-50 dark:bg-[#09090b]">
+        <Spinner className="w-10 h-10 text-indigo-600 dark:text-indigo-400" />
       </div>
     );
   }
 
   return (
-    <div className="flex min-h-[100dvh] flex-col bg-gray-50 items-center justify-center p-6 sm:p-12">
-      <div className="w-full max-w-md bg-white p-8 sm:p-10 rounded-[2rem] shadow-xl border border-gray-100/50 text-center relative overflow-hidden">
+    <div className="flex min-h-[100dvh] flex-col bg-gray-50 dark:bg-[#09090b] items-center justify-center p-6 sm:p-12">
+      <div className="w-full max-w-md bg-white dark:bg-[#121216] p-8 sm:p-10 rounded-[2rem] shadow-xl border border-gray-100/50 dark:border-white/[0.08] text-center relative overflow-hidden">
 
         {success ? (
           <div className="flex flex-col items-center animate-in fade-in zoom-in duration-500">
-            <div className="w-20 h-20 bg-green-50 rounded-full flex items-center justify-center mb-6 border border-green-100 shadow-sm">
-              <CheckCircle2 className="w-10 h-10 text-green-500" />
+            <div className="w-20 h-20 bg-green-50 dark:bg-emerald-950/50 rounded-full flex items-center justify-center mb-6 border border-green-100 dark:border-emerald-800/50 shadow-sm">
+              <CheckCircle2 className="w-10 h-10 text-green-500 dark:text-emerald-400" />
             </div>
-            <h1 className="text-2xl font-bold tracking-tight text-gray-900">Convite aceito!</h1>
-            <p className="text-gray-500 mt-3 font-medium">
+            <h1 className="text-2xl font-bold tracking-tight text-gray-900 dark:text-zinc-100">Convite aceito!</h1>
+            <p className="text-gray-500 dark:text-zinc-400 mt-3 font-medium">
               Tudo certo. Redirecionando para o painel...
             </p>
           </div>
         ) : (
           <div className="flex flex-col items-center">
-            <div className="w-20 h-20 bg-indigo-50 rounded-full flex items-center justify-center mb-6 border border-indigo-100 shadow-sm">
-              <UserPlus className="w-10 h-10 text-indigo-600" />
+            <div className="w-20 h-20 bg-indigo-50 dark:bg-indigo-950/50 rounded-full flex items-center justify-center mb-6 border border-indigo-100 dark:border-indigo-800/40 shadow-sm">
+              <UserPlus className="w-10 h-10 text-indigo-600 dark:text-indigo-400" />
             </div>
-            <h1 className="text-2xl font-bold tracking-tight text-gray-900">Acompanhar em Família</h1>
-            <p className="text-gray-500 mt-3 text-sm sm:text-base mb-8 max-w-xs mx-auto leading-relaxed">
+            <h1 className="text-2xl font-bold tracking-tight text-gray-900 dark:text-zinc-100">Acompanhar em Família</h1>
+            <p className="text-gray-500 dark:text-zinc-400 mt-3 text-sm sm:text-base mb-8 max-w-xs mx-auto leading-relaxed">
               Você foi convidado com carinho para fazer parte desta família no DUCA e acompanhar a rotina diária de cuidados.
             </p>
 
             {error && (
-              <div className="text-red-600 text-sm font-medium bg-red-50 p-4 rounded-2xl mb-8 w-full border border-red-100">
+              <div className="text-red-600 dark:text-rose-300 text-sm font-medium bg-red-50 dark:bg-rose-950/40 p-4 rounded-2xl mb-8 w-full border border-red-100 dark:border-rose-800/50">
                 {error}
               </div>
             )}
@@ -167,12 +168,12 @@ export function InviteScreen({ token }: { token: string }) {
                   onClick={handleAction}
                   disabled={accepting}
                 >
-                  {accepting ? <Spinner className="text-white" /> : 'Aceitar convite'}
+                  {accepting ? <Spinner className="text-white dark:text-zinc-950" /> : 'Aceitar convite'}
                 </Button>
               )}
               <Button
                 variant="ghost"
-                className="w-full py-4 text-base font-medium rounded-2xl text-gray-500 hover:text-gray-700 bg-gray-50 hover:bg-gray-100 transition-colors"
+                className="w-full py-4 text-base font-medium rounded-2xl text-gray-500 dark:text-zinc-300 hover:text-gray-700 dark:hover:text-zinc-100 bg-gray-50 dark:bg-[#1c1c22] hover:bg-gray-100 dark:hover:bg-[#222229] transition-colors"
                 onClick={cancel}
                 disabled={accepting}
               >

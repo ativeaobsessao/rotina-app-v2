@@ -84,22 +84,22 @@ export function MedicationFormModal({ isOpen, onClose, patientId, medication, pe
   return (
     <BottomSheet isOpen={isOpen} onClose={onClose} title={medication ? 'Editar Medicamento' : 'Novo Medicamento'}>
       <div className="space-y-6">
-        {error && <div className="p-3 bg-red-50 text-red-700 rounded-xl text-sm">{error}</div>}
+        {error && <div className="p-3 bg-red-50 dark:bg-rose-950/40 dark:border dark:border-rose-800/50 text-red-700 dark:text-rose-300 rounded-xl text-sm">{error}</div>}
 
         <div className="space-y-3">
-          <label className="text-sm font-semibold text-gray-900">Nome</label>
+          <label className="text-sm font-semibold text-gray-900 dark:text-zinc-100">Nome</label>
           <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Ex: Losartana" />
         </div>
 
         <div className="space-y-3">
-          <label className="text-sm font-semibold text-gray-900">Dose / Instrução</label>
+          <label className="text-sm font-semibold text-gray-900 dark:text-zinc-100">Dose / Instrução</label>
           <Input value={dosage} onChange={(e) => setDosage(e.target.value)} placeholder="Ex: 1 comprimido 50mg" />
         </div>
 
         <div className="space-y-3">
-          <label className="text-sm font-semibold text-gray-900">Período</label>
+          <label className="text-sm font-semibold text-gray-900 dark:text-zinc-100">Período</label>
           <select 
-            className="flex h-12 w-full rounded-xl border border-gray-200 bg-white px-4 py-2 text-base focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-900"
+            className="flex h-12 w-full rounded-xl border border-gray-200 dark:border-white/[0.1] bg-white dark:bg-[#1c1c22] text-gray-900 dark:text-zinc-100 px-4 py-2 text-base focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 dark:focus-visible:ring-zinc-400"
             value={periodId}
             onChange={(e) => setPeriodId(e.target.value)}
           >
@@ -110,9 +110,9 @@ export function MedicationFormModal({ isOpen, onClose, patientId, medication, pe
         </div>
 
         <div className="space-y-3">
-          <label className="text-sm font-semibold text-gray-900">Frequência</label>
+          <label className="text-sm font-semibold text-gray-900 dark:text-zinc-100">Frequência</label>
           <select 
-            className="flex h-12 w-full rounded-xl border border-gray-200 bg-white px-4 py-2 text-base focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-900"
+            className="flex h-12 w-full rounded-xl border border-gray-200 dark:border-white/[0.1] bg-white dark:bg-[#1c1c22] text-gray-900 dark:text-zinc-100 px-4 py-2 text-base focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 dark:focus-visible:ring-zinc-400"
             value={frequency}
             onChange={(e) => setFrequency(e.target.value as 'daily' | 'weekly')}
           >
@@ -123,9 +123,9 @@ export function MedicationFormModal({ isOpen, onClose, patientId, medication, pe
 
         {frequency === 'weekly' && (
           <div className="space-y-3">
-            <label className="text-sm font-semibold text-gray-900">Dia da semana</label>
+            <label className="text-sm font-semibold text-gray-900 dark:text-zinc-100">Dia da semana</label>
             <select 
-              className="flex h-12 w-full rounded-xl border border-gray-200 bg-white px-4 py-2 text-base focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-900"
+              className="flex h-12 w-full rounded-xl border border-gray-200 dark:border-white/[0.1] bg-white dark:bg-[#1c1c22] text-gray-900 dark:text-zinc-100 px-4 py-2 text-base focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 dark:focus-visible:ring-zinc-400"
               value={weekday}
               onChange={(e) => setWeekday(e.target.value)}
             >
@@ -140,14 +140,14 @@ export function MedicationFormModal({ isOpen, onClose, patientId, medication, pe
           </div>
         )}
 
-        <div className="flex items-center justify-between p-4 rounded-xl border border-gray-100 bg-gray-50">
+        <div className="flex items-center justify-between p-4 rounded-xl border border-gray-100 dark:border-white/[0.08] bg-gray-50 dark:bg-[#1c1c22]">
           <div>
-            <h4 className="font-medium text-gray-900">Status</h4>
-            <p className="text-sm text-gray-500">{active ? 'Ativo' : 'Inativo'}</p>
+            <h4 className="font-medium text-gray-900 dark:text-zinc-100">Status</h4>
+            <p className="text-sm text-gray-500 dark:text-zinc-400">{active ? 'Ativo' : 'Inativo'}</p>
           </div>
           <button 
             onClick={() => setActive(!active)}
-            className={`w-12 h-6 rounded-full transition-colors relative ${active ? 'bg-green-500' : 'bg-gray-300'}`}
+            className={`w-12 h-6 rounded-full transition-colors relative ${active ? 'bg-green-500 dark:bg-emerald-500' : 'bg-gray-300 dark:bg-zinc-700'}`}
           >
             <div className={`absolute top-1 left-1 bg-white w-4 h-4 rounded-full transition-transform ${active ? 'translate-x-6' : 'translate-x-0'}`} />
           </button>
@@ -155,7 +155,7 @@ export function MedicationFormModal({ isOpen, onClose, patientId, medication, pe
 
         <div className="pt-4">
           <Button className="w-full" size="lg" onClick={handleSave} disabled={loading || !name.trim() || !dosage.trim()}>
-            {loading ? <Spinner className="text-white" /> : 'Salvar Medicamento'}
+            {loading ? <Spinner className="text-white dark:text-zinc-950" /> : 'Salvar Medicamento'}
           </Button>
         </div>
       </div>

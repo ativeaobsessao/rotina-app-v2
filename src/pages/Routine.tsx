@@ -123,7 +123,7 @@ export function RoutineScreen({ onTabChange }: RoutineScreenProps) {
   return (
     <MainLayout activeTab="routine" onTabChange={onTabChange}>
       {toastMessage && (
-        <div className="fixed top-6 left-1/2 -translate-x-1/2 z-50 bg-gray-900 text-white px-6 py-3 rounded-full shadow-lg text-sm font-medium animate-in slide-in-from-top-4 fade-in">
+        <div className="fixed top-6 left-1/2 -translate-x-1/2 z-50 bg-gray-900 dark:bg-zinc-100 text-white dark:text-zinc-950 px-6 py-3 rounded-full shadow-lg text-sm font-medium animate-in slide-in-from-top-4 fade-in">
           {toastMessage}
         </div>
       )}
@@ -131,14 +131,14 @@ export function RoutineScreen({ onTabChange }: RoutineScreenProps) {
         
         {/* Header */}
         <div className="flex items-center justify-between mb-8">
-          <h1 className="text-2xl font-bold tracking-tight text-gray-900">Rotina</h1>
+          <h1 className="text-2xl font-bold tracking-tight text-gray-900 dark:text-zinc-100">Rotina</h1>
           <UserProfile />
         </div>
         <div>
           
-          <div className="bg-white rounded-3xl p-6 shadow-sm border border-gray-100 flex flex-col items-center text-center">
+          <div className="bg-white dark:bg-[#121216] rounded-3xl p-6 shadow-sm border border-gray-100 dark:border-white/[0.08] flex flex-col items-center text-center">
             <div className="relative mb-4">
-              <div className="w-24 h-24 rounded-full bg-gray-100 border border-gray-200 overflow-hidden flex items-center justify-center">
+              <div className="w-24 h-24 rounded-full bg-gray-100 dark:bg-[#1c1c22] border border-gray-200 dark:border-white/[0.1] overflow-hidden flex items-center justify-center">
                 {patientPhoto ? (
                   <img src={patientPhoto} alt={patient?.name} className="w-full h-full object-cover" />
                 ) : (
@@ -147,13 +147,13 @@ export function RoutineScreen({ onTabChange }: RoutineScreenProps) {
               </div>
               <button 
                 onClick={() => setIsPatientModalOpen(true)}
-                className="absolute bottom-0 right-0 w-8 h-8 bg-gray-900 rounded-full text-white flex items-center justify-center shadow-sm border-2 border-white"
+                className="absolute bottom-0 right-0 w-8 h-8 bg-gray-900 dark:bg-zinc-100 rounded-full text-white dark:text-zinc-950 flex items-center justify-center shadow-sm border-2 border-white dark:border-[#121216]"
               >
                 <Camera className="w-4 h-4" />
               </button>
             </div>
-            <h2 className="text-xl font-bold text-gray-900">{patient?.name}</h2>
-            <button onClick={() => setIsPatientModalOpen(true)} className="text-sm font-medium text-gray-500 mt-2 hover:text-gray-900">
+            <h2 className="text-xl font-bold text-gray-900 dark:text-zinc-100">{patient?.name}</h2>
+            <button onClick={() => setIsPatientModalOpen(true)} className="text-sm font-medium text-gray-500 dark:text-zinc-400 mt-2 hover:text-gray-900 dark:hover:text-zinc-100">
               Editar perfil
             </button>
           </div>
@@ -162,13 +162,13 @@ export function RoutineScreen({ onTabChange }: RoutineScreenProps) {
         {/* Meals Section */}
         <section className="space-y-4">
           <div className="flex items-center justify-between ml-1">
-            <h3 className="text-xs font-bold uppercase tracking-wider text-gray-400">Refeições</h3>
+            <h3 className="text-xs font-bold uppercase tracking-wider text-gray-400 dark:text-zinc-500">Refeições</h3>
             <button 
               onClick={() => {
                 setEditingTimeType('meal');
                 setEditingTimeEntity(null);
               }}
-              className="text-xs font-medium text-gray-600 bg-gray-100 hover:bg-gray-200 px-3 py-1.5 rounded-lg transition-colors flex items-center"
+              className="text-xs font-medium text-gray-600 dark:text-zinc-200 bg-gray-100 dark:bg-[#1c1c22] hover:bg-gray-200 dark:hover:bg-[#222229] dark:border dark:border-white/[0.08] px-3 py-1.5 rounded-lg transition-colors flex items-center"
             >
               <Plus className="w-3 h-3 mr-1" /> Adicionar
             </button>
@@ -181,13 +181,13 @@ export function RoutineScreen({ onTabChange }: RoutineScreenProps) {
                   setEditingTimeType('meal');
                   setEditingTimeEntity(meal);
                 }}
-                className={`w-full flex items-center justify-between p-4 rounded-2xl border bg-white shadow-sm transition-all active:scale-[0.98] ${!meal.active ? 'opacity-60 border-gray-100' : 'border-gray-200'}`}
+                className={`w-full flex items-center justify-between p-4 rounded-2xl border bg-white dark:bg-[#121216] shadow-sm transition-all active:scale-[0.98] ${!meal.active ? 'opacity-60 border-gray-100 dark:border-white/[0.05]' : 'border-gray-200 dark:border-white/[0.08] dark:hover:bg-[#18181d]'}`}
               >
                 <div className="text-left">
-                  <h4 className={`font-semibold ${!meal.active ? 'text-gray-500 line-through' : 'text-gray-900'}`}>{meal.name}</h4>
-                  <p className="text-sm text-gray-500">{formatTime(meal.scheduled_time)}</p>
+                  <h4 className={`font-semibold ${!meal.active ? 'text-gray-500 dark:text-zinc-500 line-through' : 'text-gray-900 dark:text-zinc-100'}`}>{meal.name}</h4>
+                  <p className="text-sm text-gray-500 dark:text-zinc-400">{formatTime(meal.scheduled_time)}</p>
                 </div>
-                <Edit2 className="w-4 h-4 text-gray-300" />
+                <Edit2 className="w-4 h-4 text-gray-300 dark:text-zinc-600" />
               </button>
             ))}
           </div>
@@ -196,13 +196,13 @@ export function RoutineScreen({ onTabChange }: RoutineScreenProps) {
         {/* Medication Periods Section */}
         <section className="space-y-8">
           <div className="flex items-center justify-between ml-1">
-            <h3 className="text-xs font-bold uppercase tracking-wider text-gray-400">Medicamentos</h3>
+            <h3 className="text-xs font-bold uppercase tracking-wider text-gray-400 dark:text-zinc-500">Medicamentos</h3>
             <button 
               onClick={() => {
                 setEditingTimeType('period');
                 setEditingTimeEntity(null);
               }}
-              className="text-xs font-medium text-gray-600 bg-gray-100 hover:bg-gray-200 px-3 py-1.5 rounded-lg transition-colors flex items-center"
+              className="text-xs font-medium text-gray-600 dark:text-zinc-200 bg-gray-100 dark:bg-[#1c1c22] hover:bg-gray-200 dark:hover:bg-[#222229] dark:border dark:border-white/[0.08] px-3 py-1.5 rounded-lg transition-colors flex items-center"
             >
               <Plus className="w-3 h-3 mr-1" /> Adicionar Período
             </button>
@@ -213,18 +213,18 @@ export function RoutineScreen({ onTabChange }: RoutineScreenProps) {
               const periodMeds = medications.filter(m => m.medication_period_id === period.id);
               
               return (
-                <div key={period.id} className="bg-white rounded-3xl p-5 border border-gray-100 shadow-sm">
-                  <div className="flex items-center justify-between mb-4 border-b border-gray-50 pb-4">
+                <div key={period.id} className="bg-white dark:bg-[#121216] rounded-3xl p-5 border border-gray-100 dark:border-white/[0.08] shadow-sm">
+                  <div className="flex items-center justify-between mb-4 border-b border-gray-50 dark:border-white/[0.06] pb-4">
                     <div className="text-left">
-                      <h4 className={`font-bold ${!period.active ? 'text-gray-400 line-through' : 'text-gray-900'}`}>{period.name}</h4>
-                      <p className="text-sm text-gray-500">{formatTime(period.scheduled_time)}</p>
+                      <h4 className={`font-bold ${!period.active ? 'text-gray-400 dark:text-zinc-500 line-through' : 'text-gray-900 dark:text-zinc-100'}`}>{period.name}</h4>
+                      <p className="text-sm text-gray-500 dark:text-zinc-400">{formatTime(period.scheduled_time)}</p>
                     </div>
                     <button 
                       onClick={() => {
                         setEditingTimeType('period');
                         setEditingTimeEntity(period);
                       }}
-                      className="px-3 py-1.5 text-xs font-medium text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+                      className="px-3 py-1.5 text-xs font-medium text-gray-600 dark:text-zinc-200 bg-gray-100 dark:bg-[#1c1c22] dark:border dark:border-white/[0.08] rounded-lg hover:bg-gray-200 dark:hover:bg-[#222229] transition-colors"
                     >
                       Editar horário
                     </button>
@@ -238,19 +238,19 @@ export function RoutineScreen({ onTabChange }: RoutineScreenProps) {
                           setEditingMedication(med);
                           setIsMedicationModalOpen(true);
                         }}
-                        className={`w-full flex items-center justify-between p-3 rounded-xl border transition-colors text-left ${!med.active ? 'bg-gray-50 border-gray-100' : 'bg-white border-gray-100 hover:border-gray-200'}`}
+                        className={`w-full flex items-center justify-between p-3 rounded-xl border transition-colors text-left ${!med.active ? 'bg-gray-50 dark:bg-[#16161b] border-gray-100 dark:border-white/[0.05] opacity-70' : 'bg-white dark:bg-[#1c1c22] border-gray-100 dark:border-white/[0.08] hover:border-gray-200 dark:hover:bg-[#222229]'}`}
                       >
                         <div>
-                          <p className={`font-medium ${!med.active ? 'text-gray-400 line-through' : 'text-gray-900'}`}>{med.name}</p>
-                          <p className="text-xs text-gray-500">
+                          <p className={`font-medium ${!med.active ? 'text-gray-400 dark:text-zinc-500 line-through' : 'text-gray-900 dark:text-zinc-100'}`}>{med.name}</p>
+                          <p className="text-xs text-gray-500 dark:text-zinc-400">
                             {med.dosage} • {med.frequency === 'daily' ? 'Diário' : `Semanal (${translateWeekday(med.weekday || '')})`}
                           </p>
                         </div>
-                        <Edit2 className="w-4 h-4 text-gray-300" />
+                        <Edit2 className="w-4 h-4 text-gray-300 dark:text-zinc-600" />
                       </button>
                     ))}
                     {periodMeds.length === 0 && (
-                      <p className="text-sm text-gray-400 text-center py-2">Nenhum medicamento configurado.</p>
+                      <p className="text-sm text-gray-400 dark:text-zinc-500 text-center py-2">Nenhum medicamento configurado.</p>
                     )}
                   </div>
 
@@ -260,7 +260,7 @@ export function RoutineScreen({ onTabChange }: RoutineScreenProps) {
                       setEditingMedication(null);
                       setIsMedicationModalOpen(true);
                     }}
-                    className="w-full flex items-center justify-center p-3 text-sm font-medium text-gray-600 border border-dashed border-gray-300 rounded-xl hover:bg-gray-50 hover:border-gray-400 transition-all active:scale-[0.98]"
+                    className="w-full flex items-center justify-center p-3 text-sm font-medium text-gray-600 dark:text-zinc-300 border border-dashed border-gray-300 dark:border-white/[0.14] rounded-xl hover:bg-gray-50 dark:hover:bg-white/[0.04] hover:border-gray-400 dark:hover:border-white/[0.25] transition-all active:scale-[0.98]"
                   >
                     <Plus className="w-4 h-4 mr-2" /> Adicionar medicamento
                   </button>

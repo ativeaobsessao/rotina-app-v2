@@ -28,20 +28,20 @@ export function BottomSheet({ isOpen, onClose, title, children }: BottomSheetPro
     <div className="fixed inset-0 z-50 flex flex-col justify-end">
       {/* Backdrop */}
       <div 
-        className="absolute inset-0 bg-black/40 transition-opacity"
+        className="absolute inset-0 bg-black/40 dark:bg-black/75 transition-opacity"
         onClick={onClose}
         aria-hidden="true"
       />
       
       {/* Sheet */}
       <div 
-        className="relative w-full bg-white rounded-t-3xl shadow-xl flex flex-col max-h-[90vh] pb-safe-bottom animate-in slide-in-from-bottom-full duration-200"
+        className="relative w-full bg-white dark:bg-[#121216] dark:border-t dark:border-white/[0.08] rounded-t-3xl shadow-xl flex flex-col max-h-[90vh] pb-safe-bottom animate-in slide-in-from-bottom-full duration-200"
       >
-        <div className="flex items-center justify-between p-4 border-b border-gray-100">
-          <h2 className="text-lg font-semibold text-gray-900">{title}</h2>
+        <div className="flex items-center justify-between p-4 border-b border-gray-100 dark:border-white/[0.08]">
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-zinc-100">{title}</h2>
           <button 
             onClick={onClose}
-            className="p-2 rounded-full hover:bg-gray-100 transition-colors text-gray-500"
+            className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-white/[0.08] transition-colors text-gray-500 dark:text-zinc-400"
             aria-label="Close"
           >
             <X className="w-6 h-6" />

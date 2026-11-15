@@ -137,17 +137,17 @@ export function MedicationModal({ isOpen, onClose, event, patientId, profileId, 
     return (
       <BottomSheet isOpen={isOpen} onClose={() => setNotAdministeredMedId(null)} title="Não administrado">
         <div className="space-y-6">
-          {error && <div className="p-3 bg-red-50 text-red-700 rounded-xl text-sm">{error}</div>}
+          {error && <div className="p-3 bg-red-50 dark:bg-rose-950/40 dark:border dark:border-rose-800/50 text-red-700 dark:text-rose-300 rounded-xl text-sm">{error}</div>}
           
           <div>
-            <p className="text-gray-900 font-medium mb-1">{med?.name}</p>
-            <p className="text-gray-500 text-sm">{med?.dosage}</p>
+            <p className="text-gray-900 dark:text-zinc-100 font-medium mb-1">{med?.name}</p>
+            <p className="text-gray-500 dark:text-zinc-400 text-sm">{med?.dosage}</p>
           </div>
 
           <div className="space-y-3">
-            <label className="text-sm font-semibold text-gray-900">Motivo</label>
+            <label className="text-sm font-semibold text-gray-900 dark:text-zinc-100">Motivo</label>
             <select 
-              className="flex h-12 w-full rounded-xl border border-gray-200 bg-white px-4 py-2 text-base focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-900"
+              className="flex h-12 w-full rounded-xl border border-gray-200 dark:border-white/[0.1] bg-white dark:bg-[#1c1c22] text-gray-900 dark:text-zinc-100 px-4 py-2 text-base focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 dark:focus-visible:ring-zinc-400"
               value={notAdminReason}
               onChange={(e) => setNotAdminReason(e.target.value)}
             >
@@ -159,9 +159,9 @@ export function MedicationModal({ isOpen, onClose, event, patientId, profileId, 
           </div>
 
           <div className="space-y-3">
-            <label className="text-sm font-semibold text-gray-900">Observação <span className="text-gray-400 font-normal">(Opcional)</span></label>
+            <label className="text-sm font-semibold text-gray-900 dark:text-zinc-100">Observação <span className="text-gray-400 dark:text-zinc-500 font-normal">(Opcional)</span></label>
             <input 
-              className="flex h-12 w-full rounded-xl border border-gray-200 bg-white px-4 py-2 text-base focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-900"
+              className="flex h-12 w-full rounded-xl border border-gray-200 dark:border-white/[0.1] bg-white dark:bg-[#1c1c22] text-gray-900 dark:text-zinc-100 placeholder:text-gray-400 dark:placeholder:text-zinc-500 px-4 py-2 text-base focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 dark:focus-visible:ring-zinc-400"
               placeholder="Detalhes..." 
               value={notAdminNotes}
               onChange={(e) => setNotAdminNotes(e.target.value)}
@@ -170,7 +170,7 @@ export function MedicationModal({ isOpen, onClose, event, patientId, profileId, 
 
           <div className="pt-4 flex space-x-3">
             <Button variant="outline" className="flex-1" onClick={() => setNotAdministeredMedId(null)}>Voltar</Button>
-            <Button className="flex-1 bg-red-600 hover:bg-red-700 text-white" onClick={handleSaveNotAdministered} disabled={loading}>
+            <Button className="flex-1 bg-red-600 hover:bg-red-700 dark:bg-rose-600 dark:hover:bg-rose-500 text-white" onClick={handleSaveNotAdministered} disabled={loading}>
               {loading ? <Spinner className="text-white" /> : 'Confirmar'}
             </Button>
           </div>
@@ -191,36 +191,36 @@ export function MedicationModal({ isOpen, onClose, event, patientId, profileId, 
                 if (!log) return null;
                 const isNotAdministered = log.status === 'not_administered';
                 return (
-                  <div key={med.id} className="bg-gray-50 rounded-2xl p-4 flex flex-col gap-3">
+                  <div key={med.id} className="bg-gray-50 dark:bg-[#1c1c22] dark:border dark:border-white/[0.08] rounded-2xl p-4 flex flex-col gap-3">
                     <div className="flex justify-between items-start">
                       <div>
-                        <h4 className={cn("font-medium", isNotAdministered ? "text-gray-500 line-through" : "text-gray-900")}>{med.name}</h4>
-                        <p className="text-sm text-gray-500">{med.dosage}</p>
+                        <h4 className={cn("font-medium", isNotAdministered ? "text-gray-500 dark:text-zinc-500 line-through" : "text-gray-900 dark:text-zinc-100")}>{med.name}</h4>
+                        <p className="text-sm text-gray-500 dark:text-zinc-400">{med.dosage}</p>
                       </div>
                       <span className={cn(
                         "text-[10px] font-bold uppercase tracking-widest px-2 py-1 rounded-full",
-                        isNotAdministered ? "bg-red-100 text-red-700" : "bg-green-100 text-green-700"
+                        isNotAdministered ? "bg-red-100 text-red-700 dark:bg-rose-950/60 dark:text-rose-300" : "bg-green-100 text-green-700 dark:bg-emerald-950/60 dark:text-emerald-300"
                       )}>
                         {isNotAdministered ? 'Não Admin' : 'Confirmado'}
                       </span>
                     </div>
                     {isNotAdministered && log.reason && (
-                      <div className="text-sm text-red-700">
+                      <div className="text-sm text-red-700 dark:text-rose-300">
                         <span className="font-semibold">Motivo:</span> {log.reason}
                         {log.notes && <span className="block text-xs mt-0.5">{log.notes}</span>}
                       </div>
                     )}
                     
-                    <div className="border-t border-gray-200/50 pt-3 mt-1 flex flex-col gap-2">
-                      <div className="flex flex-col text-xs text-gray-500">
-                        <span className="font-medium text-gray-700 flex items-center gap-1"><span className="opacity-70">👤</span> Registrado por {log.creator?.name || 'Familiar'}</span>
-                        <span className="pl-5 text-[11px] text-gray-400">Registrado às {new Date(log.created_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</span>
+                    <div className="border-t border-gray-200/50 dark:border-white/[0.08] pt-3 mt-1 flex flex-col gap-2">
+                      <div className="flex flex-col text-xs text-gray-500 dark:text-zinc-400">
+                        <span className="font-medium text-gray-700 dark:text-zinc-300 flex items-center gap-1"><span className="opacity-70">👤</span> Registrado por {log.creator?.name || 'Familiar'}</span>
+                        <span className="pl-5 text-[11px] text-gray-400 dark:text-zinc-500">Registrado às {new Date(log.created_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</span>
                       </div>
                       
                       {log.updated_by !== log.created_by && (
-                        <div className="flex flex-col text-xs text-gray-500">
-                          <span className="font-medium text-gray-700 flex items-center gap-1"><span className="opacity-70">👤</span> Alterado por {log.updater?.name || 'Familiar'}</span>
-                          <span className="pl-5 text-[11px] text-gray-400">Alterado às {new Date(log.updated_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</span>
+                        <div className="flex flex-col text-xs text-gray-500 dark:text-zinc-400">
+                          <span className="font-medium text-gray-700 dark:text-zinc-300 flex items-center gap-1"><span className="opacity-70">👤</span> Alterado por {log.updater?.name || 'Familiar'}</span>
+                          <span className="pl-5 text-[11px] text-gray-400 dark:text-zinc-500">Alterado às {new Date(log.updated_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</span>
                         </div>
                       )}
                     </div>
@@ -238,7 +238,7 @@ export function MedicationModal({ isOpen, onClose, event, patientId, profileId, 
         ) : (
           <>
 
-        {error && <div className="p-3 bg-red-50 text-red-700 rounded-xl text-sm">{error}</div>}
+        {error && <div className="p-3 bg-red-50 dark:bg-rose-950/40 dark:border dark:border-rose-800/50 text-red-700 dark:text-rose-300 rounded-xl text-sm">{error}</div>}
 
         <div className="space-y-3">
           {event.medications.map(med => {
@@ -247,7 +247,7 @@ export function MedicationModal({ isOpen, onClose, event, patientId, profileId, 
             const isNotAdministered = log?.status === 'not_administered';
             
             return (
-              <div key={med.id} className="flex items-center justify-between p-4 rounded-xl border border-gray-100 bg-white shadow-sm">
+              <div key={med.id} className="flex items-center justify-between p-4 rounded-xl border border-gray-100 dark:border-white/[0.08] bg-white dark:bg-[#1c1c22] shadow-sm">
                 
                 {/* Left side: Checkbox and Info */}
                 <button 
@@ -259,16 +259,20 @@ export function MedicationModal({ isOpen, onClose, event, patientId, profileId, 
                 >
                   <div className={cn(
                     "w-6 h-6 rounded-md border-2 mt-0.5 flex items-center justify-center shrink-0 transition-colors",
-                    isChecked ? "bg-green-500 border-green-500" : (isNotAdministered ? "bg-red-100 border-red-300" : "bg-white border-gray-300")
+                    isChecked
+                      ? "bg-green-500 border-green-500 dark:bg-emerald-500 dark:border-emerald-500"
+                      : (isNotAdministered
+                        ? "bg-red-100 border-red-300 dark:bg-rose-950/60 dark:border-rose-700"
+                        : "bg-white border-gray-300 dark:bg-[#121216] dark:border-zinc-600")
                   )}>
                     {isChecked && <Check className="w-4 h-4 text-white" />}
-                    {isNotAdministered && <AlertTriangle className="w-4 h-4 text-red-500" />}
+                    {isNotAdministered && <AlertTriangle className="w-4 h-4 text-red-500 dark:text-rose-400" />}
                   </div>
                   <div>
-                    <h4 className={cn("font-medium text-gray-900", isNotAdministered && "line-through text-gray-500")}>{med.name}</h4>
-                    <p className="text-sm text-gray-500">{med.dosage}</p>
+                    <h4 className={cn("font-medium text-gray-900 dark:text-zinc-100", isNotAdministered && "line-through text-gray-500 dark:text-zinc-500")}>{med.name}</h4>
+                    <p className="text-sm text-gray-500 dark:text-zinc-400">{med.dosage}</p>
                     {isNotAdministered && log.reason && (
-                      <p className="text-xs text-red-600 mt-1 font-medium">Não administrado: {log.reason}</p>
+                      <p className="text-xs text-red-600 dark:text-rose-400 mt-1 font-medium">Não administrado: {log.reason}</p>
                     )}
                   </div>
                 </button>
@@ -277,7 +281,7 @@ export function MedicationModal({ isOpen, onClose, event, patientId, profileId, 
                 {!isChecked && !isNotAdministered && (
                   <button 
                     onClick={() => setNotAdministeredMedId(med.id)}
-                    className="ml-4 px-3 py-1.5 text-xs font-medium text-red-600 bg-red-50 rounded-lg hover:bg-red-100 transition-colors"
+                    className="ml-4 px-3 py-1.5 text-xs font-medium text-red-600 dark:text-rose-300 bg-red-50 dark:bg-rose-950/40 rounded-lg hover:bg-red-100 dark:hover:bg-rose-950/60 transition-colors"
                   >
                     Não tomou
                   </button>
@@ -293,7 +297,7 @@ export function MedicationModal({ isOpen, onClose, event, patientId, profileId, 
                       setNotAdminReason(log.reason || 'Recusou');
                       setNotAdminNotes(log.notes || '');
                     }}
-                    className="ml-4 px-3 py-1.5 text-xs font-medium text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+                    className="ml-4 px-3 py-1.5 text-xs font-medium text-gray-600 dark:text-zinc-300 bg-gray-100 dark:bg-white/[0.08] rounded-lg hover:bg-gray-200 dark:hover:bg-white/[0.12] transition-colors"
                   >
                     Editar
                   </button>
@@ -311,7 +315,7 @@ export function MedicationModal({ isOpen, onClose, event, patientId, profileId, 
             onClick={handleConfirmAll}
             disabled={loading}
           >
-            {loading ? <Spinner className="text-white" /> : 'Confirmar Medicamentos'}
+            {loading ? <Spinner className="text-white dark:text-zinc-950" /> : 'Confirmar Medicamentos'}
           </Button>
         </div>
           </>

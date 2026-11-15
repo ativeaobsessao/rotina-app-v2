@@ -134,20 +134,20 @@ export function DayEditModal({
 
   return (
     <>
-      <div className="fixed inset-0 z-50 flex flex-col justify-end bg-black/60 backdrop-blur-sm sm:items-center sm:justify-center p-0 sm:p-4 animate-in fade-in duration-200">
-        <div className="bg-gray-50 w-full sm:max-w-md h-[90vh] sm:h-auto sm:max-h-[85vh] rounded-t-3xl sm:rounded-3xl shadow-2xl flex flex-col overflow-hidden animate-in slide-in-from-bottom-10 sm:slide-in-from-bottom-0 sm:zoom-in-95 duration-300">
+      <div className="fixed inset-0 z-50 flex flex-col justify-end bg-black/60 dark:bg-black/75 backdrop-blur-sm sm:items-center sm:justify-center p-0 sm:p-4 animate-in fade-in duration-200">
+        <div className="bg-gray-50 dark:bg-[#09090b] w-full sm:max-w-md h-[90vh] sm:h-auto sm:max-h-[85vh] rounded-t-3xl sm:rounded-3xl shadow-2xl border border-transparent dark:border-white/[0.08] flex flex-col overflow-hidden animate-in slide-in-from-bottom-10 sm:slide-in-from-bottom-0 sm:zoom-in-95 duration-300">
           
           {/* Header */}
-          <div className="flex items-center justify-between px-6 py-4 bg-white border-b border-gray-100">
+          <div className="flex items-center justify-between px-6 py-4 bg-white dark:bg-[#121216] border-b border-gray-100 dark:border-white/[0.08]">
             <div>
-              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-0.5">
+              <p className="text-xs font-semibold text-gray-400 dark:text-zinc-500 uppercase tracking-wider mb-0.5">
                 Editando o dia
               </p>
-              <h2 className="text-lg font-bold text-gray-900">{friendlyDate}</h2>
+              <h2 className="text-lg font-bold text-gray-900 dark:text-zinc-100">{friendlyDate}</h2>
             </div>
             <button
               onClick={onClose}
-              className="p-2 -mr-2 text-gray-400 hover:text-gray-600 bg-gray-50 hover:bg-gray-100 rounded-full transition-colors"
+              className="p-2 -mr-2 text-gray-400 dark:text-zinc-400 hover:text-gray-600 dark:hover:text-zinc-200 bg-gray-50 dark:bg-[#1c1c22] hover:bg-gray-100 dark:hover:bg-white/[0.08] rounded-full transition-colors"
             >
               <X className="w-5 h-5" />
             </button>
@@ -157,14 +157,14 @@ export function DayEditModal({
           <div className="flex-1 overflow-y-auto p-6">
             {loading ? (
               <div className="flex items-center justify-center py-12">
-                <Spinner className="w-8 h-8 text-indigo-600" />
+                <Spinner className="w-8 h-8 text-indigo-600 dark:text-indigo-400" />
               </div>
             ) : (
               <div className="space-y-4">
-                <p className="text-sm text-gray-500 mb-6">
+                <p className="text-sm text-gray-500 dark:text-zinc-400 mb-6">
                   Toque em um registro abaixo para editá-lo ou adicionar os dados deste dia.
                 </p>
-                <div className="relative border-l-2 border-gray-100 pl-4 space-y-6 pb-6">
+                <div className="relative border-l-2 border-gray-100 dark:border-white/[0.08] pl-4 space-y-6 pb-6">
                   {events.map((event, index) => (
                     <TimelineItem
                       profileId={profileId}
@@ -179,7 +179,7 @@ export function DayEditModal({
                   
                   {events.length === 0 && (
                     <div className="text-center py-12">
-                      <p className="text-gray-500">Nenhum evento configurado.</p>
+                      <p className="text-gray-500 dark:text-zinc-400">Nenhum evento configurado.</p>
                     </div>
                   )}
                 </div>

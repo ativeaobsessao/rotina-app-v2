@@ -84,26 +84,26 @@ export function LoginScreen({ inviteToken }: { inviteToken?: string } = {}) {
   }
 
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center bg-gray-50 px-6 py-12">
+    <div className="flex min-h-screen flex-col items-center justify-center bg-gray-50 dark:bg-[#09090b] px-6 py-12">
       <div className="w-full max-w-sm space-y-8 text-center">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight text-gray-900">DUCA</h1>
-          <div className="mt-8 mx-auto h-32 w-32 overflow-hidden rounded-full border-4 border-white shadow-sm bg-gray-200 flex items-center justify-center">
+          <h1 className="text-3xl font-bold tracking-tight text-gray-900 dark:text-zinc-100">DUCA</h1>
+          <div className="mt-8 mx-auto h-32 w-32 overflow-hidden rounded-full border-4 border-white dark:border-[#1c1c22] shadow-sm bg-gray-200 dark:bg-[#1c1c22] flex items-center justify-center">
             {/* Generic placeholder since we don't know the family yet */}
-            <span className="text-4xl text-gray-400">👵</span>
+            <span className="text-4xl text-gray-400 dark:text-zinc-500">👵</span>
           </div>
-          <h2 className="mt-4 text-xl font-semibold text-gray-900">
+          <h2 className="mt-4 text-xl font-semibold text-gray-900 dark:text-zinc-100">
             {isForgotPassword ? 'Recuperar Senha' : (isSignUp ? 'Criar Nova Conta' : 'Entrar na Família')}
           </h2>
-          <p className="mt-2 text-sm text-gray-500">
+          <p className="mt-2 text-sm text-gray-500 dark:text-zinc-400">
             {isForgotPassword ? 'Enviaremos um link para redefinir sua senha' : (isSignUp ? 'Cadastre-se para começar' : 'Como está a vó hoje?')}
           </p>
         </div>
 
         {inviteToken && (
-          <div className="rounded-2xl bg-indigo-50 border border-indigo-100 p-4 text-sm text-indigo-800 text-left">
+          <div className="rounded-2xl bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-100 dark:border-indigo-800/50 p-4 text-sm text-indigo-800 dark:text-indigo-200 text-left">
             <p className="font-semibold">Convite familiar pendente</p>
-            <p className="mt-1 text-xs text-indigo-700 leading-relaxed">
+            <p className="mt-1 text-xs text-indigo-700 dark:text-indigo-300 leading-relaxed">
               Crie sua conta ou entre com seu e-mail para aceitar o convite automaticamente.
             </p>
           </div>
@@ -111,12 +111,12 @@ export function LoginScreen({ inviteToken }: { inviteToken?: string } = {}) {
 
         <form className="space-y-6" onSubmit={handleLogin}>
           {error && (
-            <div className="rounded-xl bg-red-50 p-4 text-sm text-red-700">
+            <div className="rounded-xl bg-red-50 dark:bg-rose-950/40 dark:border dark:border-rose-800/50 p-4 text-sm text-red-700 dark:text-rose-300">
               {error}
             </div>
           )}
           {successMsg && (
-            <div className="rounded-xl bg-green-50 p-4 text-sm text-green-700">
+            <div className="rounded-xl bg-green-50 dark:bg-emerald-950/40 dark:border dark:border-emerald-800/50 p-4 text-sm text-green-700 dark:text-emerald-300">
               {successMsg}
             </div>
           )}
@@ -154,7 +154,7 @@ export function LoginScreen({ inviteToken }: { inviteToken?: string } = {}) {
             className="w-full" 
             disabled={loading}
           >
-            {loading ? <Spinner className="text-white" /> : (isForgotPassword ? 'Enviar link' : (isSignUp ? 'Criar conta' : 'Entrar'))}
+            {loading ? <Spinner className="text-white dark:text-zinc-950" /> : (isForgotPassword ? 'Enviar link' : (isSignUp ? 'Criar conta' : 'Entrar'))}
           </Button>
 
           <div className="flex flex-col space-y-3 text-sm">
@@ -166,7 +166,7 @@ export function LoginScreen({ inviteToken }: { inviteToken?: string } = {}) {
                   setError('');
                   setSuccessMsg('');
                 }}
-                className="text-indigo-600 hover:text-indigo-800 font-medium self-end -mt-4 mb-2"
+                className="text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-300 font-medium self-end -mt-4 mb-2"
               >
                 Esqueceu a senha?
               </button>
@@ -183,7 +183,7 @@ export function LoginScreen({ inviteToken }: { inviteToken?: string } = {}) {
                 setError('');
                 setSuccessMsg('');
               }}
-              className="text-gray-500 hover:text-gray-900 font-medium"
+              className="text-gray-500 dark:text-zinc-400 hover:text-gray-900 dark:hover:text-zinc-100 font-medium"
             >
               {isForgotPassword 
                 ? 'Voltar para o login' 
@@ -199,7 +199,7 @@ export function LoginScreen({ inviteToken }: { inviteToken?: string } = {}) {
                   } catch {}
                   window.location.replace('/');
                 }}
-                className="text-xs text-gray-400 hover:text-gray-600 pt-2"
+                className="text-xs text-gray-400 dark:text-zinc-500 hover:text-gray-600 dark:hover:text-zinc-300 pt-2"
               >
                 Voltar sem aceitar este convite
               </button>

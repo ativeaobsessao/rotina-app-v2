@@ -28,7 +28,7 @@ import { UserProfile } from '../components/ui/UserProfile';
 import { MedicationModal } from '../components/medications/MedicationModal';
 import { MoodAndPainModal } from '../components/mood/MoodAndPainModal';
 import type { TimelineEvent, MealEventData, MedicationEventData } from '../types/timeline';
-import { Unlock } from 'lucide-react';
+import { Unlock, MessageCircle } from 'lucide-react';
 
 export function TodayScreen({ onTabChange, editingDateStr, onClearEditDate }: { onTabChange?: (tab: 'today' | 'history' | 'routine') => void, editingDateStr?: string | null, onClearEditDate?: () => void }) {
   const [loading, setLoading] = useState(true);
@@ -278,7 +278,7 @@ export function TodayScreen({ onTabChange, editingDateStr, onClearEditDate }: { 
     return (
       <MainLayout activeTab={editingDateStr ? "history" : "today"} onTabChange={onTabChange}>
         <div className="flex h-[80vh] items-center justify-center flex-col text-center px-6">
-          <p className="text-gray-500">Familiar não encontrado ou rotina não configurada.</p>
+          <p className="text-gray-500 dark:text-zinc-400">Familiar não encontrado ou rotina não configurada.</p>
         </div>
       </MainLayout>
     );
@@ -338,23 +338,23 @@ export function TodayScreen({ onTabChange, editingDateStr, onClearEditDate }: { 
         
         {/* Banner de Edição do Passado */}
         {editingDateStr && (
-          <div className="bg-indigo-50 px-6 py-3 border-b border-indigo-100 flex items-center justify-between shadow-sm">
+          <div className="bg-indigo-50 dark:bg-indigo-950/50 px-6 py-3 border-b border-indigo-100 dark:border-indigo-900/50 flex items-center justify-between shadow-sm">
             <div>
-              <p className="text-xs font-bold text-indigo-800 uppercase tracking-wider">Modo de Edição</p>
-              <p className="text-sm font-medium text-indigo-900 mt-0.5">Editando o dia {friendlyDate}</p>
+              <p className="text-xs font-bold text-indigo-800 dark:text-indigo-300 uppercase tracking-wider">Modo de Edição</p>
+              <p className="text-sm font-medium text-indigo-900 dark:text-indigo-100 mt-0.5">Editando o dia {friendlyDate}</p>
             </div>
             <button
               onClick={onClearEditDate}
-              className="text-xs font-bold text-indigo-700 bg-indigo-100/50 hover:bg-indigo-200 px-3 py-1.5 rounded-lg transition-colors"
+              className="text-xs font-bold text-indigo-700 dark:text-indigo-300 bg-indigo-100/50 dark:bg-indigo-900/50 hover:bg-indigo-200 dark:hover:bg-indigo-800/60 px-3 py-1.5 rounded-lg transition-colors"
             >
               Voltar a Hoje
             </button>
           </div>
         )}
 
-        <div className="bg-white px-6 pt-12 pb-6 sticky top-0 z-30 border-b border-gray-100/50 backdrop-blur-xl">
+        <div className="bg-white/95 dark:bg-[#111115]/95 px-6 pt-12 pb-6 sticky top-0 z-30 border-b border-gray-100/50 dark:border-white/[0.08] backdrop-blur-xl transition-colors">
           <div className="flex items-center justify-between mb-6">
-            <h1 className="text-2xl font-bold tracking-tight text-gray-900">DUCA</h1>
+            <h1 className="text-2xl font-bold tracking-tight text-gray-900 dark:text-zinc-100">DUCA</h1>
             <UserProfile />
           </div>
 
@@ -369,7 +369,7 @@ export function TodayScreen({ onTabChange, editingDateStr, onClearEditDate }: { 
               className="relative group transition-transform active:scale-95 focus:outline-none shrink-0"
               title={todayMood ? 'Ver avaliação de bem-estar de hoje' : isAdmin ? 'Registrar como está hoje' : 'Ver bem-estar de hoje'}
             >
-              <div className="w-16 h-16 rounded-full bg-gray-100 border-2 border-white shadow-md overflow-hidden flex items-center justify-center ring-2 ring-indigo-100 group-hover:ring-indigo-300 transition-all">
+              <div className="w-16 h-16 rounded-full bg-gray-100 dark:bg-[#1c1c22] border-2 border-white dark:border-zinc-900 shadow-md overflow-hidden flex items-center justify-center ring-2 ring-indigo-100 dark:ring-indigo-500/30 group-hover:ring-indigo-300 dark:group-hover:ring-indigo-400/50 transition-all">
                 {patientPhoto ? (
                   <img src={patientPhoto} alt={patient.name} className="w-full h-full object-cover" />
                 ) : (
@@ -380,10 +380,10 @@ export function TodayScreen({ onTabChange, editingDateStr, onClearEditDate }: { 
               {/* Indicador sutil de humor na foto */}
               {todayMood ? (
                 <div 
-                  className={`absolute -bottom-1 -right-1 w-6 h-6 rounded-full flex items-center justify-center text-xs shadow-md border-2 border-white ${
+                  className={`absolute -bottom-1 -right-1 w-6 h-6 rounded-full flex items-center justify-center text-xs shadow-md border-2 border-white dark:border-[#111115] ${
                     todayMood.pain_level !== 'none'
-                      ? 'bg-rose-50 ring-1 ring-rose-300'
-                      : 'bg-emerald-50 ring-1 ring-emerald-300'
+                      ? 'bg-rose-50 dark:bg-rose-950 ring-1 ring-rose-300 dark:ring-rose-800'
+                      : 'bg-emerald-50 dark:bg-emerald-950 ring-1 ring-emerald-300 dark:ring-emerald-800'
                   }`}
                 >
                   {todayMood.mood === 'happy' ? '😊' :
@@ -393,7 +393,7 @@ export function TodayScreen({ onTabChange, editingDateStr, onClearEditDate }: { 
                 </div>
               ) : isAdmin ? (
                 <div 
-                  className="absolute -bottom-1 -right-1 w-6 h-6 rounded-full bg-indigo-50 border-2 border-white ring-1 ring-indigo-200 flex items-center justify-center text-[10px] text-indigo-600 shadow-sm animate-pulse"
+                  className="absolute -bottom-1 -right-1 w-6 h-6 rounded-full bg-indigo-50 dark:bg-indigo-950 border-2 border-white dark:border-[#111115] ring-1 ring-indigo-200 dark:ring-indigo-700 flex items-center justify-center text-[10px] text-indigo-600 dark:text-indigo-300 shadow-sm animate-pulse"
                 >
                   ✨
                 </div>
@@ -401,8 +401,8 @@ export function TodayScreen({ onTabChange, editingDateStr, onClearEditDate }: { 
             </button>
 
             <div className="flex-1 min-w-0">
-              <h2 className="text-xl font-semibold text-gray-900 truncate">{patient.name}</h2>
-              <p className="text-xs text-gray-500 mb-1.5">Hoje, {friendlyDate}</p>
+              <h2 className="text-xl font-semibold text-gray-900 dark:text-zinc-100 truncate">{patient.name}</h2>
+              <p className="text-xs text-gray-500 dark:text-zinc-400 mb-1.5">Hoje, {friendlyDate}</p>
 
               {/* Status pill para rápida leitura e registro com zero ruído para acompanhantes */}
               {todayMood ? (
@@ -414,8 +414,8 @@ export function TodayScreen({ onTabChange, editingDateStr, onClearEditDate }: { 
                   }}
                   className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border transition-all active:scale-95 text-left max-w-full ${
                     todayMood.pain_level === 'none'
-                      ? 'bg-emerald-50 text-emerald-800 border-emerald-200/70 hover:bg-emerald-100/70'
-                      : 'bg-rose-50 text-rose-800 border-rose-200/70 hover:bg-rose-100/70'
+                      ? 'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-800 dark:text-emerald-300 border-emerald-200/70 dark:border-emerald-800/50 hover:bg-emerald-100/70 dark:hover:bg-emerald-950/80'
+                      : 'bg-rose-50 dark:bg-rose-950/50 text-rose-800 dark:text-rose-300 border-rose-200/70 dark:border-rose-800/50 hover:bg-rose-100/70 dark:hover:bg-rose-950/80'
                   }`}
                 >
                   <span className="text-sm">
@@ -449,14 +449,32 @@ export function TodayScreen({ onTabChange, editingDateStr, onClearEditDate }: { 
                     setMoodModalMode('edit');
                     setShowMoodModal(true);
                   }}
-                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-slate-50 hover:bg-slate-100 text-slate-600 border border-dashed border-slate-300 transition-all active:scale-95"
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-slate-50 dark:bg-white/[0.05] hover:bg-slate-100 dark:hover:bg-white/[0.09] text-slate-600 dark:text-zinc-300 border border-dashed border-slate-300 dark:border-white/[0.15] transition-all active:scale-95"
                 >
-                  <span className="text-indigo-500 font-bold">+</span>
+                  <span className="text-indigo-500 dark:text-indigo-400 font-bold">+</span>
                   <span>Registrar bem-estar de hoje</span>
                 </button>
               ) : null}
             </div>
           </div>
+
+          {/* Observação serena do bem-estar (divulgação progressiva sem alarde) */}
+          {todayMood?.notes?.trim() && (
+            <button
+              type="button"
+              onClick={() => {
+                setMoodModalMode('view');
+                setShowMoodModal(true);
+              }}
+              className="mt-3.5 w-full text-left bg-gray-50/90 hover:bg-gray-100/80 dark:bg-white/[0.04] dark:hover:bg-white/[0.07] border border-gray-200/70 dark:border-white/[0.08] rounded-2xl px-3.5 py-2.5 flex items-start gap-2.5 transition-all active:scale-[0.99]"
+            >
+              <MessageCircle className="w-3.5 h-3.5 text-gray-400 dark:text-zinc-500 mt-0.5 shrink-0" />
+              <p className="text-xs text-gray-600 dark:text-zinc-300 leading-relaxed line-clamp-2 flex-1">
+                <span className="font-semibold text-gray-700 dark:text-zinc-200">Recado: </span>
+                {todayMood.notes.trim()}
+              </p>
+            </button>
+          )}
 
           <DailyProgressBar total={events.length} completed={resolvedEventsCount} />
         </div>
@@ -464,29 +482,29 @@ export function TodayScreen({ onTabChange, editingDateStr, onClearEditDate }: { 
 
         {/* Banners */}
         {!dailyClosure && hasReopened && (
-          <div className="mx-6 mt-6 bg-amber-50 border border-amber-100 rounded-2xl p-4 flex items-start gap-3 shadow-sm animate-in fade-in slide-in-from-top-2">
-            <div className="w-8 h-8 rounded-full bg-amber-100 flex items-center justify-center shrink-0">
-              <svg className="w-4 h-4 text-amber-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <div className="mx-6 mt-6 bg-amber-50 dark:bg-amber-950/40 border border-amber-100 dark:border-amber-900/50 rounded-2xl p-4 flex items-start gap-3 shadow-sm animate-in fade-in slide-in-from-top-2">
+            <div className="w-8 h-8 rounded-full bg-amber-100 dark:bg-amber-900/60 flex items-center justify-center shrink-0">
+              <svg className="w-4 h-4 text-amber-600 dark:text-amber-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
               </svg>
             </div>
             <div>
-              <p className="text-sm font-medium text-amber-800">Dia reaberto para alterações.</p>
-              <p className="text-xs text-amber-700/80 mt-0.5">Não esqueça de encerrá-lo novamente ao terminar.</p>
+              <p className="text-sm font-medium text-amber-800 dark:text-amber-200">Dia reaberto para alterações.</p>
+              <p className="text-xs text-amber-700/80 dark:text-amber-300/80 mt-0.5">Não esqueça de encerrá-lo novamente ao terminar.</p>
             </div>
           </div>
         )}
 
         {!dailyClosure && !hasReopened && isAllEventsCompleted && (
-          <div className="mx-6 mt-6 bg-emerald-50 border border-emerald-100 rounded-2xl p-4 flex items-start gap-3 shadow-sm animate-in fade-in slide-in-from-top-2">
-            <div className="w-8 h-8 rounded-full bg-emerald-100 flex items-center justify-center shrink-0">
-              <svg className="w-4 h-4 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <div className="mx-6 mt-6 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-100 dark:border-emerald-900/50 rounded-2xl p-4 flex items-start gap-3 shadow-sm animate-in fade-in slide-in-from-top-2">
+            <div className="w-8 h-8 rounded-full bg-emerald-100 dark:bg-emerald-900/60 flex items-center justify-center shrink-0">
+              <svg className="w-4 h-4 text-emerald-600 dark:text-emerald-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
               </svg>
             </div>
             <div>
-              <p className="text-sm font-medium text-emerald-800">Tudo pronto!</p>
-              <p className="text-xs text-emerald-700/80 mt-0.5">Todas as atividades foram registradas. Você já pode encerrar o dia.</p>
+              <p className="text-sm font-medium text-emerald-800 dark:text-emerald-200">Tudo pronto!</p>
+              <p className="text-xs text-emerald-700/80 dark:text-emerald-300/80 mt-0.5">Todas as atividades foram registradas. Você já pode encerrar o dia.</p>
             </div>
           </div>
         )}
@@ -496,8 +514,8 @@ export function TodayScreen({ onTabChange, editingDateStr, onClearEditDate }: { 
           
           {morning.length > 0 && (
             <div className="space-y-4">
-              <h3 className="text-xs font-bold uppercase tracking-wider text-gray-400">Manhã</h3>
-              <div className="space-y-3 relative before:absolute before:inset-0 before:ml-5 before:-translate-x-px before:h-full before:w-0.5 before:bg-gray-100">
+              <h3 className="text-xs font-bold uppercase tracking-wider text-gray-400 dark:text-zinc-500">Manhã</h3>
+              <div className="space-y-3 relative before:absolute before:inset-0 before:ml-5 before:-translate-x-px before:h-full before:w-0.5 before:bg-gray-100 dark:before:bg-white/[0.08]">
                 {morning.map(event => (
                   <TimelineItem profileId={profile?.id} 
                     key={event.id} 
@@ -511,8 +529,8 @@ export function TodayScreen({ onTabChange, editingDateStr, onClearEditDate }: { 
 
           {afternoon.length > 0 && (
             <div className="space-y-4">
-              <h3 className="text-xs font-bold uppercase tracking-wider text-gray-400">Tarde</h3>
-              <div className="space-y-3 relative before:absolute before:inset-0 before:ml-5 before:-translate-x-px before:h-full before:w-0.5 before:bg-gray-100">
+              <h3 className="text-xs font-bold uppercase tracking-wider text-gray-400 dark:text-zinc-500">Tarde</h3>
+              <div className="space-y-3 relative before:absolute before:inset-0 before:ml-5 before:-translate-x-px before:h-full before:w-0.5 before:bg-gray-100 dark:before:bg-white/[0.08]">
                 {afternoon.map(event => (
                   <TimelineItem profileId={profile?.id} 
                     key={event.id} 
@@ -526,8 +544,8 @@ export function TodayScreen({ onTabChange, editingDateStr, onClearEditDate }: { 
 
           {night.length > 0 && (
             <div className="space-y-4">
-              <h3 className="text-xs font-bold uppercase tracking-wider text-gray-400">Noite</h3>
-              <div className="space-y-3 relative before:absolute before:inset-0 before:ml-5 before:-translate-x-px before:h-full before:w-0.5 before:bg-gray-100">
+              <h3 className="text-xs font-bold uppercase tracking-wider text-gray-400 dark:text-zinc-500">Noite</h3>
+              <div className="space-y-3 relative before:absolute before:inset-0 before:ml-5 before:-translate-x-px before:h-full before:w-0.5 before:bg-gray-100 dark:before:bg-white/[0.08]">
                 {night.map(event => (
                   <TimelineItem profileId={profile?.id} 
                     key={event.id} 
@@ -542,21 +560,21 @@ export function TodayScreen({ onTabChange, editingDateStr, onClearEditDate }: { 
 {/* Closure Area */}
         <div className="px-6 pb-6">
           {dailyClosure ? (
-            <div className="bg-gray-50 border border-gray-200 rounded-xl p-4 flex flex-col items-center text-center">
-              <div className="w-10 h-10 bg-green-100 text-green-600 rounded-full flex items-center justify-center mb-2">
+            <div className="bg-gray-50 dark:bg-[#121216] border border-gray-200 dark:border-white/[0.08] rounded-xl p-4 flex flex-col items-center text-center">
+              <div className="w-10 h-10 bg-green-100 dark:bg-emerald-950/60 text-green-600 dark:text-emerald-300 rounded-full flex items-center justify-center mb-2">
                 <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                 </svg>
               </div>
-              <h3 className="font-semibold text-gray-900">Dia encerrado</h3>
-              <p className="text-sm text-gray-500 mt-1">
+              <h3 className="font-semibold text-gray-900 dark:text-zinc-100">Dia encerrado</h3>
+              <p className="text-sm text-gray-500 dark:text-zinc-400 mt-1">
                 Encerrado por {dailyClosure.closed_by_profile?.name || 'Familiar'} às {formatDateToTime(dailyClosure.closed_at)}
               </p>
               
               <button
                 onClick={handleReopenDay}
                 disabled={reopeningDay}
-                className="mt-6 inline-flex items-center justify-center text-sm font-medium text-gray-500 hover:text-gray-700 bg-gray-50 hover:bg-gray-100 px-5 py-2.5 rounded-2xl transition-all active:scale-95 border border-gray-200 disabled:opacity-50 w-full sm:w-auto"
+                className="mt-6 inline-flex items-center justify-center text-sm font-medium text-gray-500 dark:text-zinc-300 hover:text-gray-700 dark:hover:text-white bg-gray-50 dark:bg-[#1c1c22] hover:bg-gray-100 dark:hover:bg-[#26262f] px-5 py-2.5 rounded-2xl transition-all active:scale-95 border border-gray-200 dark:border-white/[0.1] disabled:opacity-50 w-full sm:w-auto"
               >
                 {reopeningDay ? (
                   <Spinner className="w-4 h-4 mr-2" />
@@ -572,7 +590,7 @@ export function TodayScreen({ onTabChange, editingDateStr, onClearEditDate }: { 
         
           {events.length === 0 && (
             <div className="text-center py-12">
-              <p className="text-gray-500">Nenhum evento configurado para hoje.</p>
+              <p className="text-gray-500 dark:text-zinc-400">Nenhum evento configurado para hoje.</p>
             </div>
           )}
         </div>
@@ -580,17 +598,17 @@ export function TodayScreen({ onTabChange, editingDateStr, onClearEditDate }: { 
 
 
       {showClosureModal && patient && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4">
-          <div className="bg-white rounded-2xl p-6 w-full max-w-sm shadow-xl">
-            <h3 className="text-lg font-bold text-gray-900 mb-2">Encerrar o dia?</h3>
-            <p className="text-sm text-gray-500 mb-6">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 dark:bg-black/75 p-4">
+          <div className="bg-white dark:bg-[#141419] dark:border dark:border-white/[0.08] rounded-2xl p-6 w-full max-w-sm shadow-xl">
+            <h3 className="text-lg font-bold text-gray-900 dark:text-zinc-100 mb-2">Encerrar o dia?</h3>
+            <p className="text-sm text-gray-500 dark:text-zinc-400 mb-6">
               Você está encerrando a rotina de {patient.name} de hoje. Depois disso, o dia aparecerá como concluído no Histórico.
             </p>
             <div className="flex justify-end space-x-3">
               <button
                 type="button"
                 onClick={() => setShowClosureModal(false)}
-                className="px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-xl transition-colors"
+                className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-zinc-300 hover:bg-gray-100 dark:hover:bg-white/[0.08] rounded-xl transition-colors"
               >
                 Cancelar
               </button>
@@ -654,14 +672,14 @@ export function TodayScreen({ onTabChange, editingDateStr, onClearEditDate }: { 
       {/* Sticky Bottom Footer for Closing the Day */}
       {!dailyClosure && (hasReopened || isAllEventsCompleted) && (
         <div className="fixed bottom-[80px] left-0 right-0 z-40 px-4 sm:max-w-md mx-auto w-full pb-4 animate-in slide-in-from-bottom-6 fade-in duration-300">
-          <div className="bg-white/80 backdrop-blur-md border border-gray-200 p-3 rounded-2xl shadow-lg flex items-center justify-between">
+          <div className="bg-white/85 dark:bg-[#141419]/90 backdrop-blur-md border border-gray-200 dark:border-white/[0.1] p-3 rounded-2xl shadow-lg flex items-center justify-between">
             <div className="pl-2 pr-4">
-              <p className="text-sm font-bold text-gray-900">Encerrar Dia</p>
-              <p className="text-[11px] font-medium text-gray-500">Confirme para salvar.</p>
+              <p className="text-sm font-bold text-gray-900 dark:text-zinc-100">Encerrar Dia</p>
+              <p className="text-[11px] font-medium text-gray-500 dark:text-zinc-400">Confirme para salvar.</p>
             </div>
             <button
               onClick={() => setShowClosureModal(true)}
-              className="bg-black hover:bg-gray-900 active:bg-gray-800 text-white px-5 py-2.5 rounded-xl text-sm font-medium transition-all shadow-md active:scale-95"
+              className="bg-black dark:bg-indigo-600 hover:bg-gray-900 dark:hover:bg-indigo-500 active:bg-gray-800 text-white px-5 py-2.5 rounded-xl text-sm font-medium transition-all shadow-md active:scale-95"
             >
               Encerrar
             </button>

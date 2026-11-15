@@ -480,19 +480,19 @@ export function ReportModal({ isOpen, onClose, patientId, patientName }: ReportM
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm transition-opacity">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 dark:bg-black/75 backdrop-blur-sm transition-opacity">
       <div 
-        className="bg-white w-full max-w-sm rounded-3xl shadow-2xl overflow-hidden flex flex-col animate-in fade-in zoom-in-95 duration-200"
+        className="bg-white dark:bg-[#121216] dark:border dark:border-white/[0.08] w-full max-w-sm rounded-3xl shadow-2xl overflow-hidden flex flex-col animate-in fade-in zoom-in-95 duration-200"
       >
         {/* Header do Modal */}
-        <div className="flex justify-between items-center px-6 pt-6 pb-4 border-b border-gray-100">
+        <div className="flex justify-between items-center px-6 pt-6 pb-4 border-b border-gray-100 dark:border-white/[0.08]">
           <div className="flex flex-col">
-            <h3 className="text-xl font-bold text-gray-900 tracking-tight">Gerar Relatório</h3>
-            <p className="text-xs text-gray-500 mt-0.5">Resumo médico e nutricional em PDF</p>
+            <h3 className="text-xl font-bold text-gray-900 dark:text-zinc-100 tracking-tight">Gerar Relatório</h3>
+            <p className="text-xs text-gray-500 dark:text-zinc-400 mt-0.5">Resumo médico e nutricional em PDF</p>
           </div>
           <button 
             onClick={onClose}
-            className="p-2 rounded-full bg-gray-100 text-gray-400 hover:text-gray-600 hover:bg-gray-200 transition-colors"
+            className="p-2 rounded-full bg-gray-100 dark:bg-[#1c1c22] text-gray-400 dark:text-zinc-400 hover:text-gray-600 dark:hover:text-zinc-200 hover:bg-gray-200 dark:hover:bg-white/[0.1] transition-colors"
             title="Fechar"
           >
             <X className="w-5 h-5" />
@@ -501,39 +501,39 @@ export function ReportModal({ isOpen, onClose, patientId, patientName }: ReportM
 
         {/* Corpo do Modal com Seletores */}
         <div className="p-6 space-y-4">
-          <div className="bg-gray-50/80 p-4 rounded-2xl border border-gray-100 shadow-sm focus-within:border-indigo-300 focus-within:ring-2 focus-within:ring-indigo-100 transition-all">
-            <label className="text-[11px] font-bold uppercase tracking-wider text-gray-400 mb-1.5 flex items-center gap-1.5">
-              <CalendarDays className="w-3.5 h-3.5 text-indigo-500" /> Data Inicial
+          <div className="bg-gray-50/80 dark:bg-[#1c1c22] p-4 rounded-2xl border border-gray-100 dark:border-white/[0.08] shadow-sm focus-within:border-indigo-300 dark:focus-within:border-indigo-500/60 focus-within:ring-2 focus-within:ring-indigo-100 dark:focus-within:ring-indigo-500/20 transition-all">
+            <label className="text-[11px] font-bold uppercase tracking-wider text-gray-400 dark:text-zinc-500 mb-1.5 flex items-center gap-1.5">
+              <CalendarDays className="w-3.5 h-3.5 text-indigo-500 dark:text-indigo-400" /> Data Inicial
             </label>
             <input 
               type="date"
               value={startDate}
               onChange={(e) => setStartDate(e.target.value)}
-              className="w-full bg-transparent text-gray-900 text-base font-semibold outline-none cursor-pointer"
+              className="w-full bg-transparent text-gray-900 dark:text-zinc-100 text-base font-semibold outline-none cursor-pointer"
             />
           </div>
           
-          <div className="bg-gray-50/80 p-4 rounded-2xl border border-gray-100 shadow-sm focus-within:border-indigo-300 focus-within:ring-2 focus-within:ring-indigo-100 transition-all">
-            <label className="text-[11px] font-bold uppercase tracking-wider text-gray-400 mb-1.5 flex items-center gap-1.5">
-              <CalendarDays className="w-3.5 h-3.5 text-indigo-500" /> Data Final
+          <div className="bg-gray-50/80 dark:bg-[#1c1c22] p-4 rounded-2xl border border-gray-100 dark:border-white/[0.08] shadow-sm focus-within:border-indigo-300 dark:focus-within:border-indigo-500/60 focus-within:ring-2 focus-within:ring-indigo-100 dark:focus-within:ring-indigo-500/20 transition-all">
+            <label className="text-[11px] font-bold uppercase tracking-wider text-gray-400 dark:text-zinc-500 mb-1.5 flex items-center gap-1.5">
+              <CalendarDays className="w-3.5 h-3.5 text-indigo-500 dark:text-indigo-400" /> Data Final
             </label>
             <input 
               type="date"
               value={endDate}
               onChange={(e) => setEndDate(e.target.value)}
-              className="w-full bg-transparent text-gray-900 text-base font-semibold outline-none cursor-pointer"
+              className="w-full bg-transparent text-gray-900 dark:text-zinc-100 text-base font-semibold outline-none cursor-pointer"
             />
           </div>
 
           {error && (
-            <div className="flex items-start space-x-2 text-rose-600 bg-rose-50 p-3.5 rounded-2xl border border-rose-100">
+            <div className="flex items-start space-x-2 text-rose-600 dark:text-rose-300 bg-rose-50 dark:bg-rose-950/40 p-3.5 rounded-2xl border border-rose-100 dark:border-rose-800/50">
               <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
               <span className="text-xs font-medium leading-tight">{error}</span>
             </div>
           )}
 
           {success && (
-            <div className="flex items-start space-x-2 text-emerald-700 bg-emerald-50 p-3.5 rounded-2xl border border-emerald-100">
+            <div className="flex items-start space-x-2 text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/40 p-3.5 rounded-2xl border border-emerald-100 dark:border-emerald-800/50">
               <CheckCircle2 className="w-4 h-4 flex-shrink-0 mt-0.5" />
               <span className="text-xs font-semibold leading-tight">Relatório gerado! O download iniciará em instantes...</span>
             </div>
@@ -547,7 +547,7 @@ export function ReportModal({ isOpen, onClose, patientId, patientName }: ReportM
               className={cn(
                 "w-full flex items-center justify-center space-x-2 py-4 px-6 rounded-2xl text-sm font-bold tracking-wide transition-all active:scale-[0.98]",
                 isGenerating || success 
-                  ? "bg-gray-200 text-gray-400 cursor-not-allowed"
+                  ? "bg-gray-200 dark:bg-white/[0.08] text-gray-400 dark:text-zinc-500 cursor-not-allowed"
                   : "bg-indigo-600 hover:bg-indigo-700 text-white shadow-lg shadow-indigo-600/25"
               )}
             >

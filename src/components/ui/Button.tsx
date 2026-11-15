@@ -12,12 +12,12 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
       <button
         ref={ref}
         className={cn(
-          "inline-flex items-center justify-center rounded-xl font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 disabled:pointer-events-none disabled:opacity-50",
+          "inline-flex items-center justify-center rounded-xl font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 dark:focus-visible:ring-indigo-500 disabled:pointer-events-none disabled:opacity-50",
           {
-            'bg-gray-900 text-white hover:bg-gray-800': variant === 'primary',
-            'bg-gray-100 text-gray-900 hover:bg-gray-200': variant === 'secondary',
-            'border border-gray-200 bg-white hover:bg-gray-100 text-gray-900': variant === 'outline',
-            'hover:bg-gray-100 text-gray-900': variant === 'ghost',
+            'bg-gray-900 text-white hover:bg-gray-800 dark:bg-indigo-600 dark:text-white dark:hover:bg-indigo-500': variant === 'primary',
+            'bg-gray-100 text-gray-900 hover:bg-gray-200 dark:bg-[#1c1c22] dark:text-zinc-100 dark:hover:bg-[#26262f]': variant === 'secondary',
+            'border border-gray-200 bg-white hover:bg-gray-100 text-gray-900 dark:border-white/[0.1] dark:bg-[#18181d] dark:text-zinc-100 dark:hover:bg-[#222229]': variant === 'outline',
+            'hover:bg-gray-100 text-gray-900 dark:text-zinc-200 dark:hover:bg-white/[0.06]': variant === 'ghost',
             'h-12 px-6 py-3 text-base': size === 'default',
             'h-14 px-8 py-4 text-lg': size === 'lg',
             'h-9 px-4 py-2 text-sm': size === 'sm',

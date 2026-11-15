@@ -4,6 +4,7 @@ import { addToSyncQueue } from './syncQueue';
 
 import { supabase } from './supabase';
 import type { Database } from '../types/database.types';
+import { getLocalDateString } from '../utils/date';
 
 
 async function fetchWithCache<T>(cacheKey: string, fetcher: () => Promise<T>, fallbackValue: any = null): Promise<T> {
@@ -294,6 +295,21 @@ export async function upsertDailyMoodLog(log: DailyMoodLog): Promise<DailyMoodLo
     if (error) throw error;
     // Update local cache
     await set(`mood_${log.patient_id}_${log.date}`, data);
+    try {
+      const todayStr = getLocalDateString();
+      if (log.date === todayStr) {
+        const raw = localStorage.getItem('duca_cached_context_moods');
+        const parsed = raw ? JSON.parse(raw) : null;
+        const currentMoods = parsed?.date === todayStr && parsed?.moods ? parsed.moods : {};
+        localStorage.setItem(
+          'duca_cached_context_moods',
+          JSON.stringify({
+            date: todayStr,
+            moods: { ...currentMoods, [log.patient_id]: data }
+          })
+        );
+      }
+    } catch {}
     return data;
   } catch (err: any) {
     // Se for erro de permissão (RLS / não-ADMIN), propaga o erro real sem mascarar com cache local

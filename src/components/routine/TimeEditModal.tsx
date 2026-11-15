@@ -78,37 +78,37 @@ export function TimeEditModal({ isOpen, onClose, entity, patientId, type, onSucc
   return (
     <BottomSheet isOpen={isOpen} onClose={onClose} title={entity ? "Editar Horário" : "Novo Horário"}>
       <div className="space-y-6">
-        {error && <div className="p-3 bg-red-50 text-red-700 rounded-xl text-sm">{error}</div>}
+        {error && <div className="p-3 bg-red-50 dark:bg-rose-950/40 dark:border dark:border-rose-800/50 text-red-700 dark:text-rose-300 rounded-xl text-sm">{error}</div>}
 
         <div className="space-y-3">
-          <label className="text-sm font-semibold text-gray-900">Nome</label>
+          <label className="text-sm font-semibold text-gray-900 dark:text-zinc-100">Nome</label>
           <input 
             type="text" 
             placeholder={type === 'meal' ? "Ex: Almoço" : "Ex: Manhã"}
-            className="flex h-12 w-full rounded-xl border border-gray-200 bg-white px-4 py-2 text-base focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-900"
+            className="flex h-12 w-full rounded-xl border border-gray-200 dark:border-white/[0.1] bg-white dark:bg-[#1c1c22] text-gray-900 dark:text-zinc-100 placeholder:text-gray-400 dark:placeholder:text-zinc-500 px-4 py-2 text-base focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 dark:focus-visible:ring-zinc-400"
             value={name}
             onChange={(e) => setName(e.target.value)}
           />
         </div>
 
         <div className="space-y-3">
-          <label className="text-sm font-semibold text-gray-900">Horário</label>
+          <label className="text-sm font-semibold text-gray-900 dark:text-zinc-100">Horário</label>
           <input 
             type="time" 
-            className="flex h-12 w-full rounded-xl border border-gray-200 bg-white px-4 py-2 text-base focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-900"
+            className="flex h-12 w-full rounded-xl border border-gray-200 dark:border-white/[0.1] bg-white dark:bg-[#1c1c22] text-gray-900 dark:text-zinc-100 px-4 py-2 text-base focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 dark:focus-visible:ring-zinc-400"
             value={time}
             onChange={(e) => setTime(e.target.value)}
           />
         </div>
 
-        <div className="flex items-center justify-between p-4 rounded-xl border border-gray-100 bg-gray-50">
+        <div className="flex items-center justify-between p-4 rounded-xl border border-gray-100 dark:border-white/[0.08] bg-gray-50 dark:bg-[#1c1c22]">
           <div>
-            <h4 className="font-medium text-gray-900">Status</h4>
-            <p className="text-sm text-gray-500">{active ? 'Ativo' : 'Inativo'}</p>
+            <h4 className="font-medium text-gray-900 dark:text-zinc-100">Status</h4>
+            <p className="text-sm text-gray-500 dark:text-zinc-400">{active ? 'Ativo' : 'Inativo'}</p>
           </div>
           <button 
             onClick={() => setActive(!active)}
-            className={`w-12 h-6 rounded-full transition-colors relative ${active ? 'bg-green-500' : 'bg-gray-300'}`}
+            className={`w-12 h-6 rounded-full transition-colors relative ${active ? 'bg-green-500 dark:bg-emerald-500' : 'bg-gray-300 dark:bg-zinc-700'}`}
           >
             <div className={`absolute top-1 left-1 bg-white w-4 h-4 rounded-full transition-transform ${active ? 'translate-x-6' : 'translate-x-0'}`} />
           </button>
@@ -116,7 +116,7 @@ export function TimeEditModal({ isOpen, onClose, entity, patientId, type, onSucc
 
         <div className="pt-4">
           <Button className="w-full" size="lg" onClick={handleSave} disabled={loading || !time}>
-            {loading ? <Spinner className="text-white" /> : 'Salvar Alterações'}
+            {loading ? <Spinner className="text-white dark:text-zinc-950" /> : 'Salvar Alterações'}
           </Button>
         </div>
       </div>

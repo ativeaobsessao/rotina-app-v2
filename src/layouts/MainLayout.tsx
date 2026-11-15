@@ -14,7 +14,7 @@ interface MainLayoutProps {
 export function MainLayout({ children, activeTab = 'today', onTabChange }: MainLayoutProps) {
   const { isOnline, pendingSyncCount } = useNetwork();
   return (
-    <div className="flex min-h-screen flex-col bg-gray-50 dark:bg-gray-950 pb-safe-bottom transition-colors">
+    <div className="flex min-h-screen flex-col bg-gray-50 dark:bg-[#09090b] pb-safe-bottom transition-colors">
       
       {!isOnline && (
         <div className="fixed top-0 left-0 right-0 z-50 bg-amber-500 text-white text-xs font-medium py-1.5 px-4 flex flex-col items-center justify-center text-center shadow-md">
@@ -36,25 +36,25 @@ export function MainLayout({ children, activeTab = 'today', onTabChange }: MainL
         {children}
       </main>
 
-      <nav className="fixed bottom-0 left-0 right-0 z-40 bg-white dark:bg-gray-900 border-t border-gray-100 dark:border-gray-800 transition-colors pb-safe">
+      <nav className="fixed bottom-0 left-0 right-0 z-40 bg-white dark:bg-[#111115]/95 dark:backdrop-blur-xl border-t border-gray-100 dark:border-white/[0.08] transition-colors pb-safe">
         <div className="flex justify-around items-center h-16 max-w-md mx-auto px-6">
           <button 
             onClick={() => onTabChange && onTabChange('today')}
-            className={cn("flex flex-col items-center justify-center w-full h-full space-y-1 text-xs font-medium transition-colors", activeTab === 'today' ? "text-gray-900 dark:text-gray-100" : "text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300")}
+            className={cn("flex flex-col items-center justify-center w-full h-full space-y-1 text-xs font-medium transition-colors", activeTab === 'today' ? "text-gray-900 dark:text-zinc-100" : "text-gray-400 hover:text-gray-600 dark:text-zinc-500 dark:hover:text-zinc-300")}
           >
             <Home className="w-6 h-6" />
             <span>Hoje</span>
           </button>
           <button 
             onClick={() => onTabChange && onTabChange('history')}
-            className={cn("flex flex-col items-center justify-center w-full h-full space-y-1 text-xs font-medium transition-colors", activeTab === 'history' ? "text-gray-900 dark:text-gray-100" : "text-gray-400 hover:text-gray-600")}
+            className={cn("flex flex-col items-center justify-center w-full h-full space-y-1 text-xs font-medium transition-colors", activeTab === 'history' ? "text-gray-900 dark:text-zinc-100" : "text-gray-400 hover:text-gray-600 dark:text-zinc-500 dark:hover:text-zinc-300")}
           >
             <Clock className="w-6 h-6" />
             <span>Histórico</span>
           </button>
           <button 
             onClick={() => onTabChange && onTabChange('routine')}
-            className={cn("flex flex-col items-center justify-center w-full h-full space-y-1 text-xs font-medium transition-colors", activeTab === 'routine' ? "text-gray-900 dark:text-gray-100" : "text-gray-400 hover:text-gray-600")}
+            className={cn("flex flex-col items-center justify-center w-full h-full space-y-1 text-xs font-medium transition-colors", activeTab === 'routine' ? "text-gray-900 dark:text-zinc-100" : "text-gray-400 hover:text-gray-600 dark:text-zinc-500 dark:hover:text-zinc-300")}
           >
             <Settings className="w-6 h-6" />
             <span>Rotina</span>

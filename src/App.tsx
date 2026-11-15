@@ -131,6 +131,10 @@ export default function App() {
         try {
           sessionStorage.removeItem('duca_context_selected');
           localStorage.removeItem('duca_active_flow_until');
+          if (_event === 'SIGNED_OUT') {
+            localStorage.removeItem('duca_cached_context_moods');
+            localStorage.removeItem('duca_cached_context_patients');
+          }
         } catch {}
         hasCheckedContextRef.current = false;
         lastUserIdRef.current = null;
@@ -252,8 +256,8 @@ export default function App() {
         return <LoginScreen inviteToken={urlInviteToken} />;
       }
       return (
-        <div className="flex h-[100dvh] items-center justify-center bg-gray-50">
-          <div className="w-8 h-8 rounded-full border-4 border-indigo-200 border-t-indigo-600 animate-spin" />
+        <div className="flex h-[100dvh] items-center justify-center bg-gray-50 dark:bg-[#09090b]">
+          <div className="w-8 h-8 rounded-full border-4 border-indigo-200 dark:border-indigo-900 border-t-indigo-600 dark:border-t-indigo-400 animate-spin" />
         </div>
       );
     }
@@ -279,7 +283,7 @@ export default function App() {
 
   if (loading) {
     return (
-      <div className="flex h-screen items-center justify-center bg-gray-50 dark:bg-gray-950 transition-colors"></div>
+      <div className="flex h-screen items-center justify-center bg-gray-50 dark:bg-[#09090b] transition-colors"></div>
     );
   }
 
@@ -301,7 +305,7 @@ export default function App() {
 
   if (needsSetup) {
     return <React.Suspense fallback={
-      <div className="flex h-[100dvh] items-center justify-center bg-gray-50 dark:bg-gray-950 transition-colors"></div>
+      <div className="flex h-[100dvh] items-center justify-center bg-gray-50 dark:bg-[#09090b] transition-colors"></div>
     }>
       <SetupScreen onComplete={() => { setNeedsSetup(false); setCurrentTab('routine'); }} />
     </React.Suspense>;
@@ -309,7 +313,7 @@ export default function App() {
 
   if (currentTab === 'routine') {
     return <React.Suspense fallback={
-      <div className="flex h-[100dvh] items-center justify-center bg-gray-50 dark:bg-gray-950 transition-colors"></div>
+      <div className="flex h-[100dvh] items-center justify-center bg-gray-50 dark:bg-[#09090b] transition-colors"></div>
     }>
       <RoutineScreen onTabChange={setCurrentTab} />
     </React.Suspense>;
@@ -317,14 +321,14 @@ export default function App() {
   
   if (currentTab === 'history') {
     return <React.Suspense fallback={
-      <div className="flex h-[100dvh] items-center justify-center bg-gray-50 dark:bg-gray-950 transition-colors"></div>
+      <div className="flex h-[100dvh] items-center justify-center bg-gray-50 dark:bg-[#09090b] transition-colors"></div>
     }>
       <HistoryScreen onTabChange={setCurrentTab} onEditPastDay={(dateStr) => { setEditingDateStr(dateStr); setCurrentTab('today'); }} />
     </React.Suspense>;
   }
 
   return <React.Suspense fallback={
-      <div className="flex h-[100dvh] items-center justify-center bg-gray-50 dark:bg-gray-950 transition-colors"></div>
+      <div className="flex h-[100dvh] items-center justify-center bg-gray-50 dark:bg-[#09090b] transition-colors"></div>
     }>
       <TodayScreen onTabChange={setCurrentTab} editingDateStr={editingDateStr} onClearEditDate={() => setEditingDateStr(null)} />
     </React.Suspense>;

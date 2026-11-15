@@ -71,48 +71,48 @@ function MealRow({ meal, onEdit, profileId }: { meal: HistoryMealEntry; onEdit: 
     'Não comeu';
 
   const consumptionColor =
-    meal.consumption_status === 'normal' ? 'text-green-700' :
-    meal.consumption_status === 'partial' ? 'text-yellow-700' :
-    'text-red-700';
+    meal.consumption_status === 'normal' ? 'text-green-700 dark:text-emerald-400' :
+    meal.consumption_status === 'partial' ? 'text-yellow-700 dark:text-amber-400' :
+    'text-red-700 dark:text-rose-400';
 
   return (
     <button
       onClick={onEdit}
-      className="w-full text-left bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden hover:border-gray-200 active:scale-[0.99] transition-all"
+      className="w-full text-left bg-white dark:bg-[#121216] rounded-2xl border border-gray-100 dark:border-white/[0.08] shadow-sm overflow-hidden hover:border-gray-200 dark:hover:bg-[#18181d] active:scale-[0.99] transition-all"
     >
       {meal.photoSignedUrl && (
-        <div className="w-full aspect-[4/3] bg-gray-100">
+        <div className="w-full aspect-[4/3] bg-gray-100 dark:bg-[#1c1c22]">
           <img src={meal.photoSignedUrl} alt={meal.title} className="w-full h-full object-cover" />
         </div>
       )}
       <div className="p-4">
         <div className="flex items-start justify-between gap-2 mb-1">
           <div className="flex items-center gap-2">
-            <Coffee className="w-4 h-4 text-gray-400 shrink-0 mt-0.5" />
-            <span className="font-semibold text-gray-900 text-sm">{meal.title}</span>
+            <Coffee className="w-4 h-4 text-gray-400 dark:text-zinc-500 shrink-0 mt-0.5" />
+            <span className="font-semibold text-gray-900 dark:text-zinc-100 text-sm">{meal.title}</span>
           </div>
           <span className={`text-xs font-medium shrink-0 ${consumptionColor}`}>{consumptionLabel}</span>
         </div>
 
         {meal.time && (
-          <p className="text-xs text-gray-400 ml-6 mb-2">
+          <p className="text-xs text-gray-400 dark:text-zinc-500 ml-6 mb-2">
             {formatTime(meal.time)} · Refeição realizada
           </p>
         )}
 
         {meal.description && (
-          <p className="text-sm text-gray-600 ml-6 mb-1 italic">🍽️ "{meal.description}"</p>
+          <p className="text-sm text-gray-600 dark:text-zinc-300 ml-6 mb-1 italic">🍽️ "{meal.description}"</p>
         )}
         {meal.drink_description && (
-          <p className="text-xs text-sky-700 ml-6 mb-2">🥤 Bebeu: {meal.drink_description}</p>
+          <p className="text-xs text-sky-700 dark:text-sky-400 ml-6 mb-2">🥤 Bebeu: {meal.drink_description}</p>
         )}
 
-        <div className="ml-6 pt-2 border-t border-gray-50 flex items-center gap-1.5 mt-2">
+        <div className="ml-6 pt-2 border-t border-gray-50 dark:border-white/[0.06] flex items-center gap-1.5 mt-2">
           {profileId && meal.created_at === profileId ? null : (
             <>
-              <span className="text-[11px] text-gray-400">👤</span>
-              <span className="text-[11px] text-gray-500">
-                Registrado por <span className="font-medium text-gray-700">{meal.creatorName}</span>
+              <span className="text-[11px] text-gray-400 dark:text-zinc-500">👤</span>
+              <span className="text-[11px] text-gray-500 dark:text-zinc-400">
+                Registrado por <span className="font-medium text-gray-700 dark:text-zinc-300">{meal.creatorName}</span>
                 {' '}às {formatDateToTime(meal.created_at)}
               </span>
             </>
@@ -131,33 +131,33 @@ function MedRow({ med, onEdit, profileId }: { med: HistoryMedEntry; onEdit: () =
   return (
     <button
       onClick={onEdit}
-      className="w-full text-left bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden hover:border-gray-200 active:scale-[0.99] transition-all p-4"
+      className="w-full text-left bg-white dark:bg-[#121216] rounded-2xl border border-gray-100 dark:border-white/[0.08] shadow-sm overflow-hidden hover:border-gray-200 dark:hover:bg-[#18181d] active:scale-[0.99] transition-all p-4"
     >
       <div className="flex items-start justify-between gap-2 mb-1">
         <div className="flex items-center gap-2">
-          <Pill className="w-4 h-4 text-gray-400 shrink-0 mt-0.5" />
+          <Pill className="w-4 h-4 text-gray-400 dark:text-zinc-500 shrink-0 mt-0.5" />
           <div>
-            <span className="font-semibold text-gray-900 text-sm">{med.name}</span>
-            {med.dosage && <span className="text-xs text-gray-400 ml-1.5">{med.dosage}</span>}
+            <span className="font-semibold text-gray-900 dark:text-zinc-100 text-sm">{med.name}</span>
+            {med.dosage && <span className="text-xs text-gray-400 dark:text-zinc-500 ml-1.5">{med.dosage}</span>}
           </div>
         </div>
-        <span className={`text-xs font-medium shrink-0 ${isAdministered ? 'text-green-700' : 'text-red-600'}`}>
+        <span className={`text-xs font-medium shrink-0 ${isAdministered ? 'text-green-700 dark:text-emerald-400' : 'text-red-600 dark:text-rose-400'}`}>
           {isAdministered ? '✓ Administrado' : '✗ Não administrado'}
         </span>
       </div>
 
-      <p className="text-xs text-gray-400 ml-6 mb-2">{med.periodName} · {formatTime(med.time)}</p>
+      <p className="text-xs text-gray-400 dark:text-zinc-500 ml-6 mb-2">{med.periodName} · {formatTime(med.time)}</p>
 
       {!isAdministered && med.reason && (
-        <p className="text-xs text-red-600 ml-6 mb-2">Motivo: {med.reason}</p>
+        <p className="text-xs text-red-600 dark:text-rose-400 ml-6 mb-2">Motivo: {med.reason}</p>
       )}
 
-      <div className="ml-6 pt-2 border-t border-gray-50 flex items-center gap-1.5 mt-2">
+      <div className="ml-6 pt-2 border-t border-gray-50 dark:border-white/[0.06] flex items-center gap-1.5 mt-2">
         {profileId && med.created_at === profileId ? null : (
           <>
-            <span className="text-[11px] text-gray-400">👤</span>
-            <span className="text-[11px] text-gray-500">
-              Registrado por <span className="font-medium text-gray-700">{med.creatorName}</span>
+            <span className="text-[11px] text-gray-400 dark:text-zinc-500">👤</span>
+            <span className="text-[11px] text-gray-500 dark:text-zinc-400">
+              Registrado por <span className="font-medium text-gray-700 dark:text-zinc-300">{med.creatorName}</span>
               {' '}às {formatDateToTime(med.created_at)}
             </span>
           </>
@@ -199,50 +199,50 @@ function HistoryDayGroup({
       {/* Accordion header */}
       <button
         onClick={() => setExpanded(!expanded)}
-        className="w-full flex flex-col p-4 bg-white rounded-2xl border border-gray-100 shadow-sm hover:border-gray-200 transition-all active:scale-[0.995]"
+        className="w-full flex flex-col p-4 bg-white dark:bg-[#121216] rounded-2xl border border-gray-100 dark:border-white/[0.08] shadow-sm hover:border-gray-200 dark:hover:bg-[#18181d] transition-all active:scale-[0.995]"
       >
         <div className="w-full flex items-center justify-between">
           <div className="flex items-center gap-2.5">
             {closure ? (
-              <CheckCircle2 className="w-4 h-4 text-green-500 shrink-0" />
+              <CheckCircle2 className="w-4 h-4 text-green-500 dark:text-emerald-400 shrink-0" />
             ) : (
-              <Circle className="w-4 h-4 text-gray-300 shrink-0" />
+              <Circle className="w-4 h-4 text-gray-300 dark:text-zinc-600 shrink-0" />
             )}
-            <span className="font-semibold text-gray-900 text-sm">
+            <span className="font-semibold text-gray-900 dark:text-zinc-100 text-sm">
               {friendly}
             </span>
           </div>
           {expanded
-            ? <ChevronUp className="w-4 h-4 text-gray-400 shrink-0" />
-            : <ChevronDown className="w-4 h-4 text-gray-400 shrink-0" />
+            ? <ChevronUp className="w-4 h-4 text-gray-400 dark:text-zinc-500 shrink-0" />
+            : <ChevronDown className="w-4 h-4 text-gray-400 dark:text-zinc-500 shrink-0" />
           }
         </div>
 
         {/* Subtitle */}
         <div className="mt-1.5 ml-6.5 text-left pl-[26px]">
           {closure ? (
-            <span className="text-[11px] text-gray-400">
-              Encerrado por <span className="font-medium">{closure.closed_by_profile?.name || 'Familiar'}</span>
+            <span className="text-[11px] text-gray-400 dark:text-zinc-500">
+              Encerrado por <span className="font-medium text-gray-600 dark:text-zinc-300">{closure.closed_by_profile?.name || 'Familiar'}</span>
               {' '}às {formatDateToTime(closure.closed_at)}
             </span>
           ) : (
-            <span className="text-[11px] text-gray-400">Dia em aberto</span>
+            <span className="text-[11px] text-gray-400 dark:text-zinc-500">Dia em aberto</span>
           )}
         </div>
       </button>
 
       {/* Accordion body */}
       {expanded && (
-        <div className="mt-2 bg-gray-50/80 rounded-2xl border border-gray-100 p-4 space-y-6">
+        <div className="mt-2 bg-gray-50/80 dark:bg-[#0e0e12] rounded-2xl border border-gray-100 dark:border-white/[0.06] p-4 space-y-6">
 
           {/* Status banner */}
           {closure ? (
-            <div className="flex items-center gap-2 text-xs font-semibold text-green-700 bg-green-50 border border-green-100 px-3 py-2.5 rounded-xl">
+            <div className="flex items-center gap-2 text-xs font-semibold text-green-700 dark:text-emerald-300 bg-green-50 dark:bg-emerald-950/35 border border-green-100 dark:border-emerald-800/50 px-3 py-2.5 rounded-xl">
               <CheckCircle2 className="w-3.5 h-3.5" />
               DIA ENCERRADO
             </div>
           ) : (
-            <div className="flex items-center justify-between text-xs font-semibold text-gray-500 bg-white border border-gray-100 px-3 py-2.5 rounded-xl shadow-sm">
+            <div className="flex items-center justify-between text-xs font-semibold text-gray-500 dark:text-zinc-400 bg-white dark:bg-[#16161b] border border-gray-100 dark:border-white/[0.08] px-3 py-2.5 rounded-xl shadow-sm">
               <div className="flex items-center gap-2">
                 <Circle className="w-3.5 h-3.5" />
                 DIA EM ABERTO
@@ -254,11 +254,11 @@ function HistoryDayGroup({
                     onCloseDay(day.dateStr);
                   }}
                   disabled={isClosingDay}
-                  className="px-3 py-1.5 bg-black text-white rounded-lg active:scale-95 transition-all disabled:opacity-50 font-medium tracking-wide flex items-center gap-1.5"
+                  className="px-3 py-1.5 bg-black dark:bg-zinc-100 text-white dark:text-zinc-950 rounded-lg active:scale-95 transition-all disabled:opacity-50 font-medium tracking-wide flex items-center gap-1.5"
                 >
                   {isClosingDay ? (
                     <>
-                      <Spinner className="w-3 h-3 text-white" />
+                      <Spinner className="w-3 h-3 text-white dark:text-zinc-950" />
                       <span>Encerrando...</span>
                     </>
                   ) : (
@@ -275,7 +275,7 @@ function HistoryDayGroup({
               e.stopPropagation();
               onOpenDayEdit();
             }}
-            className="w-full flex items-center justify-center gap-2 py-2.5 mt-2 bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 active:bg-gray-100 rounded-xl text-sm font-medium transition-all shadow-sm"
+            className="w-full flex items-center justify-center gap-2 py-2.5 mt-2 bg-white dark:bg-[#1c1c22] border border-gray-200 dark:border-white/[0.08] text-gray-700 dark:text-zinc-200 hover:bg-gray-50 dark:hover:bg-[#222229] active:bg-gray-100 rounded-xl text-sm font-medium transition-all shadow-sm"
           >
             Editar registros deste dia
           </button>
@@ -283,7 +283,7 @@ function HistoryDayGroup({
           {/* Meals section */}
           {meals.length > 0 && (
             <div className="space-y-3">
-              <h4 className="text-[10px] font-bold uppercase tracking-widest text-gray-400">
+              <h4 className="text-[10px] font-bold uppercase tracking-widest text-gray-400 dark:text-zinc-500">
                 🍽 Refeições
               </h4>
               <div className="space-y-3">
@@ -301,7 +301,7 @@ function HistoryDayGroup({
           {/* Medications section */}
           {meds.length > 0 && (
             <div className="space-y-3">
-              <h4 className="text-[10px] font-bold uppercase tracking-widest text-gray-400">
+              <h4 className="text-[10px] font-bold uppercase tracking-widest text-gray-400 dark:text-zinc-500">
                 💊 Medicamentos
               </h4>
               <div className="space-y-3">
@@ -317,26 +317,26 @@ function HistoryDayGroup({
           )}
 
           {meals.length === 0 && meds.length === 0 && (
-            <p className="text-sm text-gray-400 text-center py-4">Nenhum registro neste dia.</p>
+            <p className="text-sm text-gray-400 dark:text-zinc-500 text-center py-4">Nenhum registro neste dia.</p>
           )}
 
           {/* Day summary */}
-          <div className="border-t border-gray-100 pt-4">
-            <h4 className="text-[10px] font-bold uppercase tracking-widest text-gray-400 mb-3">
+          <div className="border-t border-gray-100 dark:border-white/[0.08] pt-4">
+            <h4 className="text-[10px] font-bold uppercase tracking-widest text-gray-400 dark:text-zinc-500 mb-3">
               Resumo do dia
             </h4>
-            <div className="space-y-1.5 text-xs text-gray-600">
+            <div className="space-y-1.5 text-xs text-gray-600 dark:text-zinc-400">
               <div className="flex justify-between">
                 <span>Refeições registradas</span>
-                <span className="font-semibold text-gray-900">{totalMeals}</span>
+                <span className="font-semibold text-gray-900 dark:text-zinc-100">{totalMeals}</span>
               </div>
               <div className="flex justify-between">
                 <span>Medicamentos registrados</span>
-                <span className="font-semibold text-gray-900">{totalMeds}</span>
+                <span className="font-semibold text-gray-900 dark:text-zinc-100">{totalMeds}</span>
               </div>
-              <div className="flex justify-between mt-2 pt-2 border-t border-gray-100">
+              <div className="flex justify-between mt-2 pt-2 border-t border-gray-100 dark:border-white/[0.08]">
                 <span>Status</span>
-                <span className={`font-semibold ${closure ? 'text-green-700' : 'text-gray-500'}`}>
+                <span className={`font-semibold ${closure ? 'text-green-700 dark:text-emerald-400' : 'text-gray-500 dark:text-zinc-400'}`}>
                   {closure ? '✓ Encerrado' : '○ Em aberto'}
                 </span>
               </div>
@@ -598,13 +598,13 @@ export function HistoryScreen({ onTabChange, onEditPastDay }: { onTabChange?: (t
       <div className="max-w-md mx-auto w-full">
 
         {/* Header */}
-        <div className="bg-white px-6 pt-12 pb-6 sticky top-0 z-30 border-b border-gray-100/50 backdrop-blur-xl">
+        <div className="bg-white/95 dark:bg-[#09090b]/95 px-6 pt-12 pb-6 sticky top-0 z-30 border-b border-gray-100/50 dark:border-white/[0.08] backdrop-blur-xl">
           <div className="flex items-center justify-between mb-2">
-            <h1 className="text-2xl font-bold tracking-tight text-gray-900">Histórico</h1>
+            <h1 className="text-2xl font-bold tracking-tight text-gray-900 dark:text-zinc-100">Histórico</h1>
             <div className="flex items-center gap-2">
               <button
                 onClick={() => setShowReportModal(true)}
-                className="p-2 text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-full transition-colors"
+                className="p-2 text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/60 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 rounded-full transition-colors"
                 title="Gerar Relatório"
               >
                 <FileText className="w-5 h-5" />
@@ -612,19 +612,19 @@ export function HistoryScreen({ onTabChange, onEditPastDay }: { onTabChange?: (t
               <UserProfile />
             </div>
           </div>
-          <p className="text-sm text-gray-500">
+          <p className="text-sm text-gray-500 dark:text-zinc-400">
             Registros anteriores de {patient.name}
           </p>
         </div>
 
         
         {/* Filters */}
-        <div className="px-6 pb-2">
+        <div className="px-6 pt-4 pb-2">
           <div className="flex flex-wrap gap-2">
             <select
               value={filterCategory}
               onChange={(e) => setFilterCategory(e.target.value as any)}
-              className="bg-gray-50 border border-gray-200 text-gray-700 text-sm rounded-xl px-3 py-2 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none"
+              className="bg-gray-50 dark:bg-[#1c1c22] border border-gray-200 dark:border-white/[0.1] text-gray-700 dark:text-zinc-200 text-sm rounded-xl px-3 py-2 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none"
             >
               <option value="all">Todas as categorias</option>
               <option value="meals">Apenas Alimentação</option>
@@ -636,15 +636,15 @@ export function HistoryScreen({ onTabChange, onEditPastDay }: { onTabChange?: (t
                 type="date"
                 value={filterStartDate}
                 onChange={(e) => setFilterStartDate(e.target.value)}
-                className="bg-gray-50 border border-gray-200 text-gray-700 text-sm rounded-xl px-3 py-2 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none"
+                className="bg-gray-50 dark:bg-[#1c1c22] border border-gray-200 dark:border-white/[0.1] text-gray-700 dark:text-zinc-200 text-sm rounded-xl px-3 py-2 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none"
                 title="Data inicial"
               />
-              <span className="text-gray-400 text-sm">até</span>
+              <span className="text-gray-400 dark:text-zinc-500 text-sm">até</span>
               <input
                 type="date"
                 value={filterEndDate}
                 onChange={(e) => setFilterEndDate(e.target.value)}
-                className="bg-gray-50 border border-gray-200 text-gray-700 text-sm rounded-xl px-3 py-2 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none"
+                className="bg-gray-50 dark:bg-[#1c1c22] border border-gray-200 dark:border-white/[0.1] text-gray-700 dark:text-zinc-200 text-sm rounded-xl px-3 py-2 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none"
                 title="Data final"
               />
             </div>
@@ -656,7 +656,7 @@ export function HistoryScreen({ onTabChange, onEditPastDay }: { onTabChange?: (t
                   setFilterEndDate('');
                   setFilterCategory('all');
                 }}
-                className="text-xs font-medium text-indigo-600 hover:text-indigo-800 self-center px-2 py-2"
+                className="text-xs font-medium text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-300 self-center px-2 py-2"
               >
                 Limpar filtros
               </button>
@@ -668,8 +668,8 @@ export function HistoryScreen({ onTabChange, onEditPastDay }: { onTabChange?: (t
         <div className="p-4">
           {days.length === 0 ? (
             <div className="text-center py-16">
-              <p className="text-gray-400 text-sm">Nenhum registro histórico encontrado nos últimos {daysLimit} dias.</p>
-              <p className="text-gray-300 text-xs mt-1">Os registros dos dias anteriores aparecerão aqui.</p>
+              <p className="text-gray-400 dark:text-zinc-500 text-sm">Nenhum registro histórico encontrado nos últimos {daysLimit} dias.</p>
+              <p className="text-gray-300 dark:text-zinc-600 text-xs mt-1">Os registros dos dias anteriores aparecerão aqui.</p>
             </div>
           ) : (
             days.map(day => (
@@ -689,7 +689,7 @@ export function HistoryScreen({ onTabChange, onEditPastDay }: { onTabChange?: (t
             <div className="flex justify-center pt-8 pb-4">
               <button 
                 onClick={() => setDaysLimit(prev => prev + 14)}
-                className="text-sm font-medium text-indigo-600 bg-indigo-50 px-6 py-2.5 rounded-xl hover:bg-indigo-100 transition-colors"
+                className="text-sm font-medium text-indigo-600 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/50 dark:border dark:border-indigo-800/40 px-6 py-2.5 rounded-xl hover:bg-indigo-100 dark:hover:bg-indigo-900/60 transition-colors"
               >
                 Carregar mais antigos
               </button>

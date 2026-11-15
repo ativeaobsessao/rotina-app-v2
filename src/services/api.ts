@@ -728,6 +728,8 @@ async function upsertMedLogInCache(patientId: string, eventDate: string, savedLo
 export interface OfflineMealMutationOptions {
   offlinePhoto?: OfflinePhotoAttachment | null;
   oldPhotoPathToDelete?: string | null;
+  uploadedPhotoPath?: string | null;
+  expectedUpdatedAt?: string | null;
 }
 
 export async function createMealLog(
@@ -752,6 +754,7 @@ export async function createMealLog(
       localTempId: tempId,
       offlinePhoto: offlineOptions.offlinePhoto,
       oldPhotoPathToDelete: offlineOptions.oldPhotoPathToDelete,
+      uploadedPhotoPath: offlineOptions.uploadedPhotoPath,
     });
     const optimistic = buildOptimistic(tempId);
     await upsertMealLogInCache(log.patient_id, log.event_date, optimistic);
@@ -767,15 +770,22 @@ export async function createMealLog(
 
     if (error) {
       if (String(error.code || '') === '23505') {
-        const { data: existing, error: fetchErr } = await supabase
+        const { data: existing, error: fetchErr } = await (supabase as any)
           .from('meal_logs')
           .select('*, creator:profiles!meal_logs_created_by_fkey(name), updater:profiles!meal_logs_updated_by_fkey(name)')
           .eq('meal_config_id', log.meal_config_id)
           .eq('event_date', log.event_date)
           .maybeSingle();
         if (!fetchErr && existing) {
-          await upsertMealLogInCache(log.patient_id, log.event_date, existing);
-          return existing;
+          const existingRow = existing as any;
+          if (existingRow.created_by && log.created_by && existingRow.created_by !== log.created_by) {
+            const creatorName = existingRow.creator?.name || 'outro cuidador';
+            throw new Error(
+              `Esta refeição acabou de ser registrada por ${creatorName}. Atualize a tela para visualizar antes de editar.`
+            );
+          }
+          await upsertMealLogInCache(log.patient_id, log.event_date, existingRow);
+          return existingRow;
         }
       }
       if (error.code === 'PGRST204') {
@@ -798,6 +808,7 @@ export async function createMealLog(
         localTempId: tempId,
         offlinePhoto: offlineOptions.offlinePhoto,
         oldPhotoPathToDelete: offlineOptions.oldPhotoPathToDelete,
+        uploadedPhotoPath: offlineOptions.uploadedPhotoPath,
       });
       const optimistic = buildOptimistic(tempId);
       await upsertMealLogInCache(log.patient_id, log.event_date, optimistic);
@@ -824,8 +835,10 @@ export async function updateMealLog(
         patientId,
         eventDate,
         userId: userId || log.updated_by,
+        expectedUpdatedAt: offlineOptions.expectedUpdatedAt ?? null,
         offlinePhoto: offlineOptions.offlinePhoto,
         oldPhotoPathToDelete: offlineOptions.oldPhotoPathToDelete,
+        uploadedPhotoPath: offlineOptions.uploadedPhotoPath,
       }
     );
     if (patientId && eventDate) {
@@ -844,6 +857,30 @@ export async function updateMealLog(
   }
 
   try {
+    if (offlineOptions.expectedUpdatedAt) {
+      const { data: currentServer, error: checkErr } = await (supabase as any)
+        .from('meal_logs')
+        .select('id, updated_at, updated_by, updater:profiles!meal_logs_updated_by_fkey(name)')
+        .eq('id', id)
+        .maybeSingle();
+
+      if (checkErr) throw checkErr;
+      if (!currentServer) {
+        throw new Error('Este registro não existe mais no servidor. Atualize a tela.');
+      }
+      if (
+        currentServer.updated_at &&
+        currentServer.updated_at !== offlineOptions.expectedUpdatedAt &&
+        currentServer.updated_by &&
+        currentServer.updated_by !== log.updated_by
+      ) {
+        const updaterName = currentServer.updater?.name || 'outro cuidador';
+        throw new Error(
+          `Esta refeição foi atualizada por ${updaterName} após sua abertura. Atualize os dados antes de editar.`
+        );
+      }
+    }
+
     const { data, error } = await (supabase as any)
       .from('meal_logs')
       .update(log)
@@ -871,8 +908,10 @@ export async function updateMealLog(
           patientId,
           eventDate,
           userId: userId || log.updated_by,
+          expectedUpdatedAt: offlineOptions.expectedUpdatedAt ?? null,
           offlinePhoto: offlineOptions.offlinePhoto,
           oldPhotoPathToDelete: offlineOptions.oldPhotoPathToDelete,
+          uploadedPhotoPath: offlineOptions.uploadedPhotoPath,
         }
       );
       if (patientId && eventDate) {
@@ -924,17 +963,24 @@ export async function createMedicationLog(log: Database['public']['Tables']['med
       .single();
 
     if (error) {
-      // Idempotency if already inserted concurrently
+      // Idempotency if already inserted concurrently by same user; conflict if another caregiver inserted
       if (String(error.code || '') === '23505') {
-        const { data: existing, error: fetchErr } = await supabase
+        const { data: existing, error: fetchErr } = await (supabase as any)
           .from('medication_logs')
-          .select()
+          .select('*, creator:profiles!medication_logs_created_by_fkey(name)')
           .eq('medication_id', log.medication_id)
           .eq('event_date', log.event_date)
           .maybeSingle();
         if (!fetchErr && existing) {
-          await upsertMedLogInCache(log.patient_id, log.event_date, existing);
-          return existing;
+          const existingRow = existing as any;
+          if (existingRow.created_by && log.created_by && existingRow.created_by !== log.created_by) {
+            const creatorName = existingRow.creator?.name || 'outro cuidador';
+            throw new Error(
+              `Este medicamento já foi registrado agora há pouco por ${creatorName}. Atualize para visualizar.`
+            );
+          }
+          await upsertMedLogInCache(log.patient_id, log.event_date, existingRow);
+          return existingRow;
         }
       }
       throw error;
@@ -963,7 +1009,8 @@ export async function createMedicationLog(log: Database['public']['Tables']['med
 
 export async function updateMedicationLog(
   id: string,
-  log: Database['public']['Tables']['medication_logs']['Update'] & { patient_id?: string; event_date?: string }
+  log: Database['public']['Tables']['medication_logs']['Update'] & { patient_id?: string; event_date?: string },
+  options: { expectedUpdatedAt?: string | null } = {}
 ) {
   const patientId = log.patient_id;
   const eventDate = log.event_date;
@@ -973,7 +1020,12 @@ export async function updateMedicationLog(
     await addToSyncQueue(
       'updateMedicationLog',
       { id, ...log },
-      { patientId, eventDate, userId: userId || log.updated_by }
+      {
+        patientId,
+        eventDate,
+        userId: userId || log.updated_by,
+        expectedUpdatedAt: options.expectedUpdatedAt ?? null,
+      }
     );
     if (patientId && eventDate) {
       const key = `medLogs_${patientId}_${eventDate}`;
@@ -991,6 +1043,30 @@ export async function updateMedicationLog(
   }
 
   try {
+    if (options.expectedUpdatedAt) {
+      const { data: currentServer, error: checkErr } = await (supabase as any)
+        .from('medication_logs')
+        .select('id, updated_at, updated_by, updater:profiles!medication_logs_updated_by_fkey(name)')
+        .eq('id', id)
+        .maybeSingle();
+
+      if (checkErr) throw checkErr;
+      if (!currentServer) {
+        throw new Error('Este registro de medicamento não existe mais no servidor.');
+      }
+      if (
+        currentServer.updated_at &&
+        currentServer.updated_at !== options.expectedUpdatedAt &&
+        currentServer.updated_by &&
+        currentServer.updated_by !== log.updated_by
+      ) {
+        const updaterName = currentServer.updater?.name || 'outro cuidador';
+        throw new Error(
+          `Este medicamento foi atualizado por ${updaterName} após sua abertura. Atualize os dados antes de editar.`
+        );
+      }
+    }
+
     const { data, error } = await (supabase as any)
       .from('medication_logs')
       .update(log)
@@ -1009,7 +1085,12 @@ export async function updateMedicationLog(
       await addToSyncQueue(
         'updateMedicationLog',
         { id, ...log },
-        { patientId, eventDate, userId: userId || log.updated_by }
+        {
+          patientId,
+          eventDate,
+          userId: userId || log.updated_by,
+          expectedUpdatedAt: options.expectedUpdatedAt ?? null,
+        }
       );
       if (patientId && eventDate) {
         const key = `medLogs_${patientId}_${eventDate}`;
@@ -1036,13 +1117,39 @@ interface CachedSignedUrl {
   expiresAt: number;
 }
 
+function extractSignedUrlExpiryMs(signedUrl: string, fallbackExpiresAt: number): number {
+  try {
+    const urlObj = new URL(signedUrl);
+    const token = urlObj.searchParams.get('token');
+    if (token && token.includes('.')) {
+      const payloadB64 = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+      const padded = payloadB64.padEnd(Math.ceil(payloadB64.length / 4) * 4, '=');
+      const parsed = JSON.parse(atob(padded));
+      if (typeof parsed?.exp === 'number') {
+        return Math.min(parsed.exp * 1000, fallbackExpiresAt);
+      }
+    }
+  } catch {}
+  return fallbackExpiresAt;
+}
+
+async function getSignedUrlCacheKey(
+  bucket: 'patient-profile' | 'meal-records',
+  path: string
+): Promise<string> {
+  const userId = (await getCurrentSessionUserId()) || 'anon';
+  return bucket === 'patient-profile'
+    ? `photo_url_${userId}_patient_${path}`
+    : `photo_url_${userId}_meal_${path}`;
+}
+
 async function resolveSignedUrl(bucket: 'patient-profile' | 'meal-records', path: string): Promise<string | null> {
   if (!path) return null;
   if (path.startsWith('http://') || path.startsWith('https://') || path.startsWith('blob:') || path.startsWith('data:')) {
     return path;
   }
 
-  const cacheKey = bucket === 'patient-profile' ? `photo_url_patient_${path}` : `photo_url_meal_${path}`;
+  const cacheKey = await getSignedUrlCacheKey(bucket, path);
   const now = Date.now();
 
   // 1. Check in-memory cache first (valid if > 1h remaining)
@@ -1051,7 +1158,7 @@ async function resolveSignedUrl(bucket: 'patient-profile' | 'meal-records', path
     return mem.url;
   }
 
-  // 2. Check IndexedDB cached URL (avoids re-signing every photo on every timeline refresh!)
+  // 2. Check IndexedDB cached URL (scoped to current userId)
   const idbRaw = await get<CachedSignedUrl | string>(cacheKey);
   let idbUrl: string | null = null;
   if (typeof idbRaw === 'string') {
@@ -1061,7 +1168,10 @@ async function resolveSignedUrl(bucket: 'patient-profile' | 'meal-records', path
       signedUrlMemoryCache.set(cacheKey, idbRaw);
       return idbRaw.url;
     }
-    idbUrl = idbRaw.url;
+    // Expired URL must not be returned silently as valid online
+    if (idbRaw.expiresAt > now) {
+      idbUrl = idbRaw.url;
+    }
   }
 
   if (typeof navigator !== 'undefined' && !navigator.onLine) {
@@ -1081,7 +1191,7 @@ async function resolveSignedUrl(bucket: 'patient-profile' | 'meal-records', path
       if (!error && data?.signedUrl) {
         const entry: CachedSignedUrl = {
           url: data.signedUrl,
-          expiresAt: Date.now() + SIGNED_URL_TTL_MS,
+          expiresAt: extractSignedUrlExpiryMs(data.signedUrl, Date.now() + SIGNED_URL_TTL_MS),
         };
         signedUrlMemoryCache.set(cacheKey, entry);
         await set(cacheKey, entry);
@@ -1127,9 +1237,18 @@ export async function uploadMealPhoto(patientId: string, file: File, fileName: s
 export async function deleteStorageFile(bucket: string, path: string): Promise<boolean> {
   if (!path) return true;
   try {
-    const cacheKey = bucket === 'patient-profile' ? `photo_url_patient_${path}` : `photo_url_meal_${path}`;
-    signedUrlMemoryCache.delete(cacheKey);
-    await del(cacheKey).catch(() => {});
+    const suffix = bucket === 'patient-profile' ? `_patient_${path}` : `_meal_${path}`;
+    for (const k of Array.from(signedUrlMemoryCache.keys())) {
+      if (k.endsWith(suffix)) signedUrlMemoryCache.delete(k);
+    }
+    try {
+      const allKeys = await keys();
+      await Promise.all(
+        allKeys
+          .filter((k) => String(k).startsWith('photo_url_') && String(k).endsWith(suffix))
+          .map((k) => del(k))
+      );
+    } catch {}
 
     const { error } = await supabase.storage.from(bucket).remove([path]);
     if (error) {

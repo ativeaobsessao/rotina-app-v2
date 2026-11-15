@@ -294,6 +294,8 @@ export function MealModal({
         ? await updateMealLog(event.log.id, logData, {
             offlinePhoto,
             oldPhotoPathToDelete: oldPhotoPathToDeleteOffline,
+            uploadedPhotoPath: newlyUploadedPath,
+            expectedUpdatedAt: event.log?.updated_at || null,
           })
         : await createMealLog(
             {
@@ -303,6 +305,7 @@ export function MealModal({
             {
               offlinePhoto,
               oldPhotoPathToDelete: oldPhotoPathToDeleteOffline,
+              uploadedPhotoPath: newlyUploadedPath,
             }
           );
 

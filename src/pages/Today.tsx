@@ -381,6 +381,8 @@ export function TodayScreen({
         if (isMountedRef.current && seq === loadSeqRef.current) {
           setPatientPhoto(url);
         }
+      } else {
+        setPatientPhoto(null);
       }
 
       await refreshTimeline(pat.id, localDate);

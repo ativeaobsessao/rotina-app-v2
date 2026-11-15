@@ -145,15 +145,19 @@ export function MedicationModal({
       try {
         const existingLog = event.logs.find((l) => l.medication_id === med.id);
         if (existingLog) {
-          await updateMedicationLog(existingLog.id, {
-            patient_id: patientId,
-            event_date: eventDate,
-            status: 'administered',
-            reason: null,
-            notes: null,
-            updated_by: profileId,
-            administered_at: new Date().toISOString(),
-          });
+          await updateMedicationLog(
+            existingLog.id,
+            {
+              patient_id: patientId,
+              event_date: eventDate,
+              status: 'administered',
+              reason: null,
+              notes: null,
+              updated_by: profileId,
+              administered_at: new Date().toISOString(),
+            },
+            { expectedUpdatedAt: existingLog.updated_at || null }
+          );
         } else {
           await createMedicationLog({
             medication_id: med.id,
@@ -254,11 +258,15 @@ export function MedicationModal({
       };
 
       if (existingLog) {
-        await updateMedicationLog(existingLog.id, {
-          ...logData,
-          patient_id: patientId,
-          event_date: eventDate,
-        });
+        await updateMedicationLog(
+          existingLog.id,
+          {
+            ...logData,
+            patient_id: patientId,
+            event_date: eventDate,
+          },
+          { expectedUpdatedAt: existingLog.updated_at || null }
+        );
       } else {
         await createMedicationLog({
           medication_id: notAdministeredMedId,

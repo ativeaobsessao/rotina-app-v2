@@ -34,6 +34,7 @@ export interface SyncItem {
   eventDate?: string;
   userId?: string;
   localTempId?: string;
+  expectedUpdatedAt?: string | null;
   offlinePhoto?: OfflinePhotoAttachment | null;
   oldPhotoPathToDelete?: string | null;
   _uploadedPhotoPath?: string | null;
@@ -87,6 +88,7 @@ function normalizeSyncItem(raw: any): SyncItem {
     eventDate: raw?.eventDate || raw?.payload?.event_date || raw?.payload?.date,
     userId: raw?.userId,
     localTempId: raw?.localTempId,
+    expectedUpdatedAt: raw?.expectedUpdatedAt ?? null,
     offlinePhoto: raw?.offlinePhoto ?? null,
     oldPhotoPathToDelete: raw?.oldPhotoPathToDelete ?? null,
     _uploadedPhotoPath: raw?._uploadedPhotoPath ?? null,
@@ -131,8 +133,10 @@ export interface AddToSyncQueueOptions {
   eventDate?: string;
   userId?: string;
   localTempId?: string;
+  expectedUpdatedAt?: string | null;
   offlinePhoto?: OfflinePhotoAttachment | null;
   oldPhotoPathToDelete?: string | null;
+  uploadedPhotoPath?: string | null;
 }
 
 export async function addToSyncQueue(
@@ -146,7 +150,7 @@ export async function addToSyncQueue(
     const patientId = options.patientId || payload?.patient_id;
     const eventDate = options.eventDate || payload?.event_date || payload?.date;
 
-    // If editing a meal/medication created offline while it's still pending in queue,
+    // If editing a meal created offline while it's still pending in queue,
     // merge changes directly into the queued create item so update won't target a temp ID.
     if (action === 'updateMealLog' && payload?.id && String(payload.id).startsWith('offline_')) {
       const idx = queue.findIndex(
@@ -154,14 +158,21 @@ export async function addToSyncQueue(
       );
       if (idx >= 0) {
         const { id: _ignored, ...updateFields } = payload;
+        const prevUploadedPath = queue[idx]._uploadedPhotoPath;
+        const replacingPhoto = options.offlinePhoto !== undefined;
+        const nextOldToDelete =
+          replacingPhoto && prevUploadedPath
+            ? prevUploadedPath
+            : options.oldPhotoPathToDelete !== undefined
+            ? options.oldPhotoPathToDelete
+            : queue[idx].oldPhotoPathToDelete;
+
         queue[idx] = {
           ...queue[idx],
           payload: { ...queue[idx].payload, ...updateFields },
-          offlinePhoto: options.offlinePhoto !== undefined ? options.offlinePhoto : queue[idx].offlinePhoto,
-          oldPhotoPathToDelete:
-            options.oldPhotoPathToDelete !== undefined
-              ? options.oldPhotoPathToDelete
-              : queue[idx].oldPhotoPathToDelete,
+          offlinePhoto: replacingPhoto ? options.offlinePhoto : queue[idx].offlinePhoto,
+          oldPhotoPathToDelete: nextOldToDelete,
+          _uploadedPhotoPath: replacingPhoto ? null : prevUploadedPath,
           timestamp: Date.now(),
         };
         await adapter.saveQueue(queue);
@@ -218,9 +229,10 @@ export async function addToSyncQueue(
       eventDate,
       userId: options.userId,
       localTempId: options.localTempId,
+      expectedUpdatedAt: options.expectedUpdatedAt ?? null,
       offlinePhoto: options.offlinePhoto ?? null,
       oldPhotoPathToDelete: options.oldPhotoPathToDelete ?? null,
-      _uploadedPhotoPath: null,
+      _uploadedPhotoPath: options.uploadedPhotoPath ?? null,
     };
 
     queue.push(newItem);
@@ -272,14 +284,17 @@ export function isPermanentSyncError(error: any): boolean {
   const code = String(error.code || '');
   const msg = String(error.message || '').toLowerCase();
 
-  // PostgreSQL / PostgREST permanent constraint, RLS, trigger or schema errors
+  // PostgreSQL / PostgREST permanent constraint, RLS, trigger, conflict or schema errors
   if (
     code === '42501' || // insufficient_privilege / RLS
     code === '23503' || // foreign_key_violation
     code === '23514' || // check_violation
     code === '22P02' || // invalid_text_representation
     code === '42703' || // undefined_column
-    code === 'PGRST204' // column not found in schema cache
+    code === 'PGRST204' || // column not found in schema cache
+    code === 'CONFLICT_23505' ||
+    code === 'CONFLICT_STALE_UPDATE' ||
+    code === 'ORPHAN_OFFLINE_ID'
   ) {
     return true;
   }
@@ -289,7 +304,9 @@ export function isPermanentSyncError(error: any): boolean {
     msg.includes('permission') ||
     msg.includes('já foi encerrado') ||
     msg.includes('apenas administradores') ||
-    msg.includes('administrador')
+    msg.includes('administrador') ||
+    msg.includes('outro cuidador') ||
+    msg.includes('outro familiar')
   ) {
     return true;
   }
@@ -316,42 +333,89 @@ function getScopeKey(item: SyncItem): string {
   return `${item.patientId || 'global'}:${item.eventDate || 'global'}`;
 }
 
-async function verifyDuplicateSatisfied(client: any, item: SyncItem): Promise<boolean> {
+async function verifyDuplicateSatisfied(
+  client: any,
+  item: SyncItem
+): Promise<{ status: 'match' | 'conflict' | 'missing'; existing?: any }> {
   try {
     if (item.action === 'createMealLog' && item.payload?.meal_config_id && item.payload?.event_date) {
       const { data, error } = await client
         .from('meal_logs')
-        .select('id, created_by')
+        .select('*')
         .eq('meal_config_id', item.payload.meal_config_id)
         .eq('event_date', item.payload.event_date)
         .maybeSingle();
-      return !error && !!data?.id;
+      if (error || !data?.id) return { status: 'missing' };
+      const expectedOwner = item.payload?.created_by || item.userId;
+      if (data.created_by && expectedOwner && data.created_by !== expectedOwner) {
+        return { status: 'conflict', existing: data };
+      }
+      return { status: 'match', existing: data };
     }
 
     if (item.action === 'createMedicationLog' && item.payload?.medication_id && item.payload?.event_date) {
       const { data, error } = await client
         .from('medication_logs')
-        .select('id, created_by')
+        .select('*')
         .eq('medication_id', item.payload.medication_id)
         .eq('event_date', item.payload.event_date)
         .maybeSingle();
-      return !error && !!data?.id;
+      if (error || !data?.id) return { status: 'missing' };
+      const expectedOwner = item.payload?.created_by || item.userId;
+      if (data.created_by && expectedOwner && data.created_by !== expectedOwner) {
+        return { status: 'conflict', existing: data };
+      }
+      return { status: 'match', existing: data };
     }
 
     if (item.action === 'createDailyClosure' && item.payload?.patient_id && item.payload?.date) {
       const { data, error } = await client
         .from('daily_closures')
-        .select('id, closed_by')
+        .select('*, closed_by_profile:profiles!daily_closures_closed_by_fkey(name)')
         .eq('patient_id', item.payload.patient_id)
         .eq('date', item.payload.date)
         .maybeSingle();
-      // Preserves original closed_by idempotently without modifying existing closure
-      return !error && !!data?.id;
+      if (error || !data?.id) return { status: 'missing' };
+      // Daily closure is unique per (patient_id, date): preserves original closed_by idempotently
+      return { status: 'match', existing: data };
     }
   } catch {
-    return false;
+    return { status: 'missing' };
   }
-  return false;
+  return { status: 'missing' };
+}
+
+async function syncLocalCacheAfterCommit(item: SyncItem, savedRow: any) {
+  try {
+    if (typeof indexedDB === 'undefined') return;
+    const patientId = item.patientId || item.payload?.patient_id || savedRow?.patient_id;
+    const eventDate = item.eventDate || item.payload?.event_date || item.payload?.date || savedRow?.event_date || savedRow?.date;
+    if (!patientId || !eventDate) return;
+
+    if ((item.action === 'createMealLog' || item.action === 'updateMealLog') && savedRow) {
+      const key = `mealLogs_${patientId}_${eventDate}`;
+      const current = (await get<any[]>(key)) || [];
+      const filtered = current.filter(
+        (x) => x.id !== savedRow.id && x.id !== item.localTempId && x.meal_config_id !== savedRow.meal_config_id
+      );
+      filtered.push(savedRow);
+      await set(key, filtered);
+    } else if ((item.action === 'createMedicationLog' || item.action === 'updateMedicationLog') && savedRow) {
+      const key = `medLogs_${patientId}_${eventDate}`;
+      const current = (await get<any[]>(key)) || [];
+      const filtered = current.filter(
+        (x) => x.id !== savedRow.id && x.id !== item.localTempId && x.medication_id !== savedRow.medication_id
+      );
+      filtered.push(savedRow);
+      await set(key, filtered);
+    } else if (item.action === 'createDailyClosure' && savedRow) {
+      await set(`closure_${patientId}_${eventDate}`, savedRow);
+    } else if (item.action === 'deleteDailyClosure') {
+      await set(`closure_${patientId}_${eventDate}`, null);
+    } else if (item.action === 'upsertDailyMoodLog' && savedRow) {
+      await set(`mood_${patientId}_${eventDate}`, savedRow);
+    }
+  } catch {}
 }
 
 async function acquireCrossTabLock<T>(work: () => Promise<T>): Promise<{ acquired: boolean; result?: T }> {
@@ -371,7 +435,7 @@ async function acquireCrossTabLock<T>(work: () => Promise<T>): Promise<{ acquire
     return executed ? { acquired: true, result: output } : { acquired: false };
   }
 
-  // Fallback cross-tab lease using localStorage
+  // Fallback cross-tab lease using localStorage with heartbeat renewal and abandoned-lock recovery
   if (typeof localStorage !== 'undefined') {
     const myToken = generateId();
     const now = Date.now();
@@ -395,10 +459,23 @@ async function acquireCrossTabLock<T>(work: () => Promise<T>): Promise<{ acquire
       // Proceed cleanly if localStorage unavailable
     }
 
+    const heartbeat = setInterval(() => {
+      try {
+        const current = JSON.parse(localStorage.getItem(TAB_LOCK_KEY) || '{}');
+        if (current?.token === myToken) {
+          localStorage.setItem(
+            TAB_LOCK_KEY,
+            JSON.stringify({ token: myToken, expiresAt: Date.now() + TAB_LOCK_TTL_MS })
+          );
+        }
+      } catch {}
+    }, Math.floor(TAB_LOCK_TTL_MS / 3));
+
     try {
       const result = await work();
       return { acquired: true, result };
     } finally {
+      clearInterval(heartbeat);
       try {
         const current = JSON.parse(localStorage.getItem(TAB_LOCK_KEY) || '{}');
         if (current?.token === myToken) {
@@ -566,11 +643,63 @@ async function runQueueCore(
         dbResult = await client.from('meal_logs').insert(currentPayload).select().maybeSingle();
       } else if (item.action === 'updateMealLog') {
         const { id, ...data } = currentPayload;
+        if (String(id || '').startsWith('offline_')) {
+          throw {
+            code: 'ORPHAN_OFFLINE_ID',
+            message: 'Registro original offline não foi criado no servidor antes desta atualização.',
+          };
+        }
+        if (item.expectedUpdatedAt) {
+          const { data: currentServer, error: checkErr } = await client
+            .from('meal_logs')
+            .select('id, updated_at, updated_by')
+            .eq('id', id)
+            .maybeSingle();
+          if (checkErr) throw checkErr;
+          if (
+            currentServer?.updated_at &&
+            currentServer.updated_at !== item.expectedUpdatedAt &&
+            currentServer.updated_by &&
+            currentServer.updated_by !== data.updated_by
+          ) {
+            throw {
+              code: 'CONFLICT_STALE_UPDATE',
+              message:
+                'Outro cuidador atualizou esta refeição enquanto você estava offline. Descarte ou edite novamente após atualizar.',
+            };
+          }
+        }
         dbResult = await client.from('meal_logs').update(data).eq('id', id).select().maybeSingle();
       } else if (item.action === 'createMedicationLog') {
         dbResult = await client.from('medication_logs').insert(currentPayload).select().maybeSingle();
       } else if (item.action === 'updateMedicationLog') {
         const { id, ...data } = currentPayload;
+        if (String(id || '').startsWith('offline_')) {
+          throw {
+            code: 'ORPHAN_OFFLINE_ID',
+            message: 'Registro original de medicamento não foi criado no servidor antes desta atualização.',
+          };
+        }
+        if (item.expectedUpdatedAt) {
+          const { data: currentServer, error: checkErr } = await client
+            .from('medication_logs')
+            .select('id, updated_at, updated_by')
+            .eq('id', id)
+            .maybeSingle();
+          if (checkErr) throw checkErr;
+          if (
+            currentServer?.updated_at &&
+            currentServer.updated_at !== item.expectedUpdatedAt &&
+            currentServer.updated_by &&
+            currentServer.updated_by !== data.updated_by
+          ) {
+            throw {
+              code: 'CONFLICT_STALE_UPDATE',
+              message:
+                'Outro cuidador atualizou este medicamento enquanto você estava offline.',
+            };
+          }
+        }
         dbResult = await client.from('medication_logs').update(data).eq('id', id).select().maybeSingle();
       } else if (item.action === 'createDailyClosure') {
         dbResult = await client.from('daily_closures').insert(currentPayload).select().maybeSingle();
@@ -581,6 +710,24 @@ async function runQueueCore(
           .eq('patient_id', currentPayload.patient_id)
           .eq('date', currentPayload.date)
           .select('id');
+        if (!dbResult.error) {
+          const { data: stillExists, error: verifyErr } = await client
+            .from('daily_closures')
+            .select('id')
+            .eq('patient_id', currentPayload.patient_id)
+            .eq('date', currentPayload.date)
+            .maybeSingle();
+          if (verifyErr) {
+            throw verifyErr;
+          }
+          if (stillExists) {
+            throw {
+              code: '42501',
+              message:
+                'Sem permissão DELETE no servidor para reabrir este dia em daily_closures.',
+            };
+          }
+        }
       } else if (item.action === 'upsertDailyMoodLog') {
         dbResult = await client
           .from('daily_mood_logs')
@@ -603,18 +750,26 @@ async function runQueueCore(
       }
 
       if (dbResult.error) {
-        // Unique violation (23505): verify if server already committed this exact entity
+        // Unique violation (23505): verify if server already committed THIS exact operation
         if (String(dbResult.error.code || '') === '23505') {
-          const alreadyExists = await verifyDuplicateSatisfied(client, item);
-          if (alreadyExists) {
-            if (uploadedPath) {
+          const dupCheck = await verifyDuplicateSatisfied(client, item);
+          if (dupCheck.status === 'match') {
+            if (uploadedPath && dupCheck.existing?.photo_url !== uploadedPath) {
               try {
                 await client.storage.from('meal-records').remove([uploadedPath]);
               } catch {}
             }
+            await syncLocalCacheAfterCommit(item, dupCheck.existing);
             await clearQueueItem(item.id, adapter);
             processed += 1;
             continue;
+          }
+          if (dupCheck.status === 'conflict') {
+            throw {
+              code: 'CONFLICT_23505',
+              message:
+                'Outro cuidador já registrou esta atividade neste dia. Seu registro local foi mantido para revisão sem sobrescrever.',
+            };
           }
         }
         throw dbResult.error;
@@ -628,6 +783,8 @@ async function runQueueCore(
           console.warn('Recoverable cleanup warning removing old photo:', cleanupErr);
         }
       }
+
+      await syncLocalCacheAfterCommit(item, dbResult.data);
 
       // If this created a real DB row for an optimistic temp ID, rewrite dependent queued updates
       const createdServerId = dbResult.data?.id;

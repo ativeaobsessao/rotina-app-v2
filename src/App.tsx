@@ -11,6 +11,11 @@ import { LoginScreen } from './pages/Login';
 import { InviteScreen } from './pages/InviteScreen';
 import { ContextSelectorScreen } from './pages/ContextSelector';
 import { ResetPasswordScreen } from './pages/ResetPassword';
+import {
+  readActiveMealRecovery,
+  clearActiveMealRecovery,
+  cleanupExpiredMealDrafts,
+} from './services/mealDrafts';
 
 const TodayScreen = React.lazy(() =>
   import('./pages/Today').then((m) => ({ default: m.TodayScreen }))
@@ -30,6 +35,10 @@ function hasActiveSelectedContext(): boolean {
     if (sessionStorage.getItem('duca_context_selected') === '1') return true;
     const activeUntil = Number(localStorage.getItem('duca_active_flow_until') || '0');
     if (activeUntil > Date.now()) {
+      sessionStorage.setItem('duca_context_selected', '1');
+      return true;
+    }
+    if (readActiveMealRecovery()) {
       sessionStorage.setItem('duca_context_selected', '1');
       return true;
     }
@@ -64,6 +73,7 @@ function clearLocalContextState() {
     localStorage.removeItem('duca_active_flow_until');
     localStorage.removeItem('duca_cached_context_moods');
     localStorage.removeItem('duca_cached_context_patients');
+    clearActiveMealRecovery();
   } catch {}
 }
 
@@ -97,6 +107,7 @@ export default function App() {
 
   const restoredContext = hasActiveSelectedContext();
 
+  const initialRecovery = readActiveMealRecovery();
   const [loading, setLoading] = useState(!cachedPatients && !restoredContext);
   const [needsSetup, setNeedsSetup] = useState(false);
   const [needsContextSelection, setNeedsContextSelection] = useState(
@@ -104,8 +115,12 @@ export default function App() {
   );
   const [isRecoveringPassword, setIsRecoveringPassword] = useState(false);
   const [initialPatients, setInitialPatients] = useState<any[] | null>(cachedPatients);
-  const [currentTab, setCurrentTab] = useState<'today' | 'history' | 'routine'>('today');
-  const [editingDateStr, setEditingDateStr] = useState<string | null>(null);
+  const [currentTab, setCurrentTab] = useState<'today' | 'history' | 'routine'>(() =>
+    initialRecovery?.tab === 'history' ? 'history' : 'today'
+  );
+  const [editingDateStr, setEditingDateStr] = useState<string | null>(
+    () => initialRecovery?.editingDateStr || null
+  );
 
   const hasCheckedContextRef = useRef(restoredContext);
   const lastUserIdRef = useRef<string | null>(null);
@@ -218,11 +233,17 @@ export default function App() {
 
   useEffect(() => {
     isMountedRef.current = true;
+    void cleanupExpiredMealDrafts();
 
     supabase.auth.getSession().then(async ({ data: { session: s } }) => {
       if (!isMountedRef.current) return;
       setSession(s);
       lastUserIdRef.current = s?.user?.id || null;
+
+      if (s?.user?.id && initialRecovery && initialRecovery.userId !== s.user.id) {
+        setCurrentTab('today');
+        setEditingDateStr(null);
+      }
 
       if (urlInviteToken) {
         if (s && isInviteAuthFlow && urlInviteToken !== '__INVALID__') {

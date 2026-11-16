@@ -1,11 +1,12 @@
-import React, { useEffect, useState, useRef } from 'react';
-import { Camera, Image as ImageIcon, X, Lock, Clock } from 'lucide-react';
+import React, { useEffect, useState, useRef, useCallback } from 'react';
+import { Camera, Image as ImageIcon, X, Lock, Clock, CheckCircle2 } from 'lucide-react';
 import { BottomSheet } from '../ui/BottomSheet';
 import { Button } from '../ui/Button';
 import { Input } from '../ui/Input';
 import { Spinner } from '../ui/Spinner';
+import { InAppCameraModal } from './InAppCameraModal';
 import { cn } from '../../utils/cn';
-import { compressImage } from '../../utils/image';
+import { compressImage, validateImageFile } from '../../utils/image';
 import { getCurrentLocalTime, formatDateToTime } from '../../utils/date';
 import {
   createMealLog,
@@ -14,11 +15,20 @@ import {
   deleteStorageFile,
   getMealPhotoUrl,
   isTransientNetworkError,
+  isRlsPermissionError,
 } from '../../services/api';
+import {
+  LEGACY_MEAL_DRAFT_KEY,
+  saveMealDraft,
+  getMealDraft,
+  deleteMealDraft,
+  setActiveMealRecovery,
+  blobToFile,
+} from '../../services/mealDrafts';
 import { triggerHapticFeedback } from '../../utils/haptics';
 import type { MealEventData } from '../../types/timeline';
 
-export const MEAL_DRAFT_KEY = 'duca_meal_draft';
+export const MEAL_DRAFT_KEY = LEGACY_MEAL_DRAFT_KEY;
 
 interface MealModalProps {
   isOpen: boolean;
@@ -30,25 +40,11 @@ interface MealModalProps {
   patientGender?: string | null;
   isDayClosed?: boolean;
   canEdit?: boolean;
+  recoveryTab?: 'today' | 'history';
+  editingDateStr?: string | null;
+  requestMediaStream?: (constraints: MediaStreamConstraints) => Promise<MediaStream>;
+  captureFrame?: (video: HTMLVideoElement) => Promise<File>;
   onSuccess: () => void;
-}
-
-function readMatchingDraft(mealId: string, patientId: string, eventDate: string) {
-  try {
-    const raw = sessionStorage.getItem(MEAL_DRAFT_KEY) || localStorage.getItem(MEAL_DRAFT_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw);
-    if (
-      parsed &&
-      parsed.mealId === mealId &&
-      parsed.patientId === patientId &&
-      parsed.eventDate === eventDate &&
-      Date.now() - (parsed.ts || 0) < 15 * 60 * 1000
-    ) {
-      return parsed;
-    }
-  } catch {}
-  return null;
 }
 
 export function MealModal({
@@ -61,6 +57,10 @@ export function MealModal({
   patientGender,
   isDayClosed = false,
   canEdit = true,
+  recoveryTab = 'today',
+  editingDateStr = null,
+  requestMediaStream,
+  captureFrame,
   onSuccess,
 }: MealModalProps) {
   const isEditing = !!event.log;
@@ -69,8 +69,6 @@ export function MealModal({
 
   const [mode, setMode] = useState<'view' | 'edit'>(() => {
     if (!canEdit) return 'view';
-    const draft = readMatchingDraft(event.id, patientId, eventDate);
-    if (draft && !isDayClosed) return 'edit';
     return isEditing ? 'view' : 'edit';
   });
   const [consumption, setConsumption] = useState<'normal' | 'partial' | 'none'>(
@@ -88,6 +86,9 @@ export function MealModal({
   const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [photoPreview, setPhotoPreview] = useState<string | null>(event.photoSignedUrl || null);
   const [photoRemoved, setPhotoRemoved] = useState(false);
+  const [uploadedPhotoPath, setUploadedPhotoPath] = useState<string | null>(null);
+  const [wasRecovered, setWasRecovered] = useState(false);
+  const [isCameraOpen, setIsCameraOpen] = useState(false);
   const [isPhotoZoomed, setIsPhotoZoomed] = useState(false);
   const [loading, setLoading] = useState(false);
   const [savingStatus, setSavingStatus] = useState('Salvando...');
@@ -98,11 +99,40 @@ export function MealModal({
   const objectUrlRef = useRef<string | null>(null);
   const isSavingRef = useRef(false);
   const isMountedRef = useRef(true);
+  const hasLocalEditsRef = useRef(false);
+  const activeSessionKeyRef = useRef<string | null>(null);
+  const draftReqSeqRef = useRef(0);
+  const draftDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const formRef = useRef({
+    consumption,
+    description,
+    drinkDescription,
+    notes,
+    mealTime,
+    photoFile,
+    photoRemoved,
+    uploadedPhotoPath,
+  });
+  formRef.current = {
+    consumption,
+    description,
+    drinkDescription,
+    notes,
+    mealTime,
+    photoFile,
+    photoRemoved,
+    uploadedPhotoPath,
+  };
 
   useEffect(() => {
     isMountedRef.current = true;
     return () => {
       isMountedRef.current = false;
+      if (draftDebounceRef.current) {
+        clearTimeout(draftDebounceRef.current);
+        draftDebounceRef.current = null;
+      }
       if (objectUrlRef.current) {
         URL.revokeObjectURL(objectUrlRef.current);
         objectUrlRef.current = null;
@@ -110,37 +140,201 @@ export function MealModal({
     };
   }, []);
 
-  // Re-sync modal state cleanly whenever the opened meal or its saved log changes
-  useEffect(() => {
-    if (!isOpen) return;
+  const persistDraftNow = useCallback(
+    async (overrides?: {
+      photoBlob?: Blob | null;
+      photoRemoved?: boolean;
+      uploadedPhotoPath?: string | null;
+      markActiveRecovery?: boolean;
+    }) => {
+      if (!profileId || !patientId || !event.id || !eventDate || !allowEdit) return;
+      const cur = formRef.current;
+      const blobToSave = overrides && 'photoBlob' in overrides ? overrides.photoBlob ?? null : cur.photoFile;
+      const nextRemoved =
+        overrides && 'photoRemoved' in overrides ? Boolean(overrides.photoRemoved) : cur.photoRemoved;
+      const nextUploadedPath =
+        overrides && 'uploadedPhotoPath' in overrides
+          ? overrides.uploadedPhotoPath ?? null
+          : cur.uploadedPhotoPath;
 
-    const draft = readMatchingDraft(event.id, patientId, eventDate);
+      try {
+        await saveMealDraft({
+          userId: profileId,
+          patientId,
+          mealId: event.id,
+          eventDate,
+          tab: recoveryTab,
+          editingDateStr: editingDateStr ?? null,
+          consumption: cur.consumption,
+          description: cur.description,
+          drinkDescription: cur.drinkDescription,
+          notes: cur.notes,
+          mealTime: cur.mealTime,
+          photoBlob: blobToSave,
+          photoName: blobToSave instanceof File ? blobToSave.name : null,
+          photoType: blobToSave?.type || null,
+          photoRemoved: nextRemoved,
+          uploadedPhotoPath: nextUploadedPath,
+          markActiveRecovery: overrides?.markActiveRecovery ?? true,
+        });
+      } catch (draftErr) {
+        console.warn('Recoverable warning saving meal draft:', draftErr);
+      }
+    },
+    [allowEdit, editingDateStr, event.id, eventDate, patientId, profileId, recoveryTab]
+  );
+
+  // Sync modal state only on session open / close; never wipe in-progress edits or photos on background refresh
+  useEffect(() => {
+    if (!isOpen) {
+      activeSessionKeyRef.current = null;
+      hasLocalEditsRef.current = false;
+      setIsCameraOpen(false);
+      if (draftDebounceRef.current) {
+        clearTimeout(draftDebounceRef.current);
+        draftDebounceRef.current = null;
+      }
+      return;
+    }
+
+    const sessionKey = `${profileId}:${patientId}:${event.id}:${eventDate}`;
     const defaultTime = event.log?.meal_time
       ? event.log.meal_time.substring(0, 5)
       : getCurrentLocalTime().slice(0, 5);
 
-    if (objectUrlRef.current) {
-      URL.revokeObjectURL(objectUrlRef.current);
-      objectUrlRef.current = null;
+    if (activeSessionKeyRef.current !== sessionKey) {
+      activeSessionKeyRef.current = sessionKey;
+      hasLocalEditsRef.current = false;
+
+      if (objectUrlRef.current) {
+        URL.revokeObjectURL(objectUrlRef.current);
+        objectUrlRef.current = null;
+      }
+
+      setMode(!canEdit ? 'view' : event.log ? 'view' : 'edit');
+      setConsumption(event.log?.consumption_status || 'normal');
+      setDescription(event.log?.description || '');
+      setDrinkDescription(event.log?.drink_description || '');
+      setNotes(event.log?.notes || '');
+      setMealTime(defaultTime);
+      setPhotoFile(null);
+      setPhotoPreview(event.photoSignedUrl || null);
+      setPhotoRemoved(false);
+      setUploadedPhotoPath(null);
+      setWasRecovered(false);
+      setIsCameraOpen(false);
+      setIsPhotoZoomed(false);
+      setError('');
+
+      if (profileId && patientId && event.id && eventDate && allowEdit) {
+        const myReq = ++draftReqSeqRef.current;
+        getMealDraft({ userId: profileId, patientId, mealId: event.id, eventDate })
+          .then((draft) => {
+            if (
+              !isMountedRef.current ||
+              myReq !== draftReqSeqRef.current ||
+              activeSessionKeyRef.current !== sessionKey ||
+              hasLocalEditsRef.current
+            ) {
+              return;
+            }
+            if (!draft) return;
+
+            setMode('edit');
+            setConsumption(draft.consumption);
+            setDescription(draft.description);
+            setDrinkDescription(draft.drinkDescription);
+            setNotes(draft.notes);
+            setMealTime(draft.mealTime || defaultTime);
+            setPhotoRemoved(Boolean(draft.photoRemoved));
+            setUploadedPhotoPath(draft.uploadedPhotoPath || null);
+
+            if (draft.photoBlob) {
+              const restoredFile = blobToFile(draft.photoBlob, draft.photoName, draft.photoType);
+              if (objectUrlRef.current) {
+                URL.revokeObjectURL(objectUrlRef.current);
+              }
+              const objUrl = URL.createObjectURL(draft.photoBlob);
+              objectUrlRef.current = objUrl;
+              setPhotoFile(restoredFile);
+              setPhotoPreview(objUrl);
+              setWasRecovered(true);
+            } else if (draft.photoRemoved) {
+              setPhotoFile(null);
+              setPhotoPreview(null);
+              setWasRecovered(true);
+            } else if (
+              draft.description ||
+              draft.drinkDescription ||
+              draft.notes ||
+              draft.uploadedPhotoPath
+            ) {
+              setWasRecovered(true);
+            }
+          })
+          .catch(() => {});
+      }
+    } else if (!hasLocalEditsRef.current && !photoFile && !photoRemoved && !isCameraOpen && mode === 'view') {
+      // Safe view-mode refresh if server log updated externally while user hadn't started editing
+      setConsumption(event.log?.consumption_status || 'normal');
+      setDescription(event.log?.description || '');
+      setDrinkDescription(event.log?.drink_description || '');
+      setNotes(event.log?.notes || '');
+      setMealTime(defaultTime);
+      setPhotoPreview(event.photoSignedUrl || null);
     }
+  }, [
+    isOpen,
+    profileId,
+    patientId,
+    event.id,
+    eventDate,
+    event.log?.id,
+    event.log?.updated_at,
+    event.photoSignedUrl,
+    isDayClosed,
+    canEdit,
+    allowEdit,
+    isCameraOpen,
+    mode,
+    photoFile,
+    photoRemoved,
+  ]);
 
-    setMode(!canEdit ? 'view' : draft && !isDayClosed ? 'edit' : event.log ? 'view' : 'edit');
-    setConsumption((canEdit ? draft?.consumption : undefined) || event.log?.consumption_status || 'normal');
-    setDescription((canEdit ? draft?.description : undefined) ?? (event.log?.description || ''));
-    setDrinkDescription((canEdit ? draft?.drinkDescription : undefined) ?? (event.log?.drink_description || ''));
-    setNotes((canEdit ? draft?.notes : undefined) ?? (event.log?.notes || ''));
-    setMealTime((canEdit ? draft?.mealTime : undefined) || defaultTime);
-    setPhotoFile(null);
-    setPhotoPreview(event.photoSignedUrl || null);
-    setPhotoRemoved(false);
-    setIsPhotoZoomed(false);
-    setError('');
-  }, [isOpen, event.id, eventDate, patientId, event.log?.id, event.log?.updated_at, isDayClosed, canEdit]);
+  // Debounced auto-save for text/status edits while modal is in edit mode
+  useEffect(() => {
+    if (!isOpen || !allowEdit || mode !== 'edit' || !hasLocalEditsRef.current) return;
 
-  // Ensure persisted storage photo resolves cleanly without stalling if already present
+    if (draftDebounceRef.current) {
+      clearTimeout(draftDebounceRef.current);
+    }
+    draftDebounceRef.current = setTimeout(() => {
+      draftDebounceRef.current = null;
+      void persistDraftNow();
+    }, 250);
+
+    return () => {
+      if (draftDebounceRef.current) {
+        clearTimeout(draftDebounceRef.current);
+        draftDebounceRef.current = null;
+      }
+    };
+  }, [
+    isOpen,
+    allowEdit,
+    mode,
+    consumption,
+    description,
+    drinkDescription,
+    notes,
+    mealTime,
+    persistDraftNow,
+  ]);
+
+  // Ensure persisted storage photo resolves cleanly without stalling or overwriting selected photo
   useEffect(() => {
     let cancelled = false;
-    if (!isOpen || photoFile || photoRemoved) return;
+    if (!isOpen || photoFile || photoRemoved || hasLocalEditsRef.current) return;
 
     if (event.photoSignedUrl) {
       setPhotoPreview(event.photoSignedUrl);
@@ -149,7 +343,7 @@ export function MealModal({
 
     if (event.log?.photo_url) {
       getMealPhotoUrl(event.log.photo_url).then((url) => {
-        if (!cancelled && url) {
+        if (!cancelled && url && !formRef.current.photoFile && !formRef.current.photoRemoved) {
           setPhotoPreview(url);
         }
       });
@@ -159,58 +353,146 @@ export function MealModal({
     };
   }, [isOpen, event.photoSignedUrl, event.log?.photo_url, photoFile, photoRemoved]);
 
-  const clearDraft = () => {
-    try {
-      sessionStorage.removeItem(MEAL_DRAFT_KEY);
-      localStorage.removeItem(MEAL_DRAFT_KEY);
-    } catch {}
-  };
+  const clearDraft = useCallback(async () => {
+    if (draftDebounceRef.current) {
+      clearTimeout(draftDebounceRef.current);
+      draftDebounceRef.current = null;
+    }
+    if (!profileId || !patientId || !event.id || !eventDate) return;
+    await deleteMealDraft({ userId: profileId, patientId, mealId: event.id, eventDate });
+  }, [event.id, eventDate, patientId, profileId]);
 
-  const persistDraftForCamera = () => {
-    try {
-      const payload = JSON.stringify({
-        mealId: event.id,
-        patientId,
-        eventDate,
-        consumption,
-        description,
-        drinkDescription,
-        notes,
-        mealTime,
-        ts: Date.now(),
-      });
-      sessionStorage.setItem(MEAL_DRAFT_KEY, payload);
-      localStorage.setItem(MEAL_DRAFT_KEY, payload);
-      localStorage.setItem('duca_active_flow_until', String(Date.now() + 10 * 60 * 1000));
-      sessionStorage.setItem('duca_context_selected', '1');
-    } catch {}
-  };
+  const markRecoveryBeforePicker = useCallback(() => {
+    hasLocalEditsRef.current = true;
+    setActiveMealRecovery({
+      userId: profileId,
+      patientId,
+      mealId: event.id,
+      eventDate,
+      tab: recoveryTab,
+      editingDateStr: editingDateStr ?? null,
+    });
+    void persistDraftNow({ markActiveRecovery: true });
+  }, [editingDateStr, event.id, eventDate, patientId, persistDraftNow, profileId, recoveryTab]);
 
   const handleClose = () => {
-    if (loading || isSavingRef.current) return;
-    clearDraft();
+    if (loading || isSavingRef.current || isCameraOpen) return;
+
+    const uncommittedPath = formRef.current.uploadedPhotoPath;
+    if (uncommittedPath && uncommittedPath !== event.log?.photo_url) {
+      deleteStorageFile('meal-records', uncommittedPath).catch(() => {});
+    }
+
+    if (objectUrlRef.current) {
+      URL.revokeObjectURL(objectUrlRef.current);
+      objectUrlRef.current = null;
+    }
+
+    hasLocalEditsRef.current = false;
+    void clearDraft();
     onClose();
   };
 
-  const handlePhotoSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handlePhotoAccepted = (file: File) => {
     try {
-      localStorage.setItem('duca_active_flow_until', String(Date.now() + 10 * 60 * 1000));
-      sessionStorage.setItem('duca_context_selected', '1');
-    } catch {}
+      validateImageFile(file);
+    } catch (validationErr: any) {
+      setIsCameraOpen(false);
+      setError(
+        validationErr?.message ||
+          'O arquivo selecionado não é uma imagem válida. Tente tirar outra foto ou escolher da galeria.'
+      );
+      return;
+    }
 
-    const file = e.target.files?.[0];
-    e.target.value = '';
-    if (!file) return;
+    const prevUncommitted = formRef.current.uploadedPhotoPath;
+    if (prevUncommitted && prevUncommitted !== event.log?.photo_url) {
+      deleteStorageFile('meal-records', prevUncommitted).catch(() => {});
+    }
+
+    hasLocalEditsRef.current = true;
 
     if (objectUrlRef.current) {
       URL.revokeObjectURL(objectUrlRef.current);
     }
     const objectUrl = URL.createObjectURL(file);
     objectUrlRef.current = objectUrl;
+
+    formRef.current.photoFile = file;
+    formRef.current.photoRemoved = false;
+    formRef.current.uploadedPhotoPath = null;
+
     setPhotoFile(file);
     setPhotoPreview(objectUrl);
     setPhotoRemoved(false);
+    setUploadedPhotoPath(null);
+    setWasRecovered(false);
+    setIsCameraOpen(false);
     setError('');
+
+    // Save raw captured Blob to IndexedDB IMMEDIATELY before compression or upload
+    void persistDraftNow({
+      photoBlob: file,
+      photoRemoved: false,
+      uploadedPhotoPath: null,
+      markActiveRecovery: true,
+    });
+  };
+
+  const handlePhotoSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    handlePhotoAccepted(file);
+  };
+
+  const handleOpenInAppCamera = () => {
+    if (loading || !allowEdit) return;
+    markRecoveryBeforePicker();
+    setIsCameraOpen(true);
+  };
+
+  const handleTriggerNativeCamera = () => {
+    if (loading || !allowEdit) return;
+    markRecoveryBeforePicker();
+    setIsCameraOpen(false);
+    cameraInputRef.current?.click();
+  };
+
+  const handleTriggerGallery = () => {
+    if (loading || !allowEdit) return;
+    markRecoveryBeforePicker();
+    setIsCameraOpen(false);
+    galleryInputRef.current?.click();
+  };
+
+  const handleRemovePhoto = () => {
+    if (loading) return;
+    const prevUncommitted = formRef.current.uploadedPhotoPath;
+    if (prevUncommitted && prevUncommitted !== event.log?.photo_url) {
+      deleteStorageFile('meal-records', prevUncommitted).catch(() => {});
+    }
+    if (objectUrlRef.current) {
+      URL.revokeObjectURL(objectUrlRef.current);
+      objectUrlRef.current = null;
+    }
+    hasLocalEditsRef.current = true;
+    formRef.current.photoFile = null;
+    formRef.current.photoRemoved = true;
+    formRef.current.uploadedPhotoPath = null;
+
+    setPhotoPreview(null);
+    setPhotoFile(null);
+    setPhotoRemoved(true);
+    setUploadedPhotoPath(null);
+    setWasRecovered(false);
+
+    void persistDraftNow({
+      photoBlob: null,
+      photoRemoved: true,
+      uploadedPhotoPath: null,
+      markActiveRecovery: true,
+    });
   };
 
   const handleSave = async () => {
@@ -229,7 +511,7 @@ export function MealModal({
     setError('');
 
     const oldPhotoPath: string | null = event.log?.photo_url || null;
-    let newlyUploadedPath: string | null = null;
+    let newlyUploadedPath: string | null = formRef.current.uploadedPhotoPath || null;
     let dbConfirmed = false;
 
     try {
@@ -243,39 +525,66 @@ export function MealModal({
       let oldPhotoPathToDeleteOffline: string | null = null;
 
       if (photoFile) {
-        setSavingStatus('Preparando foto...');
-        const compressed = await compressImage(photoFile, 1280);
-        const fileName = `${eventDate}_${event.id}_${Date.now()}.jpg`;
-
         const isOnline = typeof navigator === 'undefined' ? true : navigator.onLine;
-        if (!isOnline) {
-          offlinePhoto = {
-            bucket: 'meal-records',
-            patientId,
-            fileName,
-            blob: compressed,
-          };
-          oldPhotoPathToDeleteOffline = oldPhotoPath;
+
+        if (newlyUploadedPath && isOnline) {
+          // Photo was already uploaded in an earlier retry where DB save failed: reuse idempotently
+          nextPhotoPath = newlyUploadedPath;
         } else {
-          setSavingStatus('Enviando foto...');
+          setSavingStatus('Preparando foto...');
+          let compressed: File;
           try {
-            const uploadData = await uploadMealPhoto(patientId, compressed, fileName);
-            newlyUploadedPath = (uploadData as any)?.path || `${patientId}/${fileName}`;
-            nextPhotoPath = newlyUploadedPath;
-          } catch (uploadErr: any) {
-            if (isTransientNetworkError(uploadErr)) {
-              offlinePhoto = {
-                bucket: 'meal-records',
-                patientId,
-                fileName,
-                blob: compressed,
-              };
-              oldPhotoPathToDeleteOffline = oldPhotoPath;
-            } else {
-              throw new Error(
-                uploadErr?.message ||
-                  'Não foi possível enviar a foto da refeição. Tente novamente.'
-              );
+            compressed = await compressImage(photoFile, 1280);
+          } catch (compressionErr: any) {
+            throw new Error(
+              compressionErr?.message ||
+                'Não foi possível processar a fotografia. Tente escolher outra foto ou tirar novamente.'
+            );
+          }
+
+          const fileName = `${eventDate}_${event.id}_${Date.now()}.jpg`;
+
+          if (!isOnline) {
+            offlinePhoto = {
+              bucket: 'meal-records',
+              patientId,
+              fileName,
+              blob: compressed,
+            };
+            oldPhotoPathToDeleteOffline = oldPhotoPath;
+            newlyUploadedPath = null;
+          } else {
+            setSavingStatus('Enviando foto...');
+            try {
+              const uploadData = await uploadMealPhoto(patientId, compressed, fileName);
+              newlyUploadedPath = (uploadData as any)?.path || `${patientId}/${fileName}`;
+              nextPhotoPath = newlyUploadedPath;
+
+              // Checkpoint uploaded path in state & IndexedDB so retries won't duplicate uploads
+              formRef.current.uploadedPhotoPath = newlyUploadedPath;
+              setUploadedPhotoPath(newlyUploadedPath);
+              await persistDraftNow({
+                photoBlob: photoFile,
+                photoRemoved: false,
+                uploadedPhotoPath: newlyUploadedPath,
+              });
+            } catch (uploadErr: any) {
+              if (isTransientNetworkError(uploadErr)) {
+                offlinePhoto = {
+                  bucket: 'meal-records',
+                  patientId,
+                  fileName,
+                  blob: compressed,
+                };
+                oldPhotoPathToDeleteOffline = oldPhotoPath;
+                newlyUploadedPath = null;
+              } else if (isRlsPermissionError(uploadErr)) {
+                throw new Error('Sem permissão para enviar a fotografia desta refeição.');
+              } else {
+                throw new Error(
+                  'Não foi possível enviar a fotografia agora. Seus dados e a foto foram mantidos; tente novamente.'
+                );
+              }
             }
           }
         }
@@ -323,7 +632,6 @@ export function MealModal({
       const isQueuedOffline = Boolean(saved?._syncPending);
       if (!isQueuedOffline) {
         if (newlyUploadedPath) {
-          // Warm signed URL cache silently
           getMealPhotoUrl(newlyUploadedPath).catch(() => {});
           if (oldPhotoPath && oldPhotoPath !== newlyUploadedPath) {
             deleteStorageFile('meal-records', oldPhotoPath).catch((cleanupErr) =>
@@ -337,20 +645,32 @@ export function MealModal({
         }
       }
 
-      clearDraft();
+      hasLocalEditsRef.current = false;
+      formRef.current.uploadedPhotoPath = null;
+      await clearDraft();
       triggerHapticFeedback([40, 60, 40]);
       onSuccess();
     } catch (err: any) {
       console.error('MealModal save error:', err);
 
-      // Rollback newly uploaded orphan photo if DB rejected the mutation
-      if (!dbConfirmed && newlyUploadedPath) {
+      const rawMsg = String(err?.message || '');
+      const isPermanentConflictOrPermission =
+        isRlsPermissionError(err) ||
+        rawMsg.toLowerCase().includes('acabou de ser registrad') ||
+        rawMsg.toLowerCase().includes('foi atualizada por') ||
+        err?.code === '42703';
+
+      // Only purge newlyUploadedPath immediately on unrecoverable conflicts/permissions;
+      // on transient/retryable DB errors, keep uploadedPhotoPath checkpointed for idempotent retry!
+      if (!dbConfirmed && newlyUploadedPath && isPermanentConflictOrPermission) {
+        formRef.current.uploadedPhotoPath = null;
+        if (isMountedRef.current) setUploadedPhotoPath(null);
+        await persistDraftNow({ uploadedPhotoPath: null });
         deleteStorageFile('meal-records', newlyUploadedPath).catch((cleanupErr) =>
           console.warn('Recoverable rollback cleanup warning (orphan photo):', cleanupErr)
         );
       }
 
-      const rawMsg = String(err?.message || '');
       if (!isMountedRef.current) return;
 
       if (rawMsg.toLowerCase().includes('já foi encerrado')) {
@@ -372,7 +692,8 @@ export function MealModal({
   };
 
   return (
-    <BottomSheet isOpen={isOpen} onClose={handleClose} title={event.title}>
+    <>
+      <BottomSheet isOpen={isOpen} onClose={handleClose} title={event.title}>
       <div className="space-y-6">
         {isDayClosed && (
           <div className="flex items-start gap-2.5 p-3.5 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/50 text-amber-800 dark:text-amber-200 text-xs">
@@ -527,6 +848,13 @@ export function MealModal({
           </div>
         ) : (
           <>
+            {wasRecovered && (
+              <div className="p-3 bg-indigo-50/90 dark:bg-indigo-950/40 border border-indigo-200/80 dark:border-indigo-800/50 text-indigo-800 dark:text-indigo-200 rounded-xl text-xs flex items-center gap-2">
+                <CheckCircle2 className="w-4 h-4 shrink-0 text-indigo-600 dark:text-indigo-400" />
+                <span>Seu registro em andamento foi recuperado.</span>
+              </div>
+            )}
+
             {error && (
               <div className="p-3 bg-red-50 dark:bg-rose-950/40 dark:border dark:border-rose-800/50 text-red-700 dark:text-rose-300 rounded-xl text-sm">
                 {error}
@@ -541,7 +869,10 @@ export function MealModal({
                 <button
                   type="button"
                   disabled={loading}
-                  onClick={() => setConsumption('normal')}
+                  onClick={() => {
+                    hasLocalEditsRef.current = true;
+                    setConsumption('normal');
+                  }}
                   className={cn(
                     'p-4 rounded-xl border text-left flex items-center space-x-3 transition-colors',
                     consumption === 'normal'
@@ -575,7 +906,10 @@ export function MealModal({
                 <button
                   type="button"
                   disabled={loading}
-                  onClick={() => setConsumption('partial')}
+                  onClick={() => {
+                    hasLocalEditsRef.current = true;
+                    setConsumption('partial');
+                  }}
                   className={cn(
                     'p-4 rounded-xl border text-left flex items-center space-x-3 transition-colors',
                     consumption === 'partial'
@@ -609,7 +943,10 @@ export function MealModal({
                 <button
                   type="button"
                   disabled={loading}
-                  onClick={() => setConsumption('none')}
+                  onClick={() => {
+                    hasLocalEditsRef.current = true;
+                    setConsumption('none');
+                  }}
                   className={cn(
                     'p-4 rounded-xl border text-left flex items-center space-x-3 transition-colors',
                     consumption === 'none'
@@ -651,7 +988,10 @@ export function MealModal({
                 type="time"
                 value={mealTime}
                 disabled={loading}
-                onChange={(e) => setMealTime(e.target.value)}
+                onChange={(e) => {
+                  hasLocalEditsRef.current = true;
+                  setMealTime(e.target.value);
+                }}
               />
             </div>
 
@@ -664,7 +1004,10 @@ export function MealModal({
                 placeholder="Ex: Arroz, feijão, frango e salada."
                 value={description}
                 disabled={loading}
-                onChange={(e) => setDescription(e.target.value)}
+                onChange={(e) => {
+                  hasLocalEditsRef.current = true;
+                  setDescription(e.target.value);
+                }}
               />
             </div>
 
@@ -677,7 +1020,10 @@ export function MealModal({
                 placeholder="Ex: 200ml de água, suco natural ou chá."
                 value={drinkDescription}
                 disabled={loading}
-                onChange={(e) => setDrinkDescription(e.target.value)}
+                onChange={(e) => {
+                  hasLocalEditsRef.current = true;
+                  setDrinkDescription(e.target.value);
+                }}
               />
             </div>
 
@@ -687,25 +1033,25 @@ export function MealModal({
               </label>
 
               {photoPreview ? (
-                <div className="relative rounded-2xl overflow-hidden bg-gray-100 dark:bg-[#1c1c22] aspect-video border border-gray-200 dark:border-white/[0.1]">
-                  <img src={photoPreview} alt="Preview" className="w-full h-full object-cover" />
-                  <button
-                    type="button"
-                    disabled={loading}
-                    onClick={() => {
-                      if (objectUrlRef.current) {
-                        URL.revokeObjectURL(objectUrlRef.current);
-                        objectUrlRef.current = null;
-                      }
-                      setPhotoPreview(null);
-                      setPhotoFile(null);
-                      setPhotoRemoved(true);
-                    }}
-                    className="absolute top-2 right-2 p-2 bg-black/60 text-white rounded-full hover:bg-black/80 transition-colors disabled:opacity-50"
-                    title="Remover foto"
-                  >
-                    <X className="w-5 h-5" />
-                  </button>
+                <div className="space-y-2">
+                  <div className="relative rounded-2xl overflow-hidden bg-gray-100 dark:bg-[#1c1c22] aspect-video border border-gray-200 dark:border-white/[0.1]">
+                    <img src={photoPreview} alt="Preview" className="w-full h-full object-cover" />
+                    <button
+                      type="button"
+                      disabled={loading}
+                      onClick={handleRemovePhoto}
+                      className="absolute top-2 right-2 min-w-[40px] min-h-[40px] p-2 bg-black/60 text-white rounded-full hover:bg-black/80 transition-colors disabled:opacity-50 flex items-center justify-center"
+                      aria-label="Remover foto"
+                      title="Remover foto"
+                    >
+                      <X className="w-5 h-5" />
+                    </button>
+                  </div>
+                  {(photoFile || uploadedPhotoPath) && (
+                    <p className="text-xs text-emerald-700 dark:text-emerald-400 font-medium">
+                      Foto pronta. Agora você pode confirmar o registro da refeição.
+                    </p>
+                  )}
                 </div>
               ) : (
                 <div className="grid grid-cols-2 gap-3">
@@ -713,11 +1059,8 @@ export function MealModal({
                     type="button"
                     variant="outline"
                     disabled={loading}
-                    className="w-full py-3 flex items-center justify-center gap-2 rounded-xl"
-                    onClick={() => {
-                      persistDraftForCamera();
-                      cameraInputRef.current?.click();
-                    }}
+                    className="w-full min-h-[48px] py-3 flex items-center justify-center gap-2 rounded-xl"
+                    onClick={handleOpenInAppCamera}
                   >
                     <Camera className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
                     <span>Tirar foto</span>
@@ -726,11 +1069,8 @@ export function MealModal({
                     type="button"
                     variant="outline"
                     disabled={loading}
-                    className="w-full py-3 flex items-center justify-center gap-2 rounded-xl"
-                    onClick={() => {
-                      persistDraftForCamera();
-                      galleryInputRef.current?.click();
-                    }}
+                    className="w-full min-h-[48px] py-3 flex items-center justify-center gap-2 rounded-xl"
+                    onClick={handleTriggerGallery}
                   >
                     <ImageIcon className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
                     <span>Da galeria</span>
@@ -743,6 +1083,7 @@ export function MealModal({
                 accept="image/*"
                 capture="environment"
                 ref={cameraInputRef}
+                data-testid="native-camera-input"
                 className="hidden"
                 onChange={handlePhotoSelect}
               />
@@ -750,6 +1091,7 @@ export function MealModal({
                 type="file"
                 accept="image/*"
                 ref={galleryInputRef}
+                data-testid="gallery-input"
                 className="hidden"
                 onChange={handlePhotoSelect}
               />
@@ -763,7 +1105,10 @@ export function MealModal({
                 placeholder="Alguma observação?"
                 value={notes}
                 disabled={loading}
-                onChange={(e) => setNotes(e.target.value)}
+                onChange={(e) => {
+                  hasLocalEditsRef.current = true;
+                  setNotes(e.target.value);
+                }}
               />
             </div>
 
@@ -788,6 +1133,7 @@ export function MealModal({
           </>
         )}
       </div>
+      </BottomSheet>
 
       {isPhotoZoomed && photoPreview && (
         <div
@@ -810,6 +1156,16 @@ export function MealModal({
           />
         </div>
       )}
-    </BottomSheet>
+
+      <InAppCameraModal
+        isOpen={isCameraOpen}
+        onClose={() => setIsCameraOpen(false)}
+        onCaptureConfirm={handlePhotoAccepted}
+        onFallbackNativeCamera={handleTriggerNativeCamera}
+        onFallbackGallery={handleTriggerGallery}
+        requestMediaStream={requestMediaStream}
+        captureFrame={captureFrame}
+      />
+    </>
   );
 }

@@ -41,7 +41,11 @@ import {
 import { Spinner } from '../components/ui/Spinner';
 import { TimelineItem } from '../components/timeline/TimelineItem';
 import { DailyProgressBar } from '../components/timeline/DailyProgressBar';
-import { MealModal, MEAL_DRAFT_KEY } from '../components/meals/MealModal';
+import { MealModal } from '../components/meals/MealModal';
+import {
+  findRecoverableMealDraftForDate,
+  cleanupExpiredMealDrafts,
+} from '../services/mealDrafts';
 import { UserProfile } from '../components/ui/UserProfile';
 import { MedicationModal } from '../components/medications/MedicationModal';
 import { MoodAndPainModal } from '../components/mood/MoodAndPainModal';
@@ -201,6 +205,7 @@ export function TodayScreen({
     });
 
     syncTimeState();
+    void cleanupExpiredMealDrafts();
 
     // Schedule exact wakeup for the next local America/Sao_Paulo boundary (21:00 or 00:00)
     // so the reminder appears automatically without refresh, plus 60s drift/sleep safety check.
@@ -228,7 +233,7 @@ export function TodayScreen({
   }, [nowProvider, revokeOfflinePreviewUrls, syncTimeState]);
 
   const refreshTimeline = useCallback(
-    async (patientId: string, dateStr: string) => {
+    async (patientId: string, dateStr: string, explicitUserId?: string) => {
       const reqSeq = ++timelineReqSeqRef.current;
       try {
         const [meals, medPeriods, allMeds, mealLogs, medLogs, moodLog, closure, syncQueue] =
@@ -398,20 +403,23 @@ export function TodayScreen({
         setLoadedDate(dateStr);
         setLoadError(null);
 
-        // Restore in-progress meal draft if OS reloaded tab after camera return
+        // Restore in-progress meal draft from scoped IndexedDB storage if PWA/tab restarted after camera/picker return
         try {
-          const rawDraft =
-            sessionStorage.getItem(MEAL_DRAFT_KEY) || localStorage.getItem(MEAL_DRAFT_KEY);
-          if (rawDraft) {
-            const parsedDraft = JSON.parse(rawDraft);
-            if (
-              parsedDraft &&
-              parsedDraft.patientId === patientId &&
-              parsedDraft.eventDate === dateStr &&
-              Date.now() - (parsedDraft.ts || 0) < 15 * 60 * 1000
-            ) {
+          let resolvedUserId = explicitUserId || profile?.id;
+          if (!resolvedUserId) {
+            const { data: sessionData } = await supabase.auth.getSession();
+            resolvedUserId = sessionData?.session?.user?.id;
+          }
+          if (resolvedUserId) {
+            const recoverableDraft = await findRecoverableMealDraftForDate(
+              resolvedUserId,
+              patientId,
+              dateStr,
+              'today'
+            );
+            if (recoverableDraft && isMountedRef.current && reqSeq === timelineReqSeqRef.current) {
               const targetEvent = timeline.find(
-                (e) => e.type === 'meal' && e.id === parsedDraft.mealId
+                (e) => e.type === 'meal' && e.id === recoverableDraft.mealId
               ) as MealEventData | undefined;
               if (targetEvent) {
                 setSelectedMealEvent((prev) => prev || targetEvent);
@@ -427,7 +435,7 @@ export function TodayScreen({
         );
       }
     },
-    [revokeOfflinePreviewUrls]
+    [profile?.id, revokeOfflinePreviewUrls]
   );
 
   const scheduleRefresh = useCallback(
@@ -482,7 +490,7 @@ export function TodayScreen({
         setPatientPhoto(null);
       }
 
-      await refreshTimeline(pat.id, localDate);
+      await refreshTimeline(pat.id, localDate, prof.id);
     } catch (err: any) {
       if (!isMountedRef.current || seq !== loadSeqRef.current) return;
       console.error('Error loading data:', err);
@@ -1214,6 +1222,8 @@ export function TodayScreen({
           patientGender={patient.gender}
           isDayClosed={!!dailyClosure}
           canEdit={isAdmin}
+          recoveryTab="today"
+          editingDateStr={editingDateStr || null}
           onSuccess={handleMealRefresh}
         />
       )}

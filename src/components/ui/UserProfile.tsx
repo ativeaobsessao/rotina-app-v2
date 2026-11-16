@@ -5,6 +5,7 @@ import { LogOut, Camera, Lock, UserPen, Users, Moon, Sun } from 'lucide-react';
 import { useTheme } from '../../contexts/ThemeContext';
 import { FamilyModal } from './FamilyModal';
 import { getCurrentProfile, getPatient, clearAllUserCaches } from '../../services/api';
+import { clearActiveMealRecovery } from '../../services/mealDrafts';
 import { compressImage } from '../../utils/image';
 
 export function UserProfile() {
@@ -77,6 +78,7 @@ export function UserProfile() {
 
   const handleSignOut = async () => {
     setIsOpen(false);
+    clearActiveMealRecovery();
     await clearAllUserCaches();
     await supabase.auth.signOut();
   };
@@ -342,6 +344,7 @@ export function UserProfile() {
                 try {
                   sessionStorage.removeItem('duca_context_selected');
                   localStorage.removeItem('duca_active_flow_until');
+                  clearActiveMealRecovery();
                 } catch {}
                 window.location.reload();
               }}

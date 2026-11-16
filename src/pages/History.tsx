@@ -36,6 +36,7 @@ import {
 import { MealModal } from '../components/meals/MealModal';
 import { MedicationModal } from '../components/medications/MedicationModal';
 import { ReportModal } from '../components/history/ReportModal';
+import { readActiveMealRecovery, getMealDraft } from '../services/mealDrafts';
 import type { MealEventData, MedicationEventData } from '../types/timeline';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -685,6 +686,30 @@ export function HistoryScreen({
       }));
 
       setDays(assembled);
+
+      // Restore in-progress meal edit if PWA restarted while editing directly from History
+      try {
+        const pointer = readActiveMealRecovery(prof.id);
+        if (pointer && pointer.tab === 'history' && pointer.patientId === pat.id) {
+          const draft = await getMealDraft(pointer);
+          if (draft && isMountedRef.current && reqSeq === loadSeqRef.current) {
+            const matchedDay = assembled.find((d) => d.dateStr === pointer.eventDate);
+            const matchedMeal = matchedDay?.meals.find(
+              (m) => m.mealConfigId === pointer.mealId || m.id === pointer.mealId
+            );
+            if (matchedDay && matchedMeal) {
+              setSelectedMeal(
+                (prev) =>
+                  prev || {
+                    meal: matchedMeal,
+                    dateStr: matchedDay.dateStr,
+                    isDayClosed: Boolean(matchedDay.closure),
+                  }
+              );
+            }
+          }
+        }
+      } catch {}
     } catch (err: any) {
       if (!isMountedRef.current || reqSeq !== loadSeqRef.current) return;
       console.error('[HistoryScreen] loadData error:', err);
@@ -1015,6 +1040,7 @@ export function HistoryScreen({
           patientGender={patient.gender}
           isDayClosed={selectedMeal.isDayClosed}
           canEdit={isAdmin}
+          recoveryTab="history"
           onSuccess={() => {
             loadData();
             setSelectedMeal(null);

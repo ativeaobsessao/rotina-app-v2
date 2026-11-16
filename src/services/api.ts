@@ -33,28 +33,41 @@ function setStaleCacheState(isStale: boolean) {
   }
 }
 
-export function isTransientNetworkError(err: any): boolean {
-  if (typeof navigator !== 'undefined' && !navigator.onLine) return true;
+export function isRlsPermissionError(err: any): boolean {
   if (!err) return false;
+  const code = String(err?.code || '');
+  const msg = String(err?.message || err || '').toLowerCase();
+  return (
+    code === '42501' ||
+    msg.includes('row-level security') ||
+    msg.includes('permission denied') ||
+    msg.includes('insufficient_privilege') ||
+    msg.includes('apenas administradores')
+  );
+}
+
+export function isTransientNetworkError(err: any): boolean {
+  if (!err) return typeof navigator !== 'undefined' && navigator.onLine === false;
   const msg = String(err?.message || err || '').toLowerCase();
   const name = String(err?.name || '').toLowerCase();
   const code = String(err?.code || '');
 
   // Never treat RLS, permission, closed-day trigger or Postgres constraint errors as transient network issues
   if (
-    code === '42501' ||
+    isRlsPermissionError(err) ||
     code === '23503' ||
     code === '23505' ||
     code === '23514' ||
     code === '42703' ||
     code === 'PGRST204' ||
-    msg.includes('row-level security') ||
     msg.includes('permission') ||
     msg.includes('já foi encerrado') ||
     msg.includes('administrador')
   ) {
     return false;
   }
+
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) return true;
 
   return (
     name === 'aborterror' ||
@@ -378,12 +391,25 @@ export async function createDailyClosure(
         return { success: true, queued: true, closure: optimistic };
       }
 
+      if (isRlsPermissionError(error)) {
+        return {
+          success: false,
+          error: 'Apenas administradores podem encerrar o dia.',
+        };
+      }
+
       return { success: false, error: error.message || 'Erro ao encerrar o dia.' };
     }
 
     await set(`closure_${patientId}_${date}`, data);
     return { success: true, closure: data };
   } catch (err: any) {
+    if (isRlsPermissionError(err)) {
+      return {
+        success: false,
+        error: 'Apenas administradores podem encerrar o dia.',
+      };
+    }
     if (isTransientNetworkError(err)) {
       const userId = await getCurrentSessionUserId();
       await addToSyncQueue('createDailyClosure', payload, {
@@ -432,6 +458,12 @@ export async function deleteDailyClosure(
         await set(`closure_${patientId}_${date}`, null);
         return { success: true, queued: true };
       }
+      if (isRlsPermissionError(error)) {
+        return {
+          success: false,
+          error: 'Apenas administradores podem reabrir um dia encerrado.',
+        };
+      }
       return { success: false, error: error.message || 'Erro ao reabrir o dia.' };
     }
 
@@ -446,13 +478,19 @@ export async function deleteDailyClosure(
     if (stillExists) {
       return {
         success: false,
-        error: 'Não foi possível reabrir o dia no servidor (permissão DELETE necessária em daily_closures).',
+        error: 'Não foi possível reabrir o dia no servidor (permissão de administrador necessária).',
       };
     }
 
     await set(`closure_${patientId}_${date}`, null);
     return { success: true };
   } catch (err: any) {
+    if (isRlsPermissionError(err)) {
+      return {
+        success: false,
+        error: 'Apenas administradores podem reabrir um dia encerrado.',
+      };
+    }
     if (isTransientNetworkError(err)) {
       const userId = await getCurrentSessionUserId();
       await addToSyncQueue(
@@ -788,6 +826,9 @@ export async function createMealLog(
           return existingRow;
         }
       }
+      if (isRlsPermissionError(error)) {
+        throw new Error('Apenas administradores podem registrar refeições.');
+      }
       if (error.code === 'PGRST204') {
         console.error("ERRO CRÍTICO: Coluna ausente no banco (meal_time / drink_description).");
       }
@@ -798,6 +839,9 @@ export async function createMealLog(
     }
     return data;
   } catch (err: any) {
+    if (isRlsPermissionError(err)) {
+      throw new Error('Apenas administradores podem registrar refeições.');
+    }
     if (isTransientNetworkError(err)) {
       const tempId = `offline_meal_${log.meal_config_id}_${log.event_date}_${Date.now()}`;
       const userId = await getCurrentSessionUserId();
@@ -889,6 +933,9 @@ export async function updateMealLog(
       .single();
 
     if (error) {
+      if (isRlsPermissionError(error)) {
+        throw new Error('Apenas administradores podem editar refeições.');
+      }
       if (error.code === 'PGRST204') {
         console.error("ERRO CRÍTICO: Coluna ausente no banco.");
       }
@@ -899,6 +946,9 @@ export async function updateMealLog(
     }
     return data;
   } catch (err: any) {
+    if (isRlsPermissionError(err)) {
+      throw new Error('Apenas administradores podem editar refeições.');
+    }
     if (isTransientNetworkError(err)) {
       const userId = await getCurrentSessionUserId();
       await addToSyncQueue(
@@ -983,6 +1033,9 @@ export async function createMedicationLog(log: Database['public']['Tables']['med
           return existingRow;
         }
       }
+      if (isRlsPermissionError(error)) {
+        throw new Error('Apenas administradores podem registrar medicamentos.');
+      }
       throw error;
     }
     if (data) {
@@ -990,6 +1043,9 @@ export async function createMedicationLog(log: Database['public']['Tables']['med
     }
     return data;
   } catch (err: any) {
+    if (isRlsPermissionError(err)) {
+      throw new Error('Apenas administradores podem registrar medicamentos.');
+    }
     if (isTransientNetworkError(err)) {
       const tempId = `offline_med_${log.medication_id}_${log.event_date}_${Date.now()}`;
       const userId = await getCurrentSessionUserId();
@@ -1074,12 +1130,20 @@ export async function updateMedicationLog(
       .select()
       .single();
 
-    if (error) throw error;
+    if (error) {
+      if (isRlsPermissionError(error)) {
+        throw new Error('Apenas administradores podem editar medicamentos.');
+      }
+      throw error;
+    }
     if (data && data.patient_id && data.event_date) {
       await upsertMedLogInCache(data.patient_id, data.event_date, data);
     }
     return data;
   } catch (err: any) {
+    if (isRlsPermissionError(err)) {
+      throw new Error('Apenas administradores podem editar medicamentos.');
+    }
     if (isTransientNetworkError(err)) {
       const userId = await getCurrentSessionUserId();
       await addToSyncQueue(

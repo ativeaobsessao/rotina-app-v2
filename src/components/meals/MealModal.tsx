@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { Camera, Image as ImageIcon, X, Lock } from 'lucide-react';
+import { Camera, Image as ImageIcon, X, Lock, Clock } from 'lucide-react';
 import { BottomSheet } from '../ui/BottomSheet';
 import { Button } from '../ui/Button';
 import { Input } from '../ui/Input';
@@ -29,6 +29,7 @@ interface MealModalProps {
   eventDate: string;
   patientGender?: string | null;
   isDayClosed?: boolean;
+  canEdit?: boolean;
   onSuccess: () => void;
 }
 
@@ -59,12 +60,15 @@ export function MealModal({
   eventDate,
   patientGender,
   isDayClosed = false,
+  canEdit = true,
   onSuccess,
 }: MealModalProps) {
   const isEditing = !!event.log;
+  const allowEdit = canEdit && !isDayClosed;
   const pronoun = patientGender === 'F' ? 'ela' : patientGender === 'M' ? 'ele' : 'ela(e)';
 
   const [mode, setMode] = useState<'view' | 'edit'>(() => {
+    if (!canEdit) return 'view';
     const draft = readMatchingDraft(event.id, patientId, eventDate);
     if (draft && !isDayClosed) return 'edit';
     return isEditing ? 'view' : 'edit';
@@ -120,18 +124,18 @@ export function MealModal({
       objectUrlRef.current = null;
     }
 
-    setMode(draft && !isDayClosed ? 'edit' : event.log ? 'view' : 'edit');
-    setConsumption(draft?.consumption || event.log?.consumption_status || 'normal');
-    setDescription(draft?.description ?? (event.log?.description || ''));
-    setDrinkDescription(draft?.drinkDescription ?? (event.log?.drink_description || ''));
-    setNotes(draft?.notes ?? (event.log?.notes || ''));
-    setMealTime(draft?.mealTime || defaultTime);
+    setMode(!canEdit ? 'view' : draft && !isDayClosed ? 'edit' : event.log ? 'view' : 'edit');
+    setConsumption((canEdit ? draft?.consumption : undefined) || event.log?.consumption_status || 'normal');
+    setDescription((canEdit ? draft?.description : undefined) ?? (event.log?.description || ''));
+    setDrinkDescription((canEdit ? draft?.drinkDescription : undefined) ?? (event.log?.drink_description || ''));
+    setNotes((canEdit ? draft?.notes : undefined) ?? (event.log?.notes || ''));
+    setMealTime((canEdit ? draft?.mealTime : undefined) || defaultTime);
     setPhotoFile(null);
     setPhotoPreview(event.photoSignedUrl || null);
     setPhotoRemoved(false);
     setIsPhotoZoomed(false);
     setError('');
-  }, [isOpen, event.id, eventDate, patientId, event.log?.id, event.log?.updated_at, isDayClosed]);
+  }, [isOpen, event.id, eventDate, patientId, event.log?.id, event.log?.updated_at, isDayClosed, canEdit]);
 
   // Ensure persisted storage photo resolves cleanly without stalling if already present
   useEffect(() => {
@@ -211,6 +215,10 @@ export function MealModal({
 
   const handleSave = async () => {
     if (isSavingRef.current || loading) return;
+    if (!canEdit) {
+      setError('Apenas administradores podem registrar ou editar refeições.');
+      return;
+    }
     if (isDayClosed) {
       setError('Este dia está encerrado. Reabra o dia antes de fazer alterações.');
       return;
@@ -375,7 +383,29 @@ export function MealModal({
           </div>
         )}
 
-        {mode === 'view' && event.log ? (
+        {!canEdit && !event.log ? (
+          <div className="space-y-6 animate-in fade-in duration-200">
+            <div className="p-6 rounded-2xl bg-gray-50 dark:bg-[#1c1c22] border border-gray-100 dark:border-white/[0.08] flex flex-col items-center text-center">
+              <div className="w-12 h-12 rounded-full bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-100 dark:border-indigo-800/40 flex items-center justify-center mb-3">
+                <Clock className="w-5 h-5 text-indigo-500 dark:text-indigo-400" />
+              </div>
+              <h3 className="text-base font-bold text-gray-900 dark:text-zinc-100">
+                Aguardando registro
+              </h3>
+              <p className="text-xs text-gray-500 dark:text-zinc-400 mt-1.5 max-w-xs leading-relaxed">
+                Assim que o responsável ou cuidadora registrar esta refeição, as informações e fotos aparecerão aqui.
+              </p>
+            </div>
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={handleClose}
+              className="w-full py-3.5 text-sm font-semibold text-gray-700 dark:text-zinc-200 bg-gray-100 dark:bg-[#1c1c22] hover:bg-gray-200 dark:hover:bg-[#26262f] rounded-2xl"
+            >
+              Fechar
+            </Button>
+          </div>
+        ) : mode === 'view' && event.log ? (
           <div className="space-y-6">
             {photoPreview && (
               <button
@@ -482,7 +512,7 @@ export function MealModal({
               )}
             </div>
 
-            {!isDayClosed && (
+            {allowEdit && (
               <div className="pt-2">
                 <Button
                   type="button"

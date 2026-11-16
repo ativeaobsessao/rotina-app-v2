@@ -3,6 +3,7 @@ import { MainLayout } from '../layouts/MainLayout';
 import {
   getCurrentProfile,
   getPatient,
+  getMyFamilyRole,
   getHistoricalMealLogs,
   getHistoricalMedicationLogs,
   getMealPhotoUrl,
@@ -30,6 +31,7 @@ import {
   FileText,
   AlertCircle,
   RefreshCw,
+  X,
 } from 'lucide-react';
 import { MealModal } from '../components/meals/MealModal';
 import { MedicationModal } from '../components/medications/MedicationModal';
@@ -82,14 +84,18 @@ interface DayData {
 
 // ─── Sub-component: individual meal row ──────────────────────────────────────
 
-function MealRow({
+export function MealRow({
   meal,
   onEdit,
+  onViewPhoto,
   profileId,
+  canEdit = true,
 }: {
   meal: HistoryMealEntry;
-  onEdit: () => void;
+  onEdit?: () => void;
+  onViewPhoto?: (photoUrl: string, title: string) => void;
   profileId?: string;
+  canEdit?: boolean;
   key?: React.Key;
 }) {
   const consumptionLabel =
@@ -108,6 +114,78 @@ function MealRow({
 
   const hideCreator = profileId && meal.log?.created_by === profileId;
 
+  const detailsBody = (
+    <div className="p-4">
+      <div className="flex items-start justify-between gap-2 mb-1">
+        <div className="flex items-center gap-2">
+          <Coffee className="w-4 h-4 text-gray-400 dark:text-zinc-500 shrink-0 mt-0.5" />
+          <span className="font-semibold text-gray-900 dark:text-zinc-100 text-sm">
+            {meal.title}
+          </span>
+        </div>
+        <span className={`text-xs font-medium shrink-0 ${consumptionColor}`}>
+          {consumptionLabel}
+        </span>
+      </div>
+
+      {meal.time && (
+        <p className="text-xs text-gray-400 dark:text-zinc-500 ml-6 mb-2">
+          {formatTime(meal.time)} · Refeição realizada
+        </p>
+      )}
+
+      {meal.description && (
+        <p className="text-sm text-gray-600 dark:text-zinc-300 ml-6 mb-1 italic">
+          🍽️ "{meal.description}"
+        </p>
+      )}
+      {meal.drink_description && (
+        <p className="text-xs text-sky-700 dark:text-sky-400 ml-6 mb-2">
+          🥤 Bebeu: {meal.drink_description}
+        </p>
+      )}
+      {meal.notes && (
+        <p className="text-xs text-gray-500 dark:text-zinc-400 ml-6 mb-2">
+          📝 {meal.notes}
+        </p>
+      )}
+
+      {!hideCreator && (
+        <div className="ml-6 pt-2 border-t border-gray-50 dark:border-white/[0.06] flex items-center gap-1.5 mt-2">
+          <span className="text-[11px] text-gray-400 dark:text-zinc-500">👤</span>
+          <span className="text-[11px] text-gray-500 dark:text-zinc-400">
+            Registrado por{' '}
+            <span className="font-medium text-gray-700 dark:text-zinc-300">
+              {meal.creatorName}
+            </span>{' '}
+            às {formatDateToTime(meal.created_at)}
+          </span>
+        </div>
+      )}
+    </div>
+  );
+
+  if (!canEdit) {
+    return (
+      <div className="w-full text-left bg-white dark:bg-[#121216] rounded-2xl border border-gray-100 dark:border-white/[0.08] shadow-sm overflow-hidden">
+        {meal.photoSignedUrl && (
+          <button
+            type="button"
+            onClick={() => onViewPhoto?.(meal.photoSignedUrl!, meal.title)}
+            className="w-full aspect-[4/3] bg-gray-100 dark:bg-[#1c1c22] relative block group focus:outline-none"
+            title="Toque para ampliar a foto"
+          >
+            <img src={meal.photoSignedUrl} alt={meal.title} className="w-full h-full object-cover" />
+            <span className="absolute bottom-2.5 right-2.5 px-2.5 py-1 rounded-full bg-black/55 backdrop-blur-sm text-white text-[11px] font-medium">
+              Toque para ampliar
+            </span>
+          </button>
+        )}
+        {detailsBody}
+      </div>
+    );
+  }
+
   return (
     <button
       type="button"
@@ -119,74 +197,30 @@ function MealRow({
           <img src={meal.photoSignedUrl} alt={meal.title} className="w-full h-full object-cover" />
         </div>
       )}
-      <div className="p-4">
-        <div className="flex items-start justify-between gap-2 mb-1">
-          <div className="flex items-center gap-2">
-            <Coffee className="w-4 h-4 text-gray-400 dark:text-zinc-500 shrink-0 mt-0.5" />
-            <span className="font-semibold text-gray-900 dark:text-zinc-100 text-sm">
-              {meal.title}
-            </span>
-          </div>
-          <span className={`text-xs font-medium shrink-0 ${consumptionColor}`}>
-            {consumptionLabel}
-          </span>
-        </div>
-
-        {meal.time && (
-          <p className="text-xs text-gray-400 dark:text-zinc-500 ml-6 mb-2">
-            {formatTime(meal.time)} · Refeição realizada
-          </p>
-        )}
-
-        {meal.description && (
-          <p className="text-sm text-gray-600 dark:text-zinc-300 ml-6 mb-1 italic">
-            🍽️ "{meal.description}"
-          </p>
-        )}
-        {meal.drink_description && (
-          <p className="text-xs text-sky-700 dark:text-sky-400 ml-6 mb-2">
-            🥤 Bebeu: {meal.drink_description}
-          </p>
-        )}
-
-        {!hideCreator && (
-          <div className="ml-6 pt-2 border-t border-gray-50 dark:border-white/[0.06] flex items-center gap-1.5 mt-2">
-            <span className="text-[11px] text-gray-400 dark:text-zinc-500">👤</span>
-            <span className="text-[11px] text-gray-500 dark:text-zinc-400">
-              Registrado por{' '}
-              <span className="font-medium text-gray-700 dark:text-zinc-300">
-                {meal.creatorName}
-              </span>{' '}
-              às {formatDateToTime(meal.created_at)}
-            </span>
-          </div>
-        )}
-      </div>
+      {detailsBody}
     </button>
   );
 }
 
 // ─── Sub-component: individual medication row ─────────────────────────────────
 
-function MedRow({
+export function MedRow({
   med,
   onEdit,
   profileId,
+  canEdit = true,
 }: {
   med: HistoryMedEntry;
-  onEdit: () => void;
+  onEdit?: () => void;
   profileId?: string;
+  canEdit?: boolean;
   key?: React.Key;
 }) {
   const isAdministered = med.status === 'administered';
   const hideCreator = profileId && med.log?.created_by === profileId;
 
-  return (
-    <button
-      type="button"
-      onClick={onEdit}
-      className="w-full text-left bg-white dark:bg-[#121216] rounded-2xl border border-gray-100 dark:border-white/[0.08] shadow-sm overflow-hidden hover:border-gray-200 dark:hover:bg-[#18181d] active:scale-[0.99] transition-all p-4"
-    >
+  const content = (
+    <>
       <div className="flex items-start justify-between gap-2 mb-1">
         <div className="flex items-center gap-2">
           <Pill className="w-4 h-4 text-gray-400 dark:text-zinc-500 shrink-0 mt-0.5" />
@@ -226,28 +260,50 @@ function MedRow({
           </span>
         </div>
       )}
+    </>
+  );
+
+  if (!canEdit) {
+    return (
+      <div className="w-full text-left bg-white dark:bg-[#121216] rounded-2xl border border-gray-100 dark:border-white/[0.08] shadow-sm overflow-hidden p-4">
+        {content}
+      </div>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={onEdit}
+      className="w-full text-left bg-white dark:bg-[#121216] rounded-2xl border border-gray-100 dark:border-white/[0.08] shadow-sm overflow-hidden hover:border-gray-200 dark:hover:bg-[#18181d] active:scale-[0.99] transition-all p-4"
+    >
+      {content}
     </button>
   );
 }
 
 // ─── Sub-component: Day Accordion ─────────────────────────────────────────────
 
-function HistoryDayGroup({
+export function HistoryDayGroup({
   profileId,
   day,
   onEditMeal,
   onEditMed,
+  onViewPhoto,
   onRequestCloseDay,
   isClosingDay,
   onOpenDayEdit,
+  canEdit = true,
 }: {
   day: DayData;
-  onOpenDayEdit: () => void;
-  onEditMeal: (meal: HistoryMealEntry) => void;
-  onEditMed: (med: HistoryMedEntry) => void;
+  onOpenDayEdit?: () => void;
+  onEditMeal?: (meal: HistoryMealEntry) => void;
+  onEditMed?: (med: HistoryMedEntry) => void;
+  onViewPhoto?: (photoUrl: string, title: string) => void;
   onRequestCloseDay?: (date: string) => void;
   isClosingDay?: boolean;
   profileId?: string;
+  canEdit?: boolean;
   key?: React.Key;
 }) {
   const [expanded, setExpanded] = useState(false);
@@ -314,7 +370,7 @@ function HistoryDayGroup({
                 <Circle className="w-3.5 h-3.5" />
                 DIA EM ABERTO
               </div>
-              {onRequestCloseDay && (
+              {canEdit && onRequestCloseDay && (
                 <button
                   type="button"
                   onClick={(e) => {
@@ -337,17 +393,19 @@ function HistoryDayGroup({
             </div>
           )}
 
-          {/* Edit button */}
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              onOpenDayEdit();
-            }}
-            className="w-full flex items-center justify-center gap-2 py-2.5 mt-2 bg-white dark:bg-[#1c1c22] border border-gray-200 dark:border-white/[0.08] text-gray-700 dark:text-zinc-200 hover:bg-gray-50 dark:hover:bg-[#222229] active:bg-gray-100 rounded-xl text-sm font-medium transition-all shadow-sm"
-          >
-            {closure ? 'Visualizar / Reabrir este dia' : 'Editar registros deste dia'}
-          </button>
+          {/* Edit/Reopen button: exclusive to ADMIN */}
+          {canEdit && onOpenDayEdit && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onOpenDayEdit();
+              }}
+              className="w-full flex items-center justify-center gap-2 py-2.5 mt-2 bg-white dark:bg-[#1c1c22] border border-gray-200 dark:border-white/[0.08] text-gray-700 dark:text-zinc-200 hover:bg-gray-50 dark:hover:bg-[#222229] active:bg-gray-100 rounded-xl text-sm font-medium transition-all shadow-sm"
+            >
+              {closure ? 'Visualizar / Reabrir este dia' : 'Editar registros deste dia'}
+            </button>
+          )}
 
           {/* Meals section */}
           {meals.length > 0 && (
@@ -361,7 +419,9 @@ function HistoryDayGroup({
                     profileId={profileId}
                     key={meal.logId}
                     meal={meal}
-                    onEdit={() => onEditMeal(meal)}
+                    canEdit={canEdit}
+                    onEdit={canEdit && onEditMeal ? () => onEditMeal(meal) : undefined}
+                    onViewPhoto={onViewPhoto}
                   />
                 ))}
               </div>
@@ -380,7 +440,8 @@ function HistoryDayGroup({
                     profileId={profileId}
                     key={med.logId}
                     med={med}
-                    onEdit={() => onEditMed(med)}
+                    canEdit={canEdit}
+                    onEdit={canEdit && onEditMed ? () => onEditMed(med) : undefined}
                   />
                 ))}
               </div>
@@ -443,9 +504,10 @@ export function HistoryScreen({
   const [actionError, setActionError] = useState<string | null>(null);
   const [patient, setPatient] = useState<any>(null);
   const [profile, setProfile] = useState<any>(null);
+  const [isAdmin, setIsAdmin] = useState(false);
   const [days, setDays] = useState<DayData[]>([]);
 
-  // Modal state — meal / med editing
+  // Modal state — meal / med editing & read-only photo lightbox
   const [selectedMeal, setSelectedMeal] = useState<{
     meal: HistoryMealEntry;
     dateStr: string;
@@ -456,6 +518,7 @@ export function HistoryScreen({
     dateStr: string;
     isDayClosed: boolean;
   } | null>(null);
+  const [photoLightbox, setPhotoLightbox] = useState<{ url: string; title: string } | null>(null);
 
   const [pendingClosureDate, setPendingClosureDate] = useState<string | null>(null);
   const [closingDateStr, setClosingDateStr] = useState<string | null>(null);
@@ -491,8 +554,12 @@ export function HistoryScreen({
       }
       setProfile(prof);
 
-      const pat = await getPatient(prof.family_id);
+      const [pat, role] = await Promise.all([
+        getPatient(prof.family_id),
+        getMyFamilyRole(prof.family_id),
+      ]);
       if (!isMountedRef.current || reqSeq !== loadSeqRef.current) return;
+      setIsAdmin(role === 'ADMIN');
       if (!pat) {
         setPatient(null);
         return;
@@ -637,6 +704,10 @@ export function HistoryScreen({
 
   async function handleConfirmCloseDay(dateStr: string) {
     if (!profile || !patient || closingRef.current) return;
+    if (!isAdmin) {
+      setActionError('Apenas administradores podem encerrar o dia.');
+      return;
+    }
     closingRef.current = true;
     setClosingDateStr(dateStr);
     setActionError(null);
@@ -842,26 +913,38 @@ export function HistoryScreen({
                 profileId={profile?.id}
                 key={day.dateStr}
                 day={day}
-                onEditMeal={(meal) =>
-                  setSelectedMeal({
-                    meal,
-                    dateStr: day.dateStr,
-                    isDayClosed: Boolean(day.closure),
-                  })
+                canEdit={isAdmin}
+                onViewPhoto={(url, title) => setPhotoLightbox({ url, title })}
+                onEditMeal={
+                  isAdmin
+                    ? (meal) =>
+                        setSelectedMeal({
+                          meal,
+                          dateStr: day.dateStr,
+                          isDayClosed: Boolean(day.closure),
+                        })
+                    : undefined
                 }
-                onEditMed={(med) =>
-                  setSelectedMed({
-                    med,
-                    dateStr: day.dateStr,
-                    isDayClosed: Boolean(day.closure),
-                  })
+                onEditMed={
+                  isAdmin
+                    ? (med) =>
+                        setSelectedMed({
+                          med,
+                          dateStr: day.dateStr,
+                          isDayClosed: Boolean(day.closure),
+                        })
+                    : undefined
                 }
-                onRequestCloseDay={(date) => {
-                  setActionError(null);
-                  setPendingClosureDate(date);
-                }}
+                onRequestCloseDay={
+                  isAdmin
+                    ? (date) => {
+                        setActionError(null);
+                        setPendingClosureDate(date);
+                      }
+                    : undefined
+                }
                 isClosingDay={closingDateStr === day.dateStr}
-                onOpenDayEdit={() => onEditPastDay?.(day.dateStr)}
+                onOpenDayEdit={isAdmin ? () => onEditPastDay?.(day.dateStr) : undefined}
               />
             ))
           )}
@@ -920,8 +1003,8 @@ export function HistoryScreen({
         </div>
       )}
 
-      {/* Meal edit modal */}
-      {selectedMeal && patient && profile && (
+      {/* Meal edit modal (ADMIN only) */}
+      {isAdmin && selectedMeal && patient && profile && (
         <MealModal
           isOpen={!!selectedMeal}
           onClose={() => setSelectedMeal(null)}
@@ -931,6 +1014,7 @@ export function HistoryScreen({
           eventDate={selectedMeal.dateStr}
           patientGender={patient.gender}
           isDayClosed={selectedMeal.isDayClosed}
+          canEdit={isAdmin}
           onSuccess={() => {
             loadData();
             setSelectedMeal(null);
@@ -938,8 +1022,8 @@ export function HistoryScreen({
         />
       )}
 
-      {/* Medication edit modal */}
-      {selectedMed && patient && profile && (
+      {/* Medication edit modal (ADMIN only) */}
+      {isAdmin && selectedMed && patient && profile && (
         <MedicationModal
           isOpen={!!selectedMed}
           onClose={() => setSelectedMed(null)}
@@ -948,6 +1032,7 @@ export function HistoryScreen({
           profileId={profile.id}
           eventDate={selectedMed.dateStr}
           isDayClosed={selectedMed.isDayClosed}
+          canEdit={isAdmin}
           onSuccess={() => {
             loadData();
             setSelectedMed(null);
@@ -956,6 +1041,29 @@ export function HistoryScreen({
             loadData();
           }}
         />
+      )}
+
+      {/* Read-only photo lightbox (MEMBER & anyone inspecting history photos) */}
+      {photoLightbox && (
+        <div
+          className="fixed inset-0 z-[200] bg-black/95 flex items-center justify-center p-4 animate-in fade-in duration-150"
+          onClick={() => setPhotoLightbox(null)}
+        >
+          <button
+            type="button"
+            onClick={() => setPhotoLightbox(null)}
+            className="absolute top-6 right-6 p-3 rounded-full bg-white/15 hover:bg-white/25 text-white transition-colors"
+            aria-label="Fechar foto"
+          >
+            <X className="w-6 h-6" />
+          </button>
+          <img
+            src={photoLightbox.url}
+            alt={photoLightbox.title}
+            className="max-w-full max-h-[85dvh] object-contain rounded-2xl shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          />
+        </div>
       )}
 
       {/* Report modal */}

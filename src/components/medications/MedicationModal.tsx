@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { AlertTriangle, Check, Lock } from 'lucide-react';
+import { AlertTriangle, Check, Lock, Clock } from 'lucide-react';
 import { BottomSheet } from '../ui/BottomSheet';
 import { Button } from '../ui/Button';
 import { Spinner } from '../ui/Spinner';
@@ -17,6 +17,7 @@ interface MedicationModalProps {
   profileId: string;
   eventDate: string;
   isDayClosed?: boolean;
+  canEdit?: boolean;
   onSuccess: () => void;
   onPartialSuccess?: () => void;
 }
@@ -29,11 +30,13 @@ export function MedicationModal({
   profileId,
   eventDate,
   isDayClosed = false,
+  canEdit = true,
   onSuccess,
   onPartialSuccess,
 }: MedicationModalProps) {
+  const allowEdit = canEdit && !isDayClosed;
   const [mode, setMode] = useState<'view' | 'edit'>(() =>
-    event.logs.length > 0 ? 'view' : 'edit'
+    !canEdit || event.logs.length > 0 ? 'view' : 'edit'
   );
   const [checkedIds, setCheckedIds] = useState<Set<string>>(() => {
     const initial = new Set<string>();
@@ -81,7 +84,7 @@ export function MedicationModal({
       }
     });
 
-    setMode(event.logs.length > 0 ? 'view' : 'edit');
+    setMode(!canEdit || event.logs.length > 0 ? 'view' : 'edit');
     setCheckedIds(initialChecked);
     setSavedMedIds(initialSaved);
     setNotAdministeredMedId(null);
@@ -90,10 +93,10 @@ export function MedicationModal({
     setError('');
     setPartialSummary(null);
     setConfirmIncompletePending(false);
-  }, [isOpen, event.id, eventDate, event.logs]);
+  }, [isOpen, event.id, eventDate, event.logs, canEdit]);
 
   const handleToggleCheck = (medId: string) => {
-    if (loading || isDayClosed) return;
+    if (loading || !allowEdit) return;
     setConfirmIncompletePending(false);
     const next = new Set(checkedIds);
     if (next.has(medId)) {
@@ -106,6 +109,10 @@ export function MedicationModal({
 
   const executeBatchConfirm = async () => {
     if (isSubmittingRef.current || loading) return;
+    if (!canEdit) {
+      setError('Apenas administradores podem registrar ou editar medicamentos.');
+      return;
+    }
     if (isDayClosed) {
       setError('Este dia está encerrado. Reabra o dia antes de fazer alterações.');
       return;
@@ -215,6 +222,10 @@ export function MedicationModal({
 
   const handleConfirmAllClick = () => {
     if (isSubmittingRef.current || loading) return;
+    if (!canEdit) {
+      setError('Apenas administradores podem registrar ou editar medicamentos.');
+      return;
+    }
     if (isDayClosed) {
       setError('Este dia está encerrado. Reabra o dia antes de fazer alterações.');
       return;
@@ -238,6 +249,10 @@ export function MedicationModal({
 
   const handleSaveNotAdministered = async () => {
     if (!notAdministeredMedId || isSubmittingRef.current || loading) return;
+    if (!canEdit) {
+      setError('Apenas administradores podem registrar ou editar medicamentos.');
+      return;
+    }
     if (isDayClosed) {
       setError('Este dia está encerrado. Reabra o dia antes de fazer alterações.');
       return;
@@ -390,7 +405,40 @@ export function MedicationModal({
           </div>
         )}
 
-        {mode === 'view' && event.logs.length > 0 ? (
+        {!canEdit && event.logs.length === 0 ? (
+          <div className="space-y-4 animate-in fade-in duration-200">
+            <div className="p-4 rounded-2xl bg-gray-50 dark:bg-[#1c1c22] border border-gray-100 dark:border-white/[0.08] flex items-start gap-3">
+              <Clock className="w-4 h-4 text-indigo-500 dark:text-indigo-400 shrink-0 mt-0.5" />
+              <p className="text-xs text-gray-600 dark:text-zinc-300 leading-relaxed">
+                Aguardando confirmação da cuidadora ou responsável para este horário.
+              </p>
+            </div>
+            <div className="space-y-2.5">
+              {event.medications.map((med) => (
+                <div
+                  key={med.id}
+                  className="bg-white dark:bg-[#1c1c22] border border-gray-100 dark:border-white/[0.08] rounded-2xl p-4 flex items-center justify-between"
+                >
+                  <div>
+                    <h4 className="font-medium text-gray-900 dark:text-zinc-100">{med.name}</h4>
+                    <p className="text-sm text-gray-500 dark:text-zinc-400">{med.dosage}</p>
+                  </div>
+                  <span className="text-[10px] font-bold uppercase tracking-widest px-2 py-1 rounded-full bg-gray-100 dark:bg-white/[0.08] text-gray-500 dark:text-zinc-400">
+                    Pendente
+                  </span>
+                </div>
+              ))}
+            </div>
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={safeClose}
+              className="w-full py-3.5 text-sm font-semibold text-gray-700 dark:text-zinc-200 bg-gray-100 dark:bg-[#1c1c22] hover:bg-gray-200 dark:hover:bg-[#26262f] rounded-2xl"
+            >
+              Fechar
+            </Button>
+          </div>
+        ) : mode === 'view' && event.logs.length > 0 ? (
           <div className="space-y-6">
             <div className="space-y-3">
               {event.medications.map((med) => {
@@ -466,7 +514,7 @@ export function MedicationModal({
               })}
             </div>
 
-            {!isDayClosed && (
+            {allowEdit && (
               <div className="pt-2">
                 <Button
                   type="button"

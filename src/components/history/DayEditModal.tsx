@@ -25,6 +25,7 @@ interface DayEditModalProps {
   patientId: string;
   profileId: string;
   patientGender?: string | null;
+  canEdit?: boolean;
   onSuccess: () => void;
 }
 
@@ -36,6 +37,7 @@ export function DayEditModal({
   patientId,
   profileId,
   patientGender,
+  canEdit = true,
   onSuccess,
 }: DayEditModalProps) {
   const [loading, setLoading] = useState(true);
@@ -231,6 +233,7 @@ export function DayEditModal({
           eventDate={dateStr}
           patientGender={patientGender}
           isDayClosed={isDayClosed}
+          canEdit={canEdit}
           onSuccess={() => {
             loadTimeline();
             onSuccess();
@@ -248,6 +251,7 @@ export function DayEditModal({
           profileId={profileId}
           eventDate={dateStr}
           isDayClosed={isDayClosed}
+          canEdit={canEdit}
           onSuccess={() => {
             loadTimeline();
             onSuccess();

@@ -5,6 +5,7 @@ import { MainLayout } from '../layouts/MainLayout';
 import { 
   getCurrentProfile, 
   getPatient, 
+  getMyFamilyRole,
   getPatientPhotoUrl,
   getMealConfigs, 
   getMedicationPeriods, 
@@ -24,6 +25,7 @@ interface RoutineScreenProps {
 export function RoutineScreen({ onTabChange }: RoutineScreenProps) {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [isAdmin, setIsAdmin] = useState(false);
   const [patient, setPatient] = useState<any>(null);
   const [patientPhoto, setPatientPhoto] = useState<string | null>(null);
   const [meals, setMeals] = useState<any[]>([]);
@@ -77,8 +79,12 @@ export function RoutineScreen({ onTabChange }: RoutineScreenProps) {
         return;
       }
 
-      const pat = await getPatient(prof.family_id);
+      const [pat, role] = await Promise.all([
+        getPatient(prof.family_id),
+        getMyFamilyRole(prof.family_id),
+      ]);
       if (!isMountedRef.current || seq !== loadSeqRef.current) return;
+      setIsAdmin(role === 'ADMIN');
       if (!pat) {
         setLoadError('Não foi possível carregar os dados do paciente.');
         return;
@@ -198,17 +204,21 @@ export function RoutineScreen({ onTabChange }: RoutineScreenProps) {
                   <span className="text-4xl">👵</span>
                 )}
               </div>
-              <button 
-                onClick={() => setIsPatientModalOpen(true)}
-                className="absolute bottom-0 right-0 w-8 h-8 bg-gray-900 dark:bg-zinc-100 rounded-full text-white dark:text-zinc-950 flex items-center justify-center shadow-sm border-2 border-white dark:border-[#121216]"
-              >
-                <Camera className="w-4 h-4" />
-              </button>
+              {isAdmin && (
+                <button 
+                  onClick={() => setIsPatientModalOpen(true)}
+                  className="absolute bottom-0 right-0 w-8 h-8 bg-gray-900 dark:bg-zinc-100 rounded-full text-white dark:text-zinc-950 flex items-center justify-center shadow-sm border-2 border-white dark:border-[#121216]"
+                >
+                  <Camera className="w-4 h-4" />
+                </button>
+              )}
             </div>
             <h2 className="text-xl font-bold text-gray-900 dark:text-zinc-100">{patient?.name}</h2>
-            <button onClick={() => setIsPatientModalOpen(true)} className="text-sm font-medium text-gray-500 dark:text-zinc-400 mt-2 hover:text-gray-900 dark:hover:text-zinc-100">
-              Editar perfil
-            </button>
+            {isAdmin && (
+              <button onClick={() => setIsPatientModalOpen(true)} className="text-sm font-medium text-gray-500 dark:text-zinc-400 mt-2 hover:text-gray-900 dark:hover:text-zinc-100">
+                Editar perfil
+              </button>
+            )}
           </div>
         </div>
 
@@ -216,33 +226,47 @@ export function RoutineScreen({ onTabChange }: RoutineScreenProps) {
         <section className="space-y-4">
           <div className="flex items-center justify-between ml-1">
             <h3 className="text-xs font-bold uppercase tracking-wider text-gray-400 dark:text-zinc-500">Refeições</h3>
-            <button 
-              onClick={() => {
-                setEditingTimeType('meal');
-                setEditingTimeEntity(null);
-              }}
-              className="text-xs font-medium text-gray-600 dark:text-zinc-200 bg-gray-100 dark:bg-[#1c1c22] hover:bg-gray-200 dark:hover:bg-[#222229] dark:border dark:border-white/[0.08] px-3 py-1.5 rounded-lg transition-colors flex items-center"
-            >
-              <Plus className="w-3 h-3 mr-1" /> Adicionar
-            </button>
-          </div>
-          <div className="space-y-3">
-            {meals.map(meal => (
+            {isAdmin && (
               <button 
-                key={meal.id}
                 onClick={() => {
                   setEditingTimeType('meal');
-                  setEditingTimeEntity(meal);
+                  setEditingTimeEntity(null);
                 }}
-                className={`w-full flex items-center justify-between p-4 rounded-2xl border bg-white dark:bg-[#121216] shadow-sm transition-all active:scale-[0.98] ${!meal.active ? 'opacity-60 border-gray-100 dark:border-white/[0.05]' : 'border-gray-200 dark:border-white/[0.08] dark:hover:bg-[#18181d]'}`}
+                className="text-xs font-medium text-gray-600 dark:text-zinc-200 bg-gray-100 dark:bg-[#1c1c22] hover:bg-gray-200 dark:hover:bg-[#222229] dark:border dark:border-white/[0.08] px-3 py-1.5 rounded-lg transition-colors flex items-center"
               >
-                <div className="text-left">
-                  <h4 className={`font-semibold ${!meal.active ? 'text-gray-500 dark:text-zinc-500 line-through' : 'text-gray-900 dark:text-zinc-100'}`}>{meal.name}</h4>
-                  <p className="text-sm text-gray-500 dark:text-zinc-400">{formatTime(meal.scheduled_time)}</p>
-                </div>
-                <Edit2 className="w-4 h-4 text-gray-300 dark:text-zinc-600" />
+                <Plus className="w-3 h-3 mr-1" /> Adicionar
               </button>
-            ))}
+            )}
+          </div>
+          <div className="space-y-3">
+            {meals.map(meal =>
+              isAdmin ? (
+                <button 
+                  key={meal.id}
+                  onClick={() => {
+                    setEditingTimeType('meal');
+                    setEditingTimeEntity(meal);
+                  }}
+                  className={`w-full flex items-center justify-between p-4 rounded-2xl border bg-white dark:bg-[#121216] shadow-sm transition-all active:scale-[0.98] ${!meal.active ? 'opacity-60 border-gray-100 dark:border-white/[0.05]' : 'border-gray-200 dark:border-white/[0.08] dark:hover:bg-[#18181d]'}`}
+                >
+                  <div className="text-left">
+                    <h4 className={`font-semibold ${!meal.active ? 'text-gray-500 dark:text-zinc-500 line-through' : 'text-gray-900 dark:text-zinc-100'}`}>{meal.name}</h4>
+                    <p className="text-sm text-gray-500 dark:text-zinc-400">{formatTime(meal.scheduled_time)}</p>
+                  </div>
+                  <Edit2 className="w-4 h-4 text-gray-300 dark:text-zinc-600" />
+                </button>
+              ) : (
+                <div
+                  key={meal.id}
+                  className={`w-full flex items-center justify-between p-4 rounded-2xl border bg-white dark:bg-[#121216] shadow-sm ${!meal.active ? 'opacity-60 border-gray-100 dark:border-white/[0.05]' : 'border-gray-200 dark:border-white/[0.08]'}`}
+                >
+                  <div className="text-left">
+                    <h4 className={`font-semibold ${!meal.active ? 'text-gray-500 dark:text-zinc-500 line-through' : 'text-gray-900 dark:text-zinc-100'}`}>{meal.name}</h4>
+                    <p className="text-sm text-gray-500 dark:text-zinc-400">{formatTime(meal.scheduled_time)}</p>
+                  </div>
+                </div>
+              )
+            )}
           </div>
         </section>
 
@@ -250,15 +274,17 @@ export function RoutineScreen({ onTabChange }: RoutineScreenProps) {
         <section className="space-y-8">
           <div className="flex items-center justify-between ml-1">
             <h3 className="text-xs font-bold uppercase tracking-wider text-gray-400 dark:text-zinc-500">Medicamentos</h3>
-            <button 
-              onClick={() => {
-                setEditingTimeType('period');
-                setEditingTimeEntity(null);
-              }}
-              className="text-xs font-medium text-gray-600 dark:text-zinc-200 bg-gray-100 dark:bg-[#1c1c22] hover:bg-gray-200 dark:hover:bg-[#222229] dark:border dark:border-white/[0.08] px-3 py-1.5 rounded-lg transition-colors flex items-center"
-            >
-              <Plus className="w-3 h-3 mr-1" /> Adicionar Período
-            </button>
+            {isAdmin && (
+              <button 
+                onClick={() => {
+                  setEditingTimeType('period');
+                  setEditingTimeEntity(null);
+                }}
+                className="text-xs font-medium text-gray-600 dark:text-zinc-200 bg-gray-100 dark:bg-[#1c1c22] hover:bg-gray-200 dark:hover:bg-[#222229] dark:border dark:border-white/[0.08] px-3 py-1.5 rounded-lg transition-colors flex items-center"
+              >
+                <Plus className="w-3 h-3 mr-1" /> Adicionar Período
+              </button>
+            )}
           </div>
           
           <div className="space-y-6">
@@ -272,51 +298,69 @@ export function RoutineScreen({ onTabChange }: RoutineScreenProps) {
                       <h4 className={`font-bold ${!period.active ? 'text-gray-400 dark:text-zinc-500 line-through' : 'text-gray-900 dark:text-zinc-100'}`}>{period.name}</h4>
                       <p className="text-sm text-gray-500 dark:text-zinc-400">{formatTime(period.scheduled_time)}</p>
                     </div>
-                    <button 
-                      onClick={() => {
-                        setEditingTimeType('period');
-                        setEditingTimeEntity(period);
-                      }}
-                      className="px-3 py-1.5 text-xs font-medium text-gray-600 dark:text-zinc-200 bg-gray-100 dark:bg-[#1c1c22] dark:border dark:border-white/[0.08] rounded-lg hover:bg-gray-200 dark:hover:bg-[#222229] transition-colors"
-                    >
-                      Editar horário
-                    </button>
+                    {isAdmin && (
+                      <button 
+                        onClick={() => {
+                          setEditingTimeType('period');
+                          setEditingTimeEntity(period);
+                        }}
+                        className="px-3 py-1.5 text-xs font-medium text-gray-600 dark:text-zinc-200 bg-gray-100 dark:bg-[#1c1c22] dark:border dark:border-white/[0.08] rounded-lg hover:bg-gray-200 dark:hover:bg-[#222229] transition-colors"
+                      >
+                        Editar horário
+                      </button>
+                    )}
                   </div>
 
                   <div className="space-y-2 mb-4">
-                    {periodMeds.map(med => (
-                      <button
-                        key={med.id}
-                        onClick={() => {
-                          setEditingMedication(med);
-                          setIsMedicationModalOpen(true);
-                        }}
-                        className={`w-full flex items-center justify-between p-3 rounded-xl border transition-colors text-left ${!med.active ? 'bg-gray-50 dark:bg-[#16161b] border-gray-100 dark:border-white/[0.05] opacity-70' : 'bg-white dark:bg-[#1c1c22] border-gray-100 dark:border-white/[0.08] hover:border-gray-200 dark:hover:bg-[#222229]'}`}
-                      >
-                        <div>
-                          <p className={`font-medium ${!med.active ? 'text-gray-400 dark:text-zinc-500 line-through' : 'text-gray-900 dark:text-zinc-100'}`}>{med.name}</p>
-                          <p className="text-xs text-gray-500 dark:text-zinc-400">
-                            {med.dosage} • {med.frequency === 'daily' ? 'Diário' : `Semanal (${translateWeekday(med.weekday || '')})`}
-                          </p>
+                    {periodMeds.map(med =>
+                      isAdmin ? (
+                        <button
+                          key={med.id}
+                          onClick={() => {
+                            setEditingMedication(med);
+                            setIsMedicationModalOpen(true);
+                          }}
+                          className={`w-full flex items-center justify-between p-3 rounded-xl border transition-colors text-left ${!med.active ? 'bg-gray-50 dark:bg-[#16161b] border-gray-100 dark:border-white/[0.05] opacity-70' : 'bg-white dark:bg-[#1c1c22] border-gray-100 dark:border-white/[0.08] hover:border-gray-200 dark:hover:bg-[#222229]'}`}
+                        >
+                          <div>
+                            <p className={`font-medium ${!med.active ? 'text-gray-400 dark:text-zinc-500 line-through' : 'text-gray-900 dark:text-zinc-100'}`}>{med.name}</p>
+                            <p className="text-xs text-gray-500 dark:text-zinc-400">
+                              {med.dosage} • {med.frequency === 'daily' ? 'Diário' : `Semanal (${translateWeekday(med.weekday || '')})`}
+                            </p>
+                          </div>
+                          <Edit2 className="w-4 h-4 text-gray-300 dark:text-zinc-600" />
+                        </button>
+                      ) : (
+                        <div
+                          key={med.id}
+                          className={`w-full flex items-center justify-between p-3 rounded-xl border text-left ${!med.active ? 'bg-gray-50 dark:bg-[#16161b] border-gray-100 dark:border-white/[0.05] opacity-70' : 'bg-white dark:bg-[#1c1c22] border-gray-100 dark:border-white/[0.08]'}`}
+                        >
+                          <div>
+                            <p className={`font-medium ${!med.active ? 'text-gray-400 dark:text-zinc-500 line-through' : 'text-gray-900 dark:text-zinc-100'}`}>{med.name}</p>
+                            <p className="text-xs text-gray-500 dark:text-zinc-400">
+                              {med.dosage} • {med.frequency === 'daily' ? 'Diário' : `Semanal (${translateWeekday(med.weekday || '')})`}
+                            </p>
+                          </div>
                         </div>
-                        <Edit2 className="w-4 h-4 text-gray-300 dark:text-zinc-600" />
-                      </button>
-                    ))}
+                      )
+                    )}
                     {periodMeds.length === 0 && (
                       <p className="text-sm text-gray-400 dark:text-zinc-500 text-center py-2">Nenhum medicamento configurado.</p>
                     )}
                   </div>
 
-                  <button 
-                    onClick={() => {
-                      setDefaultPeriodForMed(period.id);
-                      setEditingMedication(null);
-                      setIsMedicationModalOpen(true);
-                    }}
-                    className="w-full flex items-center justify-center p-3 text-sm font-medium text-gray-600 dark:text-zinc-300 border border-dashed border-gray-300 dark:border-white/[0.14] rounded-xl hover:bg-gray-50 dark:hover:bg-white/[0.04] hover:border-gray-400 dark:hover:border-white/[0.25] transition-all active:scale-[0.98]"
-                  >
-                    <Plus className="w-4 h-4 mr-2" /> Adicionar medicamento
-                  </button>
+                  {isAdmin && (
+                    <button 
+                      onClick={() => {
+                        setDefaultPeriodForMed(period.id);
+                        setEditingMedication(null);
+                        setIsMedicationModalOpen(true);
+                      }}
+                      className="w-full flex items-center justify-center p-3 text-sm font-medium text-gray-600 dark:text-zinc-300 border border-dashed border-gray-300 dark:border-white/[0.14] rounded-xl hover:bg-gray-50 dark:hover:bg-white/[0.04] hover:border-gray-400 dark:hover:border-white/[0.25] transition-all active:scale-[0.98]"
+                    >
+                      <Plus className="w-4 h-4 mr-2" /> Adicionar medicamento
+                    </button>
+                  )}
                 </div>
               );
             })}
@@ -325,36 +369,40 @@ export function RoutineScreen({ onTabChange }: RoutineScreenProps) {
 
       </div>
 
-      {/* Modals */}
-      <PatientEditModal 
-        isOpen={isPatientModalOpen} 
-        onClose={() => setIsPatientModalOpen(false)} 
-        patient={patient} 
-        currentPhotoUrl={patientPhoto}
-        onSuccess={handlePatientSuccess} 
-      />
+      {/* Modals (ADMIN only) */}
+      {isAdmin && (
+        <>
+          <PatientEditModal 
+            isOpen={isPatientModalOpen} 
+            onClose={() => setIsPatientModalOpen(false)} 
+            patient={patient} 
+            currentPhotoUrl={patientPhoto}
+            onSuccess={handlePatientSuccess} 
+          />
 
-      <TimeEditModal 
-        isOpen={editingTimeType !== undefined}
-        onClose={() => {
-          setEditingTimeEntity(undefined);
-          setEditingTimeType(undefined);
-        }}
-        entity={editingTimeEntity}
-        patientId={patient?.id}
-        type={editingTimeType as 'meal' | 'period'}
-        onSuccess={handleTimeSuccess}
-      />
+          <TimeEditModal 
+            isOpen={editingTimeType !== undefined}
+            onClose={() => {
+              setEditingTimeEntity(undefined);
+              setEditingTimeType(undefined);
+            }}
+            entity={editingTimeEntity}
+            patientId={patient?.id}
+            type={editingTimeType as 'meal' | 'period'}
+            onSuccess={handleTimeSuccess}
+          />
 
-      <MedicationFormModal 
-        isOpen={isMedicationModalOpen}
-        onClose={() => setIsMedicationModalOpen(false)}
-        patientId={patient?.id}
-        medication={editingMedication}
-        periods={periods}
-        defaultPeriodId={defaultPeriodForMed}
-        onSuccess={handleMedicationSuccess}
-      />
+          <MedicationFormModal 
+            isOpen={isMedicationModalOpen}
+            onClose={() => setIsMedicationModalOpen(false)}
+            patientId={patient?.id}
+            medication={editingMedication}
+            periods={periods}
+            defaultPeriodId={defaultPeriodForMed}
+            onSuccess={handleMedicationSuccess}
+          />
+        </>
+      )}
 
     </MainLayout>
   );

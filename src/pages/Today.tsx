@@ -494,6 +494,10 @@ export function TodayScreen({
 
   const handleReopenDay = async () => {
     if (!patient || reopeningRef.current || reopeningDay) return;
+    if (!isAdmin) {
+      setActionError('Apenas administradores podem reabrir um dia encerrado.');
+      return;
+    }
     reopeningRef.current = true;
     setReopeningDay(true);
     setActionError(null);
@@ -519,6 +523,10 @@ export function TodayScreen({
 
   const handleCloseDay = async () => {
     if (!patient || !profile || closingRef.current || closingDay) return;
+    if (!isAdmin) {
+      setActionError('Apenas administradores podem encerrar o dia.');
+      return;
+    }
     closingRef.current = true;
     setClosingDay(true);
     setActionError(null);
@@ -850,7 +858,9 @@ export function TodayScreen({
             <div>
               <p className="text-sm font-medium text-emerald-800 dark:text-emerald-200">Tudo pronto!</p>
               <p className="text-xs text-emerald-700/80 dark:text-emerald-300/80 mt-0.5">
-                Todas as atividades foram registradas. Você já pode encerrar o dia.
+                {isAdmin
+                  ? 'Todas as atividades foram registradas. Você já pode encerrar o dia.'
+                  : 'Todas as atividades de hoje já foram registradas.'}
               </p>
             </div>
           </div>
@@ -949,19 +959,21 @@ export function TodayScreen({
                   </span>
                 )}
 
-                <button
-                  type="button"
-                  onClick={handleReopenDay}
-                  disabled={reopeningDay}
-                  className="mt-6 inline-flex items-center justify-center text-sm font-medium text-gray-500 dark:text-zinc-300 hover:text-gray-700 dark:hover:text-white bg-gray-50 dark:bg-[#1c1c22] hover:bg-gray-100 dark:hover:bg-[#26262f] px-5 py-2.5 rounded-2xl transition-all active:scale-95 border border-gray-200 dark:border-white/[0.1] disabled:opacity-50 w-full sm:w-auto"
-                >
-                  {reopeningDay ? (
-                    <Spinner className="w-4 h-4 mr-2" />
-                  ) : (
-                    <Unlock className="w-4 h-4 mr-2" />
-                  )}
-                  {reopeningDay ? 'Reabrindo...' : 'Desfazer e reabrir dia'}
-                </button>
+                {isAdmin && (
+                  <button
+                    type="button"
+                    onClick={handleReopenDay}
+                    disabled={reopeningDay}
+                    className="mt-6 inline-flex items-center justify-center text-sm font-medium text-gray-500 dark:text-zinc-300 hover:text-gray-700 dark:hover:text-white bg-gray-50 dark:bg-[#1c1c22] hover:bg-gray-100 dark:hover:bg-[#26262f] px-5 py-2.5 rounded-2xl transition-all active:scale-95 border border-gray-200 dark:border-white/[0.1] disabled:opacity-50 w-full sm:w-auto"
+                  >
+                    {reopeningDay ? (
+                      <Spinner className="w-4 h-4 mr-2" />
+                    ) : (
+                      <Unlock className="w-4 h-4 mr-2" />
+                    )}
+                    {reopeningDay ? 'Reabrindo...' : 'Desfazer e reabrir dia'}
+                  </button>
+                )}
               </div>
             ) : null}
           </div>
@@ -1048,6 +1060,7 @@ export function TodayScreen({
           eventDate={localDate}
           patientGender={patient.gender}
           isDayClosed={!!dailyClosure}
+          canEdit={isAdmin}
           onSuccess={handleMealRefresh}
         />
       )}
@@ -1061,6 +1074,7 @@ export function TodayScreen({
           profileId={profile.id}
           eventDate={localDate}
           isDayClosed={!!dailyClosure}
+          canEdit={isAdmin}
           onSuccess={handleMedRefresh}
           onPartialSuccess={() => {
             if (patient) refreshTimeline(patient.id, localDate);
@@ -1087,8 +1101,8 @@ export function TodayScreen({
         />
       )}
 
-      {/* Sticky Bottom Footer for Closing the Day: ALWAYS available while day is not closed */}
-      {!dailyClosure && (
+      {/* Sticky Bottom Footer for Closing the Day: ADMIN only while day is not closed */}
+      {isAdmin && !dailyClosure && (
         <div className="fixed bottom-[80px] left-0 right-0 z-40 px-4 sm:max-w-md mx-auto w-full pb-4 animate-in slide-in-from-bottom-6 fade-in duration-300">
           <div className="bg-white/90 dark:bg-[#141419]/92 backdrop-blur-md border border-gray-200 dark:border-white/[0.1] p-3 rounded-2xl shadow-lg flex items-center justify-between">
             <div className="pl-2 pr-4">

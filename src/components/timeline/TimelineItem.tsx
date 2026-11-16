@@ -78,7 +78,7 @@ export function TimelineItem({ event, onClick, profileId }: TimelineItemProps) {
         type="button"
         onClick={onClick}
         className={cn(
-          'w-[calc(100%-3rem)] rounded-2xl border text-left transition-all active:scale-[0.98] overflow-hidden',
+          'w-[calc(100%-2.75rem)] rounded-2xl border text-left transition-all active:scale-[0.98] overflow-hidden',
           {
             'bg-white dark:bg-[#121216] border-gray-100 dark:border-white/[0.08] hover:border-gray-200 dark:hover:border-white/[0.15] shadow-sm':
               event.status === 'waiting',
@@ -96,8 +96,8 @@ export function TimelineItem({ event, onClick, profileId }: TimelineItemProps) {
             <img src={event.photoSignedUrl} alt={event.title} className="w-full h-full object-cover" />
           </div>
         )}
-        <div className="p-4">
-          <div className="flex justify-between items-start gap-2 mb-2">
+        <div className="p-3.5">
+          <div className="flex justify-between items-start gap-2 mb-1">
             <div>
               {event.type === 'meal' && event.status === 'confirmed' && event.log ? (
                 <span className="text-xs font-semibold text-gray-400 dark:text-zinc-500 uppercase tracking-wider mb-1 block">
@@ -175,7 +175,7 @@ export function TimelineItem({ event, onClick, profileId }: TimelineItemProps) {
               const formattedCreatedTime = logCreatedAt ? formatDateToTime(logCreatedAt) : '';
 
               return (
-                <div className="mt-4 pt-3 border-t border-gray-900/5 dark:border-white/[0.07] flex flex-col space-y-0.5">
+                <div className="mt-2.5 pt-2 border-t border-gray-900/5 dark:border-white/[0.07] flex flex-col space-y-0.5">
                   <div className="flex items-center text-xs text-gray-500 dark:text-zinc-400">
                     <span className="mr-1.5 opacity-70">👤</span>
                     <span className="font-medium text-gray-700 dark:text-zinc-300">

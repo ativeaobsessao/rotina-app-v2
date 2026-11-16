@@ -13,30 +13,30 @@ export function DailyProgressBar({ total, completed }: DailyProgressBarProps) {
   const isComplete = percentage === 100;
 
   return (
-    <div className="mt-5 pt-4 border-t border-gray-100 dark:border-gray-800/80">
-      <div className="flex items-center justify-between mb-2">
-        <div className="flex items-center space-x-1.5">
+    <div className="pt-2.5 border-t border-gray-100 dark:border-white/[0.08]">
+      <div className="flex items-center justify-between gap-2 mb-1.5">
+        <div className="flex items-center gap-1.5 min-w-0">
           {isComplete ? (
-            <Sparkles className="w-4 h-4 text-emerald-500 animate-bounce" />
+            <Sparkles className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
           ) : (
-            <CheckCircle2 className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
+            <CheckCircle2 className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 shrink-0" />
           )}
-          <span className="text-xs font-semibold tracking-tight text-gray-700 dark:text-gray-300">
+          <span className="text-xs font-semibold tracking-tight text-gray-700 dark:text-zinc-300 truncate">
             {isComplete ? 'Tudo concluído hoje!' : 'Progresso diário'}
           </span>
         </div>
-        <div className="flex items-baseline space-x-1">
-          <span className="text-sm font-bold tracking-tight text-gray-900 dark:text-white tabular-nums">
+        <div className="flex items-baseline gap-1 shrink-0">
+          <span className="text-xs font-bold tracking-tight text-gray-900 dark:text-white tabular-nums">
             {percentage}%
           </span>
-          <span className="text-[11px] font-medium text-gray-400 dark:text-gray-500">
+          <span className="text-[11px] font-medium text-gray-400 dark:text-zinc-500 tabular-nums">
             ({completed}/{total})
           </span>
         </div>
       </div>
 
       {/* Progress Track */}
-      <div className="relative h-2 w-full bg-gray-100 dark:bg-gray-800 rounded-full overflow-hidden">
+      <div className="relative h-2 w-full bg-gray-100 dark:bg-zinc-800 rounded-full overflow-hidden">
         <div
           className={`h-full rounded-full transition-all duration-700 ease-out ${
             isComplete
@@ -47,16 +47,14 @@ export function DailyProgressBar({ total, completed }: DailyProgressBarProps) {
         />
       </div>
 
-      {/* Encouragement microcopy */}
-      <div className="mt-1.5 flex justify-between items-center text-[11px] text-gray-400 dark:text-gray-500">
-        <span>
-          {isComplete
-            ? 'Todos os cuidados de hoje foram registrados com carinho ✨'
-            : completed === 0
-            ? 'Inicie os registros do dia'
-            : `Faltam ${total - completed} ${total - completed === 1 ? 'item' : 'itens'} na rotina`}
-        </span>
-      </div>
+      {/* Pending / Encouragement microcopy */}
+      <p className="mt-1 text-[11px] text-gray-500 dark:text-zinc-400 leading-tight truncate">
+        {isComplete
+          ? 'Todos os cuidados de hoje foram registrados com carinho ✨'
+          : completed === 0
+          ? 'Inicie os registros do dia'
+          : `Faltam ${total - completed} ${total - completed === 1 ? 'item' : 'itens'} na rotina`}
+      </p>
     </div>
   );
 }

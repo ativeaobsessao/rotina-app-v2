@@ -86,6 +86,45 @@ export function getCurrentLocalTime(
 }
 
 /**
+ * Checks whether the current local time in the target timezone (default: America/Sao_Paulo)
+ * is at or after the nightly closure reminder hour (default: 21:00).
+ */
+export function isAfterClosureReminderTime(
+  now: Date = new Date(),
+  timezone: string = DEFAULT_TIMEZONE,
+  reminderHour: number = 21
+): boolean {
+  const localTime = getCurrentLocalTime(timezone, now);
+  const hour = Number(localTime.slice(0, 2));
+  if (!Number.isFinite(hour)) return false;
+  return hour >= reminderHour;
+}
+
+/**
+ * Calculates milliseconds until the next local time boundary:
+ * - Before reminderHour (e.g. 21:00): ms until reminderHour:00:00 today
+ * - At/after reminderHour: ms until 00:00:00 midnight rollover
+ */
+export function getMsUntilNextClosureBoundary(
+  now: Date = new Date(),
+  timezone: string = DEFAULT_TIMEZONE,
+  reminderHour: number = 21
+): number {
+  const localTime = getCurrentLocalTime(timezone, now);
+  const parts = localTime.split(':').map((n) => Number(n));
+  if (parts.length < 3 || parts.some((n) => !Number.isFinite(n))) {
+    return 60_000;
+  }
+
+  const [hh, mm, ss] = parts;
+  const currentSec = hh * 3600 + mm * 60 + ss;
+  const targetSec = hh < reminderHour ? reminderHour * 3600 : 24 * 3600;
+  const remainingSec = Math.max(1, targetSec - currentSec);
+  const remainingMs = remainingSec * 1000 - now.getMilliseconds() + 50;
+  return Math.max(100, remainingMs);
+}
+
+/**
  * Pure calendar arithmetic for YYYY-MM-DD strings (immune to browser timezone / midnight shifts).
  */
 export function shiftDateString(dateStr: string, deltaDays: number): string {

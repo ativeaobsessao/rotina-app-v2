@@ -24,12 +24,20 @@ import { getSyncQueue } from '../services/syncQueue';
 import { useNetwork } from '../contexts/NetworkContext';
 import { supabase } from '../services/supabase';
 import {
+  DEFAULT_TIMEZONE,
   getLocalDateString,
   getCurrentLocalTime,
   formatFriendlyDate,
   getWeekdayName,
   formatDateToTime,
+  isAfterClosureReminderTime,
+  getMsUntilNextClosureBoundary,
 } from '../utils/date';
+import {
+  isClosureReminderDismissed,
+  dismissClosureReminder,
+  shouldShowClosureReminderBanner,
+} from '../utils/closureReminder';
 import { Spinner } from '../components/ui/Spinner';
 import { TimelineItem } from '../components/timeline/TimelineItem';
 import { DailyProgressBar } from '../components/timeline/DailyProgressBar';
@@ -43,20 +51,89 @@ import type {
   MedicationEventData,
   EventSyncStatus,
 } from '../types/timeline';
-import { Unlock, MessageCircle, AlertCircle, RefreshCw } from 'lucide-react';
+import { Unlock, MessageCircle, AlertCircle, RefreshCw, X } from 'lucide-react';
+
+const DEFAULT_NOW_PROVIDER = () => new Date();
+
+export interface ClosureReminderBannerProps {
+  eventsCount: number;
+  pendingEventsCount: number;
+  onRequestClose: () => void;
+  onDismiss: () => void;
+}
+
+export function ClosureReminderBanner({
+  eventsCount,
+  pendingEventsCount,
+  onRequestClose,
+  onDismiss,
+}: ClosureReminderBannerProps) {
+  return (
+    <div
+      role="region"
+      aria-label="Lembrete de encerramento diário"
+      className="fixed bottom-[calc(4.5rem+env(safe-area-inset-bottom))] left-0 right-0 z-40 px-3.5 sm:px-4 max-w-md mx-auto w-full animate-in slide-in-from-bottom-6 fade-in duration-300"
+    >
+      <div className="bg-white/95 dark:bg-[#141419]/95 backdrop-blur-xl border border-gray-200/90 dark:border-white/[0.12] px-3.5 py-2.5 rounded-2xl shadow-lg dark:shadow-black/50 flex items-center justify-between gap-2.5">
+        <div className="min-w-0 flex-1">
+          <p className="text-xs font-bold text-gray-900 dark:text-zinc-100 leading-tight">
+            Encerrar Dia
+          </p>
+          <p className="text-[11px] font-medium text-gray-500 dark:text-zinc-400 truncate mt-0.5">
+            {eventsCount === 0
+              ? 'Nenhuma atividade configurada.'
+              : pendingEventsCount > 0
+              ? `${pendingEventsCount} ${
+                  pendingEventsCount === 1 ? 'atividade pendente' : 'atividades pendentes'
+                }`
+              : 'Tudo registrado hoje.'}
+          </p>
+        </div>
+        <div className="flex items-center gap-1.5 shrink-0">
+          <button
+            type="button"
+            onClick={onRequestClose}
+            className="bg-black dark:bg-indigo-600 hover:bg-gray-900 dark:hover:bg-indigo-500 active:bg-gray-800 text-white px-3.5 py-2 rounded-xl text-xs font-semibold transition-all shadow-sm active:scale-95 whitespace-nowrap"
+          >
+            Encerrar Dia
+          </button>
+          <button
+            type="button"
+            onClick={onDismiss}
+            aria-label="Dispensar lembrete de encerramento"
+            title="Dispensar lembrete hoje"
+            className="min-w-[36px] min-h-[36px] w-9 h-9 flex items-center justify-center rounded-xl text-gray-400 hover:text-gray-600 dark:text-zinc-400 dark:hover:text-zinc-200 hover:bg-gray-100 dark:hover:bg-white/[0.08] transition-colors shrink-0"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export function TodayScreen({
   onTabChange,
   editingDateStr,
   onClearEditDate,
+  nowProvider = DEFAULT_NOW_PROVIDER,
 }: {
   onTabChange?: (tab: 'today' | 'history' | 'routine') => void;
   editingDateStr?: string | null;
   onClearEditDate?: () => void;
+  nowProvider?: () => Date;
 }) {
   const { syncVersion } = useNetwork();
 
-  const [clockDate, setClockDate] = useState<string>(() => getLocalDateString());
+  const [clockDate, setClockDate] = useState<string>(() =>
+    getLocalDateString(DEFAULT_TIMEZONE, nowProvider())
+  );
+  const [isAfterReminderTime, setIsAfterReminderTime] = useState<boolean>(() =>
+    isAfterClosureReminderTime(nowProvider(), DEFAULT_TIMEZONE, 21)
+  );
+  const [dismissSyncTick, setDismissSyncTick] = useState(0);
+  const [isRecadoExpanded, setIsRecadoExpanded] = useState(false);
+
   const localDate = editingDateStr || clockDate;
   const friendlyDate = formatFriendlyDate(localDate);
 
@@ -109,26 +186,46 @@ export function TodayScreen({
     }
   }, []);
 
+  const syncTimeState = useCallback(() => {
+    const now = nowProvider();
+    const current = getLocalDateString(DEFAULT_TIMEZONE, now);
+    const after21 = isAfterClosureReminderTime(now, DEFAULT_TIMEZONE, 21);
+    setClockDate((prev) => (prev !== current ? current : prev));
+    setIsAfterReminderTime((prev) => (prev !== after21 ? after21 : prev));
+  }, [nowProvider]);
+
   useEffect(() => {
     isMountedRef.current = true;
     const unsubStale = subscribeStaleCache((isStale) => {
       if (isMountedRef.current) setUsingStaleFallback(isStale);
     });
 
-    // Check midnight rollover every 30s so active app transitions cleanly to next day
-    const midnightTimer = setInterval(() => {
-      const current = getLocalDateString();
-      setClockDate((prev) => (prev !== current ? current : prev));
-    }, 30_000);
+    syncTimeState();
+
+    // Schedule exact wakeup for the next local America/Sao_Paulo boundary (21:00 or 00:00)
+    // so the reminder appears automatically without refresh, plus 60s drift/sleep safety check.
+    let boundaryTimer: ReturnType<typeof setTimeout> | null = null;
+    const scheduleNextBoundary = () => {
+      const delayMs = getMsUntilNextClosureBoundary(nowProvider(), DEFAULT_TIMEZONE, 21);
+      boundaryTimer = setTimeout(() => {
+        if (!isMountedRef.current) return;
+        syncTimeState();
+        scheduleNextBoundary();
+      }, delayMs);
+    };
+    scheduleNextBoundary();
+
+    const safetyInterval = setInterval(syncTimeState, 60_000);
 
     return () => {
       isMountedRef.current = false;
       unsubStale();
-      clearInterval(midnightTimer);
+      if (boundaryTimer) clearTimeout(boundaryTimer);
+      clearInterval(safetyInterval);
       if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
       revokeOfflinePreviewUrls();
     };
-  }, [revokeOfflinePreviewUrls]);
+  }, [nowProvider, revokeOfflinePreviewUrls, syncTimeState]);
 
   const refreshTimeline = useCallback(
     async (patientId: string, dateStr: string) => {
@@ -455,6 +552,7 @@ export function TodayScreen({
       .subscribe();
 
     const triggerFocusRefresh = () => {
+      syncTimeState();
       const now = Date.now();
       if (now - lastFocusRefreshRef.current < 1500) return;
       lastFocusRefreshRef.current = now;
@@ -463,8 +561,6 @@ export function TodayScreen({
 
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
-        const current = getLocalDateString();
-        setClockDate((prev) => (prev !== current ? current : prev));
         triggerFocusRefresh();
       }
     };
@@ -480,7 +576,11 @@ export function TodayScreen({
       window.removeEventListener('focus', triggerFocusRefresh);
       window.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, [patient?.id, localDate, scheduleRefresh]);
+  }, [patient?.id, localDate, scheduleRefresh, syncTimeState]);
+
+  useEffect(() => {
+    setIsRecadoExpanded(false);
+  }, [localDate, todayMood?.notes]);
 
   const handleMealRefresh = () => {
     if (patient) refreshTimeline(patient.id, localDate);
@@ -605,41 +705,107 @@ export function TodayScreen({
   const pendingEventsCount = events.length - resolvedEventsCount;
   const isAllEventsCompleted = events.length > 0 && resolvedEventsCount === events.length;
 
+  const isViewingToday = localDate === clockDate;
+  const isClosureBannerDismissed =
+    isClosureReminderDismissed(profile?.id, patient?.id, localDate) && dismissSyncTick >= 0;
+
+  const showClosureReminderBanner = shouldShowClosureReminderBanner({
+    isAdmin,
+    isViewingToday,
+    isDayClosed: Boolean(dailyClosure),
+    isAfterReminderTime,
+    isDismissed: isClosureBannerDismissed,
+  });
+
+  const handleDismissClosureBanner = () => {
+    dismissClosureReminder(profile?.id, patient?.id, localDate);
+    setDismissSyncTick((tick) => tick + 1);
+  };
+
   const morning = events.filter((e) => e.time < '12:00:00');
   const afternoon = events.filter((e) => e.time >= '12:00:00' && e.time < '18:00:00');
   const night = events.filter((e) => e.time >= '18:00:00');
 
+  const moodEmoji = todayMood
+    ? todayMood.mood === 'happy'
+      ? '😊'
+      : todayMood.mood === 'calm'
+      ? '😌'
+      : todayMood.mood === 'tired'
+      ? '🥱'
+      : todayMood.mood === 'sad'
+      ? '😢'
+      : '😣'
+    : null;
+
+  const moodSummaryText = todayMood
+    ? todayMood.pain_level === 'none'
+      ? 'Bem e sem dores'
+      : `Queixa de dor (${
+          todayMood.pain_locations?.length
+            ? todayMood.pain_locations
+                .map((p) =>
+                  p === 'head'
+                    ? 'cabeça'
+                    : p === 'belly'
+                    ? 'barriga'
+                    : p === 'back'
+                    ? 'costas'
+                    : p === 'legs'
+                    ? 'pernas'
+                    : p === 'chest'
+                    ? 'peito'
+                    : p === 'arms'
+                    ? 'braços'
+                    : p === 'feet'
+                    ? 'pés'
+                    : 'corpo'
+                )
+                .join(', ')
+            : 'dor relatada'
+        })`
+    : '';
+
+  const recadoText = todayMood?.notes?.trim() || '';
+  const isLongRecado = recadoText.length > 72 || recadoText.includes('\n');
+
   return (
     <MainLayout activeTab={editingDateStr ? 'history' : 'today'} onTabChange={onTabChange}>
       <div className="max-w-md mx-auto w-full">
+        {/* Barra superior compacta (apenas logo + perfil permanecem fixos durante a rolagem) */}
+        <header className="sticky top-0 z-30 bg-white/95 dark:bg-[#111115]/95 backdrop-blur-xl border-b border-gray-100/80 dark:border-white/[0.08] px-4 pt-safe transition-colors">
+          <div className="h-12 flex items-center justify-between gap-4">
+            <h1 className="text-xl font-bold tracking-tight text-gray-900 dark:text-zinc-100 whitespace-nowrap shrink-0">
+              DUCA
+            </h1>
+            <UserProfile />
+          </div>
+        </header>
+
         {/* Banner de Edição do Passado */}
         {editingDateStr && (
-          <div className="bg-indigo-50 dark:bg-indigo-950/50 px-6 py-3 border-b border-indigo-100 dark:border-indigo-900/50 flex items-center justify-between shadow-sm">
-            <div>
-              <p className="text-xs font-bold text-indigo-800 dark:text-indigo-300 uppercase tracking-wider">
+          <div className="bg-indigo-50 dark:bg-indigo-950/50 px-4 py-2.5 border-b border-indigo-100 dark:border-indigo-900/50 flex items-center justify-between gap-2 shadow-sm">
+            <div className="min-w-0">
+              <p className="text-[11px] font-bold text-indigo-800 dark:text-indigo-300 uppercase tracking-wider leading-tight">
                 Modo de Edição
               </p>
-              <p className="text-sm font-medium text-indigo-900 dark:text-indigo-100 mt-0.5">
+              <p className="text-xs font-medium text-indigo-900 dark:text-indigo-100 truncate mt-0.5">
                 Editando o dia {friendlyDate}
               </p>
             </div>
             <button
               type="button"
               onClick={onClearEditDate}
-              className="text-xs font-bold text-indigo-700 dark:text-indigo-300 bg-indigo-100/50 dark:bg-indigo-900/50 hover:bg-indigo-200 dark:hover:bg-indigo-800/60 px-3 py-1.5 rounded-lg transition-colors"
+              className="text-xs font-bold text-indigo-700 dark:text-indigo-300 bg-indigo-100/60 dark:bg-indigo-900/50 hover:bg-indigo-200 dark:hover:bg-indigo-800/60 px-3 py-1.5 rounded-lg transition-colors whitespace-nowrap shrink-0"
             >
               Voltar a Hoje
             </button>
           </div>
         )}
 
-        <div className="bg-white/95 dark:bg-[#111115]/95 px-6 pt-12 pb-6 sticky top-0 z-30 border-b border-gray-100/50 dark:border-white/[0.08] backdrop-blur-xl transition-colors">
-          <div className="flex items-center justify-between mb-6">
-            <h1 className="text-2xl font-bold tracking-tight text-gray-900 dark:text-zinc-100">DUCA</h1>
-            <UserProfile />
-          </div>
-
-          <div className="flex items-center space-x-4">
+        {/* Cabeçalho informativo do idoso, bem-estar, recado e progresso (acompanha a rolagem) */}
+        <section className="bg-white dark:bg-[#111115] px-4 pt-3 pb-3 border-b border-gray-100 dark:border-white/[0.08] transition-colors space-y-2.5">
+          <div className="flex items-center gap-3">
             <button
               type="button"
               onClick={() => {
@@ -655,136 +821,119 @@ export function TodayScreen({
                   : 'Ver bem-estar de hoje'
               }
             >
-              <div className="w-16 h-16 rounded-full bg-gray-100 dark:bg-[#1c1c22] border-2 border-white dark:border-zinc-900 shadow-md overflow-hidden flex items-center justify-center ring-2 ring-indigo-100 dark:ring-indigo-500/30 group-hover:ring-indigo-300 dark:group-hover:ring-indigo-400/50 transition-all">
+              <div className="w-12 h-12 rounded-full bg-gray-100 dark:bg-[#1c1c22] border-2 border-white dark:border-zinc-900 shadow-sm overflow-hidden flex items-center justify-center ring-2 ring-indigo-100 dark:ring-indigo-500/30 group-hover:ring-indigo-300 dark:group-hover:ring-indigo-400/50 transition-all">
                 {patientPhoto ? (
                   <img src={patientPhoto} alt={patient.name} className="w-full h-full object-cover" />
                 ) : (
-                  <span className="text-2xl">👵</span>
+                  <span className="text-xl">👵</span>
                 )}
               </div>
 
-              {todayMood ? (
+              {todayMood && moodEmoji ? (
                 <div
-                  className={`absolute -bottom-1 -right-1 w-6 h-6 rounded-full flex items-center justify-center text-xs shadow-md border-2 border-white dark:border-[#111115] ${
+                  className={`absolute -bottom-0.5 -right-0.5 w-5 h-5 rounded-full flex items-center justify-center text-[11px] shadow-sm border-2 border-white dark:border-[#111115] ${
                     todayMood.pain_level !== 'none'
                       ? 'bg-rose-50 dark:bg-rose-950 ring-1 ring-rose-300 dark:ring-rose-800'
                       : 'bg-emerald-50 dark:bg-emerald-950 ring-1 ring-emerald-300 dark:ring-emerald-800'
                   }`}
                 >
-                  {todayMood.mood === 'happy'
-                    ? '😊'
-                    : todayMood.mood === 'calm'
-                    ? '😌'
-                    : todayMood.mood === 'tired'
-                    ? '🥱'
-                    : todayMood.mood === 'sad'
-                    ? '😢'
-                    : '😣'}
+                  {moodEmoji}
                 </div>
               ) : isAdmin ? (
-                <div className="absolute -bottom-1 -right-1 w-6 h-6 rounded-full bg-indigo-50 dark:bg-indigo-950 border-2 border-white dark:border-[#111115] ring-1 ring-indigo-200 dark:ring-indigo-700 flex items-center justify-center text-[10px] text-indigo-600 dark:text-indigo-300 shadow-sm animate-pulse">
-                  ✨
+                <div className="absolute -bottom-0.5 -right-0.5 w-5 h-5 rounded-full bg-indigo-50 dark:bg-indigo-950 border-2 border-white dark:border-[#111115] ring-1 ring-indigo-200 dark:ring-indigo-700 flex items-center justify-center text-[10px] text-indigo-600 dark:text-indigo-300 shadow-sm">
+                  +
                 </div>
               ) : null}
             </button>
 
             <div className="flex-1 min-w-0">
-              <h2 className="text-xl font-semibold text-gray-900 dark:text-zinc-100 truncate">
-                {patient.name}
-              </h2>
-              <p className="text-xs text-gray-500 dark:text-zinc-400 mb-1.5">Hoje, {friendlyDate}</p>
+              <div className="flex items-center justify-between gap-2">
+                <h2 className="text-lg font-semibold text-gray-900 dark:text-zinc-100 truncate leading-tight">
+                  {patient.name}
+                </h2>
 
-              {todayMood ? (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setMoodModalMode('view');
-                    setShowMoodModal(true);
-                  }}
-                  className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border transition-all active:scale-95 text-left max-w-full ${
-                    todayMood.pain_level === 'none'
-                      ? 'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-800 dark:text-emerald-300 border-emerald-200/70 dark:border-emerald-800/50 hover:bg-emerald-100/70 dark:hover:bg-emerald-950/80'
-                      : 'bg-rose-50 dark:bg-rose-950/50 text-rose-800 dark:text-rose-300 border-rose-200/70 dark:border-rose-800/50 hover:bg-rose-100/70 dark:hover:bg-rose-950/80'
-                  }`}
-                >
-                  <span className="text-sm">
-                    {todayMood.mood === 'happy'
-                      ? '😊'
-                      : todayMood.mood === 'calm'
-                      ? '😌'
-                      : todayMood.mood === 'tired'
-                      ? '🥱'
-                      : todayMood.mood === 'sad'
-                      ? '😢'
-                      : '😣'}
-                  </span>
-                  <span className="truncate">
-                    {todayMood.pain_level === 'none'
-                      ? 'Bem e sem dores'
-                      : `Queixa de dor (${
-                          todayMood.pain_locations?.length
-                            ? todayMood.pain_locations
-                                .map((p) =>
-                                  p === 'head'
-                                    ? 'cabeça'
-                                    : p === 'belly'
-                                    ? 'barriga'
-                                    : p === 'back'
-                                    ? 'costas'
-                                    : p === 'legs'
-                                    ? 'pernas'
-                                    : p === 'chest'
-                                    ? 'peito'
-                                    : p === 'arms'
-                                    ? 'braços'
-                                    : p === 'feet'
-                                    ? 'pés'
-                                    : 'corpo'
-                                )
-                                .join(', ')
-                            : 'dor relatada'
-                        })`}
-                  </span>
-                </button>
-              ) : isAdmin ? (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setMoodModalMode('edit');
-                    setShowMoodModal(true);
-                  }}
-                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-slate-50 dark:bg-white/[0.05] hover:bg-slate-100 dark:hover:bg-white/[0.09] text-slate-600 dark:text-zinc-300 border border-dashed border-slate-300 dark:border-white/[0.15] transition-all active:scale-95"
-                >
-                  <span className="text-indigo-500 dark:text-indigo-400 font-bold">+</span>
-                  <span>Registrar bem-estar de hoje</span>
-                </button>
-              ) : null}
+                {todayMood ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMoodModalMode('view');
+                      setShowMoodModal(true);
+                    }}
+                    className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[11px] font-medium border transition-all active:scale-95 shrink-0 max-w-[56%] ${
+                      todayMood.pain_level === 'none'
+                        ? 'bg-emerald-50/90 dark:bg-emerald-950/50 text-emerald-800 dark:text-emerald-300 border-emerald-200/70 dark:border-emerald-800/50 hover:bg-emerald-100/70 dark:hover:bg-emerald-950/80'
+                        : 'bg-rose-50/90 dark:bg-rose-950/50 text-rose-800 dark:text-rose-300 border-rose-200/70 dark:border-rose-800/50 hover:bg-rose-100/70 dark:hover:bg-rose-950/80'
+                    }`}
+                    title={moodSummaryText}
+                  >
+                    <span className="text-xs shrink-0">{moodEmoji}</span>
+                    <span className="truncate">{moodSummaryText}</span>
+                  </button>
+                ) : isAdmin ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMoodModalMode('edit');
+                      setShowMoodModal(true);
+                    }}
+                    aria-label="Registrar bem-estar de hoje"
+                    title="Registrar bem-estar de hoje"
+                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[11px] font-medium bg-slate-50 dark:bg-white/[0.05] hover:bg-slate-100 dark:hover:bg-white/[0.09] text-slate-600 dark:text-zinc-300 border border-dashed border-slate-300 dark:border-white/[0.15] transition-all active:scale-95 shrink-0 whitespace-nowrap"
+                  >
+                    <span className="text-indigo-500 dark:text-indigo-400 font-bold">+</span>
+                    <span>Bem-estar</span>
+                  </button>
+                ) : null}
+              </div>
+
+              <p className="text-xs text-gray-500 dark:text-zinc-400 mt-0.5 truncate">
+                {editingDateStr && !isViewingToday ? friendlyDate : `Hoje, ${friendlyDate}`}
+              </p>
             </div>
           </div>
 
-          {todayMood?.notes?.trim() && (
-            <button
-              type="button"
-              onClick={() => {
-                setMoodModalMode('view');
-                setShowMoodModal(true);
-              }}
-              className="mt-3.5 w-full text-left bg-gray-50/90 hover:bg-gray-100/80 dark:bg-white/[0.04] dark:hover:bg-white/[0.07] border border-gray-200/70 dark:border-white/[0.08] rounded-2xl px-3.5 py-2.5 flex items-start gap-2.5 transition-all active:scale-[0.99]"
-            >
+          {recadoText && (
+            <div className="bg-gray-50/90 dark:bg-white/[0.04] border border-gray-200/70 dark:border-white/[0.08] rounded-xl px-3 py-2 flex items-start gap-2 transition-colors">
               <MessageCircle className="w-3.5 h-3.5 text-gray-400 dark:text-zinc-500 mt-0.5 shrink-0" />
-              <p className="text-xs text-gray-600 dark:text-zinc-300 leading-relaxed line-clamp-2 flex-1">
-                <span className="font-semibold text-gray-700 dark:text-zinc-200">Recado: </span>
-                {todayMood.notes.trim()}
-              </p>
-            </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (isLongRecado) {
+                    setIsRecadoExpanded((prev) => !prev);
+                  } else {
+                    setMoodModalMode('view');
+                    setShowMoodModal(true);
+                  }
+                }}
+                className="flex-1 min-w-0 text-left focus:outline-none"
+              >
+                <p
+                  className={`text-xs text-gray-600 dark:text-zinc-300 leading-snug ${
+                    isRecadoExpanded ? 'whitespace-pre-wrap break-words' : 'line-clamp-1'
+                  }`}
+                >
+                  <span className="font-semibold text-gray-700 dark:text-zinc-200">Recado: </span>
+                  {recadoText}
+                </p>
+              </button>
+              {isLongRecado && (
+                <button
+                  type="button"
+                  onClick={() => setIsRecadoExpanded((prev) => !prev)}
+                  className="text-[11px] font-semibold text-indigo-600 dark:text-indigo-400 shrink-0 whitespace-nowrap pl-1 hover:underline"
+                >
+                  {isRecadoExpanded ? 'Menos' : 'Ver mais'}
+                </button>
+              )}
+            </div>
           )}
 
           <DailyProgressBar total={events.length} completed={resolvedEventsCount} />
-        </div>
+        </section>
 
         {/* Contingency stale cache notice */}
         {usingStaleFallback && (
-          <div className="mx-6 mt-4 bg-slate-100 dark:bg-white/[0.05] border border-slate-200 dark:border-white/[0.08] rounded-xl px-3.5 py-2 flex items-center justify-between gap-2 text-xs text-slate-600 dark:text-zinc-300">
+          <div className="mx-3.5 sm:mx-5 mt-3 bg-slate-100 dark:bg-white/[0.05] border border-slate-200 dark:border-white/[0.08] rounded-xl px-3.5 py-2 flex items-center justify-between gap-2 text-xs text-slate-600 dark:text-zinc-300">
             <span>Exibindo dados salvos no aparelho (sem confirmação recente do servidor).</span>
             <button
               type="button"
@@ -798,7 +947,7 @@ export function TodayScreen({
 
         {/* Inline error feedback */}
         {(actionError || loadError) && (
-          <div className="mx-6 mt-4 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800/50 rounded-2xl p-3.5 flex items-center justify-between gap-3 text-xs text-rose-700 dark:text-rose-300">
+          <div className="mx-3.5 sm:mx-5 mt-3 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800/50 rounded-2xl p-3 flex items-center justify-between gap-3 text-xs text-rose-700 dark:text-rose-300">
             <span>{actionError || loadError}</span>
             <button
               type="button"
@@ -816,8 +965,8 @@ export function TodayScreen({
 
         {/* Banners */}
         {!dailyClosure && hasReopened && (
-          <div className="mx-6 mt-6 bg-amber-50 dark:bg-amber-950/40 border border-amber-100 dark:border-amber-900/50 rounded-2xl p-4 flex items-start gap-3 shadow-sm animate-in fade-in slide-in-from-top-2">
-            <div className="w-8 h-8 rounded-full bg-amber-100 dark:bg-amber-900/60 flex items-center justify-center shrink-0">
+          <div className="mx-3.5 sm:mx-5 mt-3 bg-amber-50 dark:bg-amber-950/40 border border-amber-100 dark:border-amber-900/50 rounded-2xl p-3.5 flex items-start gap-3 shadow-sm animate-in fade-in slide-in-from-top-2">
+            <div className="w-7 h-7 rounded-full bg-amber-100 dark:bg-amber-900/60 flex items-center justify-center shrink-0">
               <svg
                 className="w-4 h-4 text-amber-600 dark:text-amber-300"
                 fill="none"
@@ -844,8 +993,8 @@ export function TodayScreen({
         )}
 
         {!dailyClosure && !hasReopened && isAllEventsCompleted && (
-          <div className="mx-6 mt-6 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-100 dark:border-emerald-900/50 rounded-2xl p-4 flex items-start gap-3 shadow-sm animate-in fade-in slide-in-from-top-2">
-            <div className="w-8 h-8 rounded-full bg-emerald-100 dark:bg-emerald-900/60 flex items-center justify-center shrink-0">
+          <div className="mx-3.5 sm:mx-5 mt-3 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-100 dark:border-emerald-900/50 rounded-2xl p-3.5 flex items-start gap-3 shadow-sm animate-in fade-in slide-in-from-top-2">
+            <div className="w-7 h-7 rounded-full bg-emerald-100 dark:bg-emerald-900/60 flex items-center justify-center shrink-0">
               <svg
                 className="w-4 h-4 text-emerald-600 dark:text-emerald-300"
                 fill="none"
@@ -867,13 +1016,17 @@ export function TodayScreen({
         )}
 
         {/* Timeline */}
-        <div className="px-6 py-6 space-y-8 pb-36">
+        <div
+          className={`px-3.5 sm:px-5 pt-3.5 space-y-5 ${
+            showClosureReminderBanner ? 'pb-24' : 'pb-6'
+          }`}
+        >
           {morning.length > 0 && (
-            <div className="space-y-4">
+            <div className="space-y-2.5">
               <h3 className="text-xs font-bold uppercase tracking-wider text-gray-400 dark:text-zinc-500">
                 Manhã
               </h3>
-              <div className="space-y-3 relative before:absolute before:inset-0 before:ml-5 before:-translate-x-px before:h-full before:w-0.5 before:bg-gray-100 dark:before:bg-white/[0.08]">
+              <div className="space-y-2.5 relative before:absolute before:inset-0 before:ml-5 before:-translate-x-px before:h-full before:w-0.5 before:bg-gray-100 dark:before:bg-white/[0.08]">
                 {morning.map((event) => (
                   <TimelineItem
                     profileId={profile?.id}
@@ -891,11 +1044,11 @@ export function TodayScreen({
           )}
 
           {afternoon.length > 0 && (
-            <div className="space-y-4">
+            <div className="space-y-2.5">
               <h3 className="text-xs font-bold uppercase tracking-wider text-gray-400 dark:text-zinc-500">
                 Tarde
               </h3>
-              <div className="space-y-3 relative before:absolute before:inset-0 before:ml-5 before:-translate-x-px before:h-full before:w-0.5 before:bg-gray-100 dark:before:bg-white/[0.08]">
+              <div className="space-y-2.5 relative before:absolute before:inset-0 before:ml-5 before:-translate-x-px before:h-full before:w-0.5 before:bg-gray-100 dark:before:bg-white/[0.08]">
                 {afternoon.map((event) => (
                   <TimelineItem
                     profileId={profile?.id}
@@ -913,11 +1066,11 @@ export function TodayScreen({
           )}
 
           {night.length > 0 && (
-            <div className="space-y-4">
+            <div className="space-y-2.5">
               <h3 className="text-xs font-bold uppercase tracking-wider text-gray-400 dark:text-zinc-500">
                 Noite
               </h3>
-              <div className="space-y-3 relative before:absolute before:inset-0 before:ml-5 before:-translate-x-px before:h-full before:w-0.5 before:bg-gray-100 dark:before:bg-white/[0.08]">
+              <div className="space-y-2.5 relative before:absolute before:inset-0 before:ml-5 before:-translate-x-px before:h-full before:w-0.5 before:bg-gray-100 dark:before:bg-white/[0.08]">
                 {night.map((event) => (
                   <TimelineItem
                     profileId={profile?.id}
@@ -935,7 +1088,7 @@ export function TodayScreen({
           )}
 
           {/* Closure Area */}
-          <div className="px-0 pb-6">
+          <div className="px-0 pb-2">
             {dailyClosure ? (
               <div className="bg-gray-50 dark:bg-[#121216] border border-gray-200 dark:border-white/[0.08] rounded-xl p-4 flex flex-col items-center text-center">
                 <div className="w-10 h-10 bg-green-100 dark:bg-emerald-950/60 text-green-600 dark:text-emerald-300 rounded-full flex items-center justify-center mb-2">
@@ -1101,34 +1254,17 @@ export function TodayScreen({
         />
       )}
 
-      {/* Sticky Bottom Footer for Closing the Day: ADMIN only while day is not closed */}
-      {isAdmin && !dailyClosure && (
-        <div className="fixed bottom-[80px] left-0 right-0 z-40 px-4 sm:max-w-md mx-auto w-full pb-4 animate-in slide-in-from-bottom-6 fade-in duration-300">
-          <div className="bg-white/90 dark:bg-[#141419]/92 backdrop-blur-md border border-gray-200 dark:border-white/[0.1] p-3 rounded-2xl shadow-lg flex items-center justify-between">
-            <div className="pl-2 pr-4">
-              <p className="text-sm font-bold text-gray-900 dark:text-zinc-100">Encerrar Dia</p>
-              <p className="text-[11px] font-medium text-gray-500 dark:text-zinc-400">
-                {events.length === 0
-                  ? 'Nenhuma atividade configurada.'
-                  : pendingEventsCount > 0
-                  ? `${pendingEventsCount} ${
-                      pendingEventsCount === 1 ? 'atividade pendente' : 'atividades pendentes'
-                    }`
-                  : 'Tudo registrado hoje.'}
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={() => {
-                setActionError(null);
-                setShowClosureModal(true);
-              }}
-              className="bg-black dark:bg-indigo-600 hover:bg-gray-900 dark:hover:bg-indigo-500 active:bg-gray-800 text-white px-5 py-2.5 rounded-xl text-sm font-medium transition-all shadow-md active:scale-95 shrink-0"
-            >
-              Encerrar Dia
-            </button>
-          </div>
-        </div>
+      {/* Nightly Closure Reminder Banner: ADMIN only, today only, open day only, >= 21:00 America/Sao_Paulo, not dismissed */}
+      {showClosureReminderBanner && (
+        <ClosureReminderBanner
+          eventsCount={events.length}
+          pendingEventsCount={pendingEventsCount}
+          onRequestClose={() => {
+            setActionError(null);
+            setShowClosureModal(true);
+          }}
+          onDismiss={handleDismissClosureBanner}
+        />
       )}
     </MainLayout>
   );

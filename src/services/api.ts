@@ -565,6 +565,7 @@ export async function getDailyMoodLog(patientId: string, date: string): Promise<
 }
 
 export async function upsertDailyMoodLog(log: DailyMoodLog): Promise<DailyMoodLog | null> {
+  const resolvedUpdatedBy = log.updated_by || (await getCurrentSessionUserId()) || null;
   const payload = {
     patient_id: log.patient_id,
     family_id: log.family_id,
@@ -573,7 +574,7 @@ export async function upsertDailyMoodLog(log: DailyMoodLog): Promise<DailyMoodLo
     pain_level: log.pain_level,
     pain_locations: log.pain_locations || [],
     notes: log.notes || null,
-    updated_by: log.updated_by || null,
+    updated_by: resolvedUpdatedBy,
     updated_at: new Date().toISOString(),
   };
 

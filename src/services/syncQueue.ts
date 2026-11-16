@@ -740,7 +740,7 @@ async function runQueueCore(
               pain_level: currentPayload.pain_level,
               pain_locations: currentPayload.pain_locations || [],
               notes: currentPayload.notes || null,
-              updated_by: currentPayload.updated_by || null,
+              updated_by: currentPayload.updated_by || activeUserId,
               updated_at: currentPayload.updated_at || new Date().toISOString(),
             },
             { onConflict: 'patient_id,date' }

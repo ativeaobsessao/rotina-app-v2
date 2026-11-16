@@ -34,75 +34,145 @@ function setupDom() {
   return dom;
 }
 
-test('Migration 0014 eliminates profiles fallback when family_members exists and locks down privileges + RBAC', () => {
-  const sql = fs.readFileSync(
-    path.resolve('supabase/migrations/0014_rbac_and_rls_hardening.sql'),
-    'utf8'
-  );
+const MIGRATION_0014_PATH = path.resolve('supabase/migrations/0014_rbac_and_rls_hardening.sql');
+const VERIFY_SQL_PATH = path.resolve('supabase/tests/verify_etapa3_rls.sql');
 
-  // 1. user_in_family returns early inside IF to_regclass('public.family_members') IS NOT NULL
-  const userInFamilyMatch = sql.match(
-    /CREATE OR REPLACE FUNCTION public\.user_in_family\(f_id UUID\)[\s\S]*?END;\s*\$\$;/
-  );
-  assert.ok(userInFamilyMatch);
-  assert.match(userInFamilyMatch[0], /SECURITY DEFINER\s+SET search_path = public/);
-  assert.match(
-    userInFamilyMatch[0],
-    /IF to_regclass\('public\.family_members'\) IS NOT NULL THEN[\s\S]*?RETURN COALESCE\(v_match, FALSE\);\s*END IF;/
-  );
+// ============================================================================
+// 1. TESTES ESTÁTICOS DE MIGRATION SQL (não substituem execução em PostgreSQL real)
+// ============================================================================
 
-  // 2. user_can_access_storage_path handles own avatar, shared family_members avatars, and patient/meal paths
-  const storageAccessMatch = sql.match(
-    /CREATE OR REPLACE FUNCTION public\.user_can_access_storage_path\(object_name text\)[\s\S]*?END;\s*\$\$;/
-  );
-  assert.ok(storageAccessMatch);
-  assert.match(storageAccessMatch[0], /SECURITY DEFINER\s+SET search_path = public/);
-  assert.match(storageAccessMatch[0], /IF second_segment = auth\.uid\(\)::text THEN\s+RETURN TRUE;/);
-  assert.match(
-    storageAccessMatch[0],
-    /IF to_regclass\('public\.family_members'\) IS NOT NULL THEN[\s\S]*?RETURN COALESCE\(v_shared_family, FALSE\);\s*END IF;/
-  );
-  assert.match(storageAccessMatch[0], /RETURN public\.user_in_family\(patient_family_id\);/);
+test('[Estático SQL] Migration 0014 é 100% idempotente: toda CREATE POLICY possui DROP POLICY IF EXISTS prévio', () => {
+  const sql = fs.readFileSync(MIGRATION_0014_PATH, 'utf8');
 
-  // 3. Storage writes enforce ADMIN for patient/meal photos and owner-only for user avatars
-  const storageWriteMatch = sql.match(
-    /CREATE OR REPLACE FUNCTION public\.user_can_write_storage_path\(bucket_name text, object_name text\)[\s\S]*?END;\s*\$\$;/
-  );
-  assert.ok(storageWriteMatch);
-  assert.match(storageWriteMatch[0], /RETURN public\.user_is_family_admin\(patient_family_id\);/);
+  // Captura todas as instruções CREATE POLICY "Nome" ... ON schema.tabela
+  const createPolicyRegex = /CREATE POLICY\s+"([^"]+)"\s+ON\s+([a-zA-Z0-9_.]+)/g;
+  const createdPolicies: Array<{ name: string; table: string; index: number }> = [];
+  let match: RegExpExecArray | null;
 
-  // 4. Function privilege hardening: revoke from PUBLIC and anon, grant to authenticated & service_role
+  while ((match = createPolicyRegex.exec(sql)) !== null) {
+    createdPolicies.push({
+      name: match[1],
+      table: match[2],
+      index: match.index,
+    });
+  }
+
+  assert.ok(createdPolicies.length >= 25, 'Esperado conjunto completo de políticas RLS na migration 0014');
+
+  for (const policy of createdPolicies) {
+    const precededSql = sql.slice(0, policy.index);
+    const expectedDrop = `DROP POLICY IF EXISTS "${policy.name}" ON ${policy.table};`;
+    assert.ok(
+      precededSql.includes(expectedDrop),
+      `Faltou "${expectedDrop}" antes de CREATE POLICY "${policy.name}" ON ${policy.table}`
+    );
+  }
+
+  assert.equal(/DROP TABLE/i.test(sql), false);
+  assert.equal(/TRUNCATE/i.test(sql), false);
+});
+
+test('[Estático SQL] Migration 0014 valida pré-requisitos da 0006 e implementa fail-closed sem fallback para profiles', () => {
+  const sql = fs.readFileSync(MIGRATION_0014_PATH, 'utf8');
+
+  // Pré-requisito explícito da migration 0006 antes das alterações
+  assert.match(sql, /to_regclass\('public\.family_members'\)\s+IS\s+NULL/);
+  assert.match(sql, /column_name\s+IN\s*\('family_id',\s*'user_id',\s*'role'\)/);
+  assert.match(sql, /migration 0006_family_members\.sql/i);
+
+  // Funções críticas fail-closed: nunca consultam public.profiles para autorizar papel/pertencimento
+  const extractFn = (name: string) => {
+    const m = sql.match(
+      new RegExp(`CREATE OR REPLACE FUNCTION public\\.${name}\\([^)]*\\)[\\s\\S]*?END;\\s*\\$\\$;`)
+    );
+    assert.ok(m, `Função ${name} não encontrada na 0014`);
+    return m[0];
+  };
+
+  const userInFamily = extractFn('user_in_family');
+  assert.match(userInFamily, /IF to_regclass\('public\.family_members'\) IS NULL THEN\s+RETURN FALSE;\s*END IF;/);
+  assert.equal(/FROM public\.profiles/i.test(userInFamily), false);
+
+  const userIsAdmin = extractFn('user_is_family_admin');
+  assert.match(userIsAdmin, /IF to_regclass\('public\.family_members'\) IS NULL THEN\s+RETURN FALSE;\s*END IF;/);
+  assert.equal(/FROM public\.profiles/i.test(userIsAdmin), false);
+
+  const currentFamily = extractFn('get_current_family_id');
+  assert.match(currentFamily, /IF to_regclass\('public\.family_members'\) IS NULL THEN\s+RETURN NULL;\s*END IF;/);
+  assert.match(currentFamily, /JOIN public\.family_members/);
+
+  const storageRead = extractFn('user_can_access_storage_path');
+  assert.match(storageRead, /IF second_segment = auth\.uid\(\)::text THEN\s+RETURN TRUE;/);
+  assert.match(storageRead, /IF to_regclass\('public\.family_members'\) IS NULL THEN\s+RETURN FALSE;\s*END IF;/);
+  assert.equal(/FROM public\.profiles/i.test(storageRead), false);
+
+  const switchTrigger = extractFn('prevent_unauthorized_profile_family_switch');
+  assert.match(switchTrigger, /IF to_regclass\('public\.family_members'\) IS NULL THEN[\s\S]*?RAISE EXCEPTION/);
+});
+
+test('[Estático SQL] family_members e family_invites bloqueiam escrita direta, protegem RPCs e ajustam pgcrypto dinamicamente', () => {
+  const sql = fs.readFileSync(MIGRATION_0014_PATH, 'utf8');
+
+  // family_members / family_invites sem políticas permissivas de escrita
+  assert.ok(sql.includes('REVOKE INSERT, UPDATE, DELETE ON public.family_members FROM anon, authenticated;'));
+  assert.ok(sql.includes('REVOKE INSERT, UPDATE, DELETE ON public.family_invites FROM anon, authenticated;'));
+  assert.equal(/CREATE POLICY[^\n]+ON public\.family_members[\s\S]*?FOR (INSERT|UPDATE|DELETE|ALL)/i.test(sql), false);
+  assert.equal(/CREATE POLICY[^\n]+ON public\.family_invites[\s\S]*?FOR (INSERT|UPDATE|DELETE|ALL)/i.test(sql), false);
+
+  // Detecção real de schema do pgcrypto via pg_extension/pg_namespace para convites
+  assert.match(sql, /FROM pg_extension e\s+JOIN pg_namespace n ON n\.oid = e\.extnamespace\s+WHERE e\.extname = 'pgcrypto'/);
+  assert.match(sql, /ALTER FUNCTION public\.create_family_invite\(\) SET search_path = %s/);
+  assert.match(sql, /ALTER FUNCTION public\.accept_family_invite\(text\) SET search_path = %s/);
+
+  // Privilégios EXECUTE bloqueados para PUBLIC e anon em funções auxiliares e RPCs
   for (const fnSig of [
     'public.user_in_family(UUID)',
     'public.user_is_family_admin(UUID)',
     'public.get_current_family_id()',
     'public.user_can_access_storage_path(text)',
     'public.user_can_write_storage_path(text, text)',
+    'public.set_active_family(uuid)',
+    'public.remove_family_member(uuid, uuid)',
+    'public.create_family_invite()',
+    'public.accept_family_invite(text)',
+    'public.revoke_family_invite(uuid)',
+    'public.update_family_member_role(uuid, uuid, text)',
   ]) {
     assert.ok(sql.includes(`REVOKE ALL ON FUNCTION ${fnSig} FROM PUBLIC, anon;`));
     assert.ok(sql.includes(`GRANT EXECUTE ON FUNCTION ${fnSig} TO authenticated, service_role;`));
   }
-
-  // 5. All priority tables enforce ADMIN writes and authenticated-scoped SELECT policies
-  for (const table of [
-    'public.patients',
-    'public.meal_configs',
-    'public.medication_periods',
-    'public.medications',
-    'public.meal_logs',
-    'public.medication_logs',
-    'public.daily_closures',
-    'public.daily_mood_logs',
-  ]) {
-    assert.ok(sql.includes(`ON ${table}`), `Expected policy statements for ${table}`);
-  }
-  assert.equal(sql.includes('TO authenticated'), true);
-  assert.equal(sql.includes('public.user_is_family_admin('), true);
-  assert.equal(/DROP TABLE/i.test(sql), false);
-  assert.equal(/TRUNCATE/i.test(sql), false);
 });
 
-test('api.ts & syncQueue.ts never queue RLS 42501 denials as offline retries and mark queued 42501 as failed', async () => {
+test('[Estático SQL] Integridade de autoria dos registros e roteiro SQL real seguro (ROLLBACK)', () => {
+  const sql = fs.readFileSync(MIGRATION_0014_PATH, 'utf8');
+  const verifySql = fs.readFileSync(VERIFY_SQL_PATH, 'utf8');
+
+  // Autoria nas políticas RLS de meal_logs, medication_logs, daily_mood_logs e daily_closures
+  assert.match(sql, /ON public\.meal_logs[\s\S]*?FOR INSERT[\s\S]*?created_by = auth\.uid\(\)\s+AND updated_by = auth\.uid\(\)/);
+  assert.match(sql, /ON public\.meal_logs[\s\S]*?FOR UPDATE[\s\S]*?WITH CHECK \([\s\S]*?updated_by = auth\.uid\(\)/);
+  assert.match(sql, /ON public\.medication_logs[\s\S]*?FOR INSERT[\s\S]*?created_by = auth\.uid\(\)\s+AND updated_by = auth\.uid\(\)/);
+  assert.match(sql, /ON public\.medication_logs[\s\S]*?FOR UPDATE[\s\S]*?WITH CHECK \([\s\S]*?updated_by = auth\.uid\(\)/);
+  assert.match(sql, /ON public\.daily_mood_logs[\s\S]*?FOR INSERT[\s\S]*?updated_by = auth\.uid\(\)/);
+  assert.match(sql, /ON public\.daily_mood_logs[\s\S]*?FOR UPDATE[\s\S]*?WITH CHECK \([\s\S]*?updated_by = auth\.uid\(\)/);
+  assert.match(sql, /ON public\.daily_closures[\s\S]*?FOR INSERT[\s\S]*?closed_by = auth\.uid\(\)/);
+
+  // Trigger preservando created_by original em UPDATE
+  assert.match(sql, /CREATE TRIGGER preserve_meal_log_creator\s+BEFORE UPDATE ON public\.meal_logs/);
+  assert.match(sql, /CREATE TRIGGER preserve_medication_log_creator\s+BEFORE UPDATE ON public\.medication_logs/);
+
+  // Roteiro SQL real de homologação contém transação segura com ROLLBACK e cenários A..F
+  assert.match(verifySql, /^\s*--[\s\S]*?BEGIN;[\s\S]*?ROLLBACK;\s*$/);
+  for (const marker of ['TESTE A', 'TESTE B', 'TESTE C', 'TESTE D', 'TESTE E', 'TESTE F']) {
+    assert.ok(verifySql.includes(marker), `Cenário ${marker} ausente em verify_etapa3_rls.sql`);
+  }
+  assert.ok(verifySql.includes('storage.objects'));
+});
+
+// ============================================================================
+// 2. TESTES UNITÁRIOS (API & FILA OFFLINE COM ERROS 42501 / RLS)
+// ============================================================================
+
+test('[Unitário] api.ts & syncQueue.ts rejeitam RLS 42501 sem enfileirar offline e marcam item como failed', async () => {
   const rlsErr = { code: '42501', message: 'new row violates row-level security policy for table "meal_logs"' };
   assert.equal(isRlsPermissionError(rlsErr), true);
   assert.equal(isTransientNetworkError(rlsErr), false);
@@ -147,7 +217,11 @@ test('api.ts & syncQueue.ts never queue RLS 42501 denials as offline retries and
   assert.match(queue[0].lastError || '', /Sem permissão/);
 });
 
-test('MealModal enforces MEMBER read-only view (pending state & logged photo view without edit controls)', async () => {
+// ============================================================================
+// 3. TESTES REACT/JSDOM (UI RBAC PARA MEMBER vs ADMIN)
+// ============================================================================
+
+test('[React/JSDOM] MealModal impõe modo somente leitura para MEMBER (pendente e registrado com foto)', async () => {
   const dom = setupDom();
   const container = dom.window.document.getElementById('root')!;
   const root = createRoot(container);
@@ -183,7 +257,6 @@ test('MealModal enforces MEMBER read-only view (pending state & logged photo vie
   };
 
   try {
-    // 1. Unlogged meal as MEMBER -> calm read-only placeholder, zero form inputs or confirm button
     await act(async () => {
       root.render(
         React.createElement(MealModal, {
@@ -204,7 +277,6 @@ test('MealModal enforces MEMBER read-only view (pending state & logged photo vie
     assert.equal(pendingText.includes('Confirmar Refeição'), false);
     assert.equal(container.querySelectorAll('input').length, 0);
 
-    // 2. Logged meal as MEMBER -> full details + clickable zoom photo, no EDITAR REGISTRO button
     await act(async () => {
       root.render(
         React.createElement(MealModal, {
@@ -231,7 +303,7 @@ test('MealModal enforces MEMBER read-only view (pending state & logged photo vie
   }
 });
 
-test('MedicationModal enforces MEMBER read-only view for both unlogged and logged periods', async () => {
+test('[React/JSDOM] MedicationModal impõe modo somente leitura para MEMBER', async () => {
   const dom = setupDom();
   const container = dom.window.document.getElementById('root')!;
   const root = createRoot(container);
@@ -307,7 +379,7 @@ test('MedicationModal enforces MEMBER read-only view for both unlogged and logge
   }
 });
 
-test('HistoryDayGroup hides admin actions from MEMBER while preserving read-only photo inspection, and keeps edit controls for ADMIN', async () => {
+test('[React/JSDOM] HistoryDayGroup oculta ações de ADMIN para MEMBER preservando visualização de foto, e mantém edição para ADMIN', async () => {
   const dom = setupDom();
   const container = dom.window.document.getElementById('root')!;
   const root = createRoot(container);
@@ -359,7 +431,6 @@ test('HistoryDayGroup hides admin actions from MEMBER while preserving read-only
   let viewedPhotoUrl: string | null = null;
 
   try {
-    // Render as MEMBER
     await act(async () => {
       root.render(
         React.createElement(HistoryDayGroup, {
@@ -381,7 +452,6 @@ test('HistoryDayGroup hides admin actions from MEMBER while preserving read-only
       );
     });
 
-    // Expand accordion
     const accordionBtn = container.querySelector('button') as HTMLButtonElement;
     assert.ok(accordionBtn);
     await act(async () => {
@@ -393,7 +463,6 @@ test('HistoryDayGroup hides admin actions from MEMBER while preserving read-only
     assert.equal(memberText.includes('Editar registros deste dia'), false);
     assert.match(memberText, /Sem intercorrências/);
 
-    // Clicking photo triggers onViewPhoto and never onEditMeal
     const photoBtn = (Array.from(container.querySelectorAll('button')) as HTMLButtonElement[]).find((b) =>
       b.textContent?.includes('Toque para ampliar')
     );
@@ -405,7 +474,6 @@ test('HistoryDayGroup hides admin actions from MEMBER while preserving read-only
     assert.equal(editMealCalled, 0);
     assert.equal(editMedCalled, 0);
 
-    // Re-render as ADMIN (already expanded)
     await act(async () => {
       root.render(
         React.createElement(HistoryDayGroup, {

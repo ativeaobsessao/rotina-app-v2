@@ -1,13 +1,51 @@
--- MIGRATION 0014: ETAPA 03 - RBAC, RLS HARDENING & REMOVED-MEMBER CLOSURE
--- Segura, idempotente e não destrutiva: NÃO apaga perfis, pacientes, históricos ou arquivos.
--- Objetivo:
---   1. Eliminar fallback inseguro para public.profiles quando public.family_members existir.
---   2. Garantir autorização estrita de Storage (avatares, fotos de pacientes e fotos de refeições).
---   3. Revogar EXECUTE desnecessário (PUBLIC / anon) em funções SECURITY DEFINER com search_path fixo.
---   4. Impor RBAC real (ADMIN vs MEMBER) no banco em todas as tabelas prioritárias e buckets.
+-- MIGRATION 0014: ETAPA 03 + 03.1 - RBAC, RLS HARDENING, FAIL-CLOSED AUTH & AUTHORSHIP INTEGRITY
+-- Segura, verdadeiramente idempotente e não destrutiva: NÃO apaga perfis, pacientes, históricos ou arquivos.
+-- Requisitos: migration 0006_family_members.sql já aplicada.
 
 -- ============================================================================
--- 1. FUNÇÕES AUXILIARES DE AUTORIZAÇÃO (SECURITY DEFINER + search_path = public)
+-- 0. VALIDAÇÃO DE PRÉ-REQUISITOS ESTRUTURAIS (MIGRATION 0006)
+-- ============================================================================
+
+DO $$
+DECLARE
+  v_missing_cols INT;
+  v_has_role_check BOOLEAN := FALSE;
+BEGIN
+  IF to_regclass('public.family_members') IS NULL THEN
+    RAISE EXCEPTION
+      'Pré-requisito ausente: a tabela public.family_members não existe. Aplique a migration 0006_family_members.sql antes da migration 0014.';
+  END IF;
+
+  SELECT 3 - count(*)
+  INTO v_missing_cols
+  FROM information_schema.columns
+  WHERE table_schema = 'public'
+    AND table_name = 'family_members'
+    AND column_name IN ('family_id', 'user_id', 'role');
+
+  IF v_missing_cols > 0 THEN
+    RAISE EXCEPTION
+      'Estrutura inválida em public.family_members: colunas family_id, user_id e role são obrigatórias. Verifique a migration 0006_family_members.sql.';
+  END IF;
+
+  SELECT EXISTS (
+    SELECT 1
+    FROM pg_constraint
+    WHERE conrelid = 'public.family_members'::regclass
+      AND contype = 'c'
+      AND pg_get_constraintdef(oid) ILIKE '%ADMIN%'
+      AND pg_get_constraintdef(oid) ILIKE '%MEMBER%'
+  ) INTO v_has_role_check;
+
+  IF NOT COALESCE(v_has_role_check, FALSE) THEN
+    RAISE EXCEPTION
+      'Restrição CHECK para papéis ADMIN e MEMBER ausente em public.family_members. Verifique a migration 0006_family_members.sql.';
+  END IF;
+END;
+$$;
+
+-- ============================================================================
+-- 1. FUNÇÕES AUXILIARES DE AUTORIZAÇÃO FAIL-CLOSED (SECURITY DEFINER + search_path = public)
 -- ============================================================================
 
 CREATE OR REPLACE FUNCTION public.user_in_family(f_id UUID)
@@ -23,28 +61,17 @@ BEGIN
     RETURN FALSE;
   END IF;
 
-  -- Quando family_members existir, ela é a ÚNICA fonte de verdade de pertencimento ativo.
-  -- NUNCA fazer fallback para profiles caso o usuário tenha sido removido de family_members.
-  IF to_regclass('public.family_members') IS NOT NULL THEN
-    EXECUTE '
-      SELECT EXISTS (
-        SELECT 1
-        FROM public.family_members
-        WHERE family_id = $1
-          AND user_id = $2
-      )'
-      INTO v_match
-      USING f_id, auth.uid();
-
-    RETURN COALESCE(v_match, FALSE);
+  -- Fail-closed: public.family_members é a ÚNICA fonte de verdade de pertencimento ativo.
+  -- Se a tabela não existir ou o usuário tiver sido removido dela, retorna FALSE (sem fallback para profiles).
+  IF to_regclass('public.family_members') IS NULL THEN
+    RETURN FALSE;
   END IF;
 
-  -- Fallback exclusivo para ambientes legados em que family_members realmente não existe.
   SELECT EXISTS (
     SELECT 1
-    FROM public.profiles
-    WHERE id = auth.uid()
-      AND family_id = f_id
+    FROM public.family_members
+    WHERE family_id = f_id
+      AND user_id = auth.uid()
   ) INTO v_match;
 
   RETURN COALESCE(v_match, FALSE);
@@ -64,27 +91,17 @@ BEGIN
     RETURN FALSE;
   END IF;
 
-  IF to_regclass('public.family_members') IS NOT NULL THEN
-    EXECUTE '
-      SELECT EXISTS (
-        SELECT 1
-        FROM public.family_members
-        WHERE family_id = $1
-          AND user_id = $2
-          AND role = ''ADMIN''
-      )'
-      INTO v_is_admin
-      USING f_id, auth.uid();
-
-    RETURN COALESCE(v_is_admin, FALSE);
+  -- Fail-closed: jamais promove perfis da tabela profiles a administradores sem vínculo ADMIN ativo.
+  IF to_regclass('public.family_members') IS NULL THEN
+    RETURN FALSE;
   END IF;
 
-  -- Fallback exclusivo quando family_members não existe
   SELECT EXISTS (
     SELECT 1
-    FROM public.profiles
-    WHERE id = auth.uid()
-      AND family_id = f_id
+    FROM public.family_members
+    WHERE family_id = f_id
+      AND user_id = auth.uid()
+      AND role = 'ADMIN'
   ) INTO v_is_admin;
 
   RETURN COALESCE(v_is_admin, FALSE);
@@ -104,25 +121,18 @@ BEGIN
     RETURN NULL;
   END IF;
 
-  IF to_regclass('public.family_members') IS NOT NULL THEN
-    EXECUTE '
-      SELECT m.family_id
-      FROM public.profiles p
-      JOIN public.family_members m
-        ON m.family_id = p.family_id
-       AND m.user_id = p.id
-      WHERE p.id = $1
-      LIMIT 1'
-      INTO v_family_id
-      USING auth.uid();
-
-    RETURN v_family_id;
+  -- Fail-closed: exige vínculo ativo em family_members para reconhecer a família ativa do perfil.
+  IF to_regclass('public.family_members') IS NULL THEN
+    RETURN NULL;
   END IF;
 
-  SELECT family_id
+  SELECT m.family_id
   INTO v_family_id
-  FROM public.profiles
-  WHERE id = auth.uid()
+  FROM public.profiles p
+  JOIN public.family_members m
+    ON m.family_id = p.family_id
+   AND m.user_id = p.id
+  WHERE p.id = auth.uid()
   LIMIT 1;
 
   RETURN v_family_id;
@@ -161,32 +171,21 @@ BEGIN
       RETURN TRUE;
     END IF;
 
-    -- Outros avatares: SOMENTE se compartilharem associação ativa em family_members
-    IF to_regclass('public.family_members') IS NOT NULL THEN
-      EXECUTE '
-        SELECT EXISTS (
-          SELECT 1
-          FROM public.family_members me
-          JOIN public.family_members target
-            ON target.family_id = me.family_id
-          WHERE me.user_id = $1
-            AND target.user_id::text = $2
-        )'
-        INTO v_shared_family
-        USING auth.uid(), second_segment;
-
-      RETURN COALESCE(v_shared_family, FALSE);
+    -- Outros avatares: SOMENTE com vínculo ativo compartilhado em family_members (fail-closed, sem fallback em profiles)
+    IF to_regclass('public.family_members') IS NULL THEN
+      RETURN FALSE;
     END IF;
 
-    -- Fallback exclusivo quando family_members não existe
-    RETURN EXISTS (
+    SELECT EXISTS (
       SELECT 1
-      FROM public.profiles me
-      JOIN public.profiles target
+      FROM public.family_members me
+      JOIN public.family_members target
         ON target.family_id = me.family_id
-      WHERE me.id = auth.uid()
-        AND target.id::text = second_segment
-    );
+      WHERE me.user_id = auth.uid()
+        AND target.user_id::text = second_segment
+    ) INTO v_shared_family;
+
+    RETURN COALESCE(v_shared_family, FALSE);
   END IF;
 
   -- Caminho de paciente / refeição: {patient_id}/{filename}
@@ -212,8 +211,8 @@ $$;
 
 -- Escrita/Exclusão de Storage:
 --   - patient-profile/avatars/{auth.uid()}/... : apenas o próprio dono
---   - patient-profile/{patient_id}/...         : apenas ADMIN da família do paciente
---   - meal-records/{patient_id}/...            : apenas ADMIN da família do paciente
+--   - patient-profile/{patient_id}/...         : apenas ADMIN ativo da família do paciente
+--   - meal-records/{patient_id}/...            : apenas ADMIN ativo da família do paciente
 CREATE OR REPLACE FUNCTION public.user_can_write_storage_path(bucket_name text, object_name text)
 RETURNS BOOLEAN
 LANGUAGE plpgsql
@@ -262,7 +261,7 @@ END;
 $$;
 
 -- ============================================================================
--- 2. PRIVILÉGIOS EXECUTE E SEARCH_PATH DAS FUNÇÕES SECURITY DEFINER
+-- 2. PRIVILÉGIOS EXECUTE E SEARCH_PATH COMPATÍVEL COM PGCRYPTO
 -- ============================================================================
 
 REVOKE ALL ON FUNCTION public.user_in_family(UUID) FROM PUBLIC, anon;
@@ -280,9 +279,52 @@ GRANT EXECUTE ON FUNCTION public.user_can_access_storage_path(text) TO authentic
 REVOKE ALL ON FUNCTION public.user_can_write_storage_path(text, text) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.user_can_write_storage_path(text, text) TO authenticated, service_role;
 
--- Reforçar search_path e privilégios nas RPCs existentes (quando presentes)
+-- Descobrir o schema real da extensão pgcrypto via pg_extension/pg_namespace
+-- (compatível tanto com public quanto com extensions no Supabase)
 DO $$
+DECLARE
+  v_pgcrypto_schema TEXT;
+  v_invite_search_path TEXT;
 BEGIN
+  SELECT n.nspname
+  INTO v_pgcrypto_schema
+  FROM pg_extension e
+  JOIN pg_namespace n ON n.oid = e.extnamespace
+  WHERE e.extname = 'pgcrypto'
+  LIMIT 1;
+
+  IF v_pgcrypto_schema IS NULL THEN
+    CREATE EXTENSION IF NOT EXISTS pgcrypto;
+    SELECT n.nspname
+    INTO v_pgcrypto_schema
+    FROM pg_extension e
+    JOIN pg_namespace n ON n.oid = e.extnamespace
+    WHERE e.extname = 'pgcrypto'
+    LIMIT 1;
+  END IF;
+
+  IF v_pgcrypto_schema IS NULL THEN
+    RAISE EXCEPTION 'Extensão pgcrypto não encontrada para os fluxos de convite familiar.';
+  END IF;
+
+  IF v_pgcrypto_schema = 'public' THEN
+    v_invite_search_path := 'public';
+  ELSE
+    v_invite_search_path := format('public, %I', v_pgcrypto_schema);
+  END IF;
+
+  IF to_regprocedure('public.create_family_invite()') IS NOT NULL THEN
+    EXECUTE format('ALTER FUNCTION public.create_family_invite() SET search_path = %s', v_invite_search_path);
+    REVOKE ALL ON FUNCTION public.create_family_invite() FROM PUBLIC, anon;
+    GRANT EXECUTE ON FUNCTION public.create_family_invite() TO authenticated, service_role;
+  END IF;
+
+  IF to_regprocedure('public.accept_family_invite(text)') IS NOT NULL THEN
+    EXECUTE format('ALTER FUNCTION public.accept_family_invite(text) SET search_path = %s', v_invite_search_path);
+    REVOKE ALL ON FUNCTION public.accept_family_invite(text) FROM PUBLIC, anon;
+    GRANT EXECUTE ON FUNCTION public.accept_family_invite(text) TO authenticated, service_role;
+  END IF;
+
   IF to_regprocedure('public.set_active_family(uuid)') IS NOT NULL THEN
     ALTER FUNCTION public.set_active_family(uuid) SET search_path = public;
     REVOKE ALL ON FUNCTION public.set_active_family(uuid) FROM PUBLIC, anon;
@@ -293,18 +335,6 @@ BEGIN
     ALTER FUNCTION public.remove_family_member(uuid, uuid) SET search_path = public;
     REVOKE ALL ON FUNCTION public.remove_family_member(uuid, uuid) FROM PUBLIC, anon;
     GRANT EXECUTE ON FUNCTION public.remove_family_member(uuid, uuid) TO authenticated, service_role;
-  END IF;
-
-  IF to_regprocedure('public.create_family_invite()') IS NOT NULL THEN
-    ALTER FUNCTION public.create_family_invite() SET search_path = public;
-    REVOKE ALL ON FUNCTION public.create_family_invite() FROM PUBLIC, anon;
-    GRANT EXECUTE ON FUNCTION public.create_family_invite() TO authenticated, service_role;
-  END IF;
-
-  IF to_regprocedure('public.accept_family_invite(text)') IS NOT NULL THEN
-    ALTER FUNCTION public.accept_family_invite(text) SET search_path = public;
-    REVOKE ALL ON FUNCTION public.accept_family_invite(text) FROM PUBLIC, anon;
-    GRANT EXECUTE ON FUNCTION public.accept_family_invite(text) TO authenticated, service_role;
   END IF;
 
   IF to_regprocedure('public.revoke_family_invite(uuid)') IS NOT NULL THEN
@@ -322,7 +352,7 @@ END;
 $$;
 
 -- ============================================================================
--- 3. PROTEÇÃO CONTRA TROCA DIRETA DE family_id NO PROFILE SEM MEMBRESIA
+-- 3. TRIGGERS DE INTEGRIDADE (TROCA DE FAMÍLIA E AUTORIA ORIGINAL DE LOGS)
 -- ============================================================================
 
 CREATE OR REPLACE FUNCTION public.prevent_unauthorized_profile_family_switch()
@@ -335,17 +365,22 @@ DECLARE
   v_is_member BOOLEAN := FALSE;
 BEGIN
   IF NEW.family_id IS DISTINCT FROM OLD.family_id AND auth.uid() IS NOT NULL THEN
-    IF to_regclass('public.family_members') IS NOT NULL THEN
-      SELECT EXISTS (
-        SELECT 1
-        FROM public.family_members
-        WHERE family_id = NEW.family_id
-          AND user_id = NEW.id
-      ) INTO v_is_member;
+    -- Fail-closed: se family_members estiver ausente, bloqueia qualquer troca de família
+    IF to_regclass('public.family_members') IS NULL THEN
+      RAISE EXCEPTION 'Tabela family_members ausente; alteração de contexto familiar bloqueada.'
+        USING ERRCODE = '42501';
+    END IF;
 
-      IF NOT COALESCE(v_is_member, FALSE) THEN
-        RAISE EXCEPTION 'Acesso negado ao alterar contexto familiar para família sem vínculo ativo.';
-      END IF;
+    SELECT EXISTS (
+      SELECT 1
+      FROM public.family_members
+      WHERE family_id = NEW.family_id
+        AND user_id = NEW.id
+    ) INTO v_is_member;
+
+    IF NOT COALESCE(v_is_member, FALSE) THEN
+      RAISE EXCEPTION 'Acesso negado ao alterar contexto familiar para família sem vínculo ativo.'
+        USING ERRCODE = '42501';
     END IF;
   END IF;
 
@@ -353,15 +388,75 @@ BEGIN
 END;
 $$;
 
+REVOKE ALL ON FUNCTION public.prevent_unauthorized_profile_family_switch() FROM PUBLIC, anon, authenticated;
+
 DROP TRIGGER IF EXISTS protect_profile_family_switch ON public.profiles;
 CREATE TRIGGER protect_profile_family_switch
   BEFORE UPDATE ON public.profiles
   FOR EACH ROW
   EXECUTE FUNCTION public.prevent_unauthorized_profile_family_switch();
 
+-- Preservar autoria original (created_by e created_at) em atualizações de refeições e medicações
+CREATE OR REPLACE FUNCTION public.preserve_log_creator_authorship()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  IF auth.uid() IS NOT NULL AND NEW.created_by IS DISTINCT FROM OLD.created_by THEN
+    RAISE EXCEPTION 'Não é permitido alterar o autor original do registro.'
+      USING ERRCODE = '42501';
+  END IF;
+
+  NEW.created_at := OLD.created_at;
+  RETURN NEW;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.preserve_log_creator_authorship() FROM PUBLIC, anon, authenticated;
+
+DROP TRIGGER IF EXISTS preserve_meal_log_creator ON public.meal_logs;
+CREATE TRIGGER preserve_meal_log_creator
+  BEFORE UPDATE ON public.meal_logs
+  FOR EACH ROW
+  EXECUTE FUNCTION public.preserve_log_creator_authorship();
+
+DROP TRIGGER IF EXISTS preserve_medication_log_creator ON public.medication_logs;
+CREATE TRIGGER preserve_medication_log_creator
+  BEFORE UPDATE ON public.medication_logs
+  FOR EACH ROW
+  EXECUTE FUNCTION public.preserve_log_creator_authorship();
+
 -- ============================================================================
--- 4. REVISÃO E SUBSTITUIÇÃO COMPLETA DAS POLÍTICAS RLS (ADMIN vs MEMBER)
+-- 4. REVISÃO, ENDURECIMENTO E IDEMPOTÊNCIA COMPLETA DAS POLÍTICAS RLS
 -- ============================================================================
+
+-- 4.0 FAMILY MEMBERS (Fonte de verdade de papéis: leitura para membros ativos; escrita direta bloqueada)
+ALTER TABLE public.family_members ENABLE ROW LEVEL SECURITY;
+REVOKE INSERT, UPDATE, DELETE ON public.family_members FROM anon, authenticated;
+DROP POLICY IF EXISTS "Users can view members of their families" ON public.family_members;
+CREATE POLICY "Users can view members of their families"
+  ON public.family_members
+  FOR SELECT
+  TO authenticated
+  USING (public.user_in_family(family_id));
+
+-- 4.0b FAMILY INVITES (Leitura restrita a ADMIN; escrita direta bloqueada — mutações via RPCs SECURITY DEFINER)
+DO $$
+BEGIN
+  IF to_regclass('public.family_invites') IS NOT NULL THEN
+    ALTER TABLE public.family_invites ENABLE ROW LEVEL SECURITY;
+    REVOKE INSERT, UPDATE, DELETE ON public.family_invites FROM anon, authenticated;
+    DROP POLICY IF EXISTS "Admins can view their family invites" ON public.family_invites;
+    CREATE POLICY "Admins can view their family invites"
+      ON public.family_invites
+      FOR SELECT
+      TO authenticated
+      USING (public.user_is_family_admin(family_id));
+  END IF;
+END;
+$$;
 
 -- 4.1 FAMILIES
 ALTER TABLE public.families ENABLE ROW LEVEL SECURITY;
@@ -384,16 +479,13 @@ CREATE POLICY "Users can view profiles in their family"
   TO authenticated
   USING (
     id = auth.uid()
-    OR (
-      to_regclass('public.family_members') IS NOT NULL
-      AND EXISTS (
-        SELECT 1
-        FROM public.family_members me
-        JOIN public.family_members target
-          ON target.family_id = me.family_id
-        WHERE me.user_id = auth.uid()
-          AND target.user_id = profiles.id
-      )
+    OR EXISTS (
+      SELECT 1
+      FROM public.family_members me
+      JOIN public.family_members target
+        ON target.family_id = me.family_id
+      WHERE me.user_id = auth.uid()
+        AND target.user_id = profiles.id
     )
   );
 
@@ -410,6 +502,9 @@ DROP POLICY IF EXISTS "Users can view patients in their family" ON public.patien
 DROP POLICY IF EXISTS "Users can insert patients in their family" ON public.patients;
 DROP POLICY IF EXISTS "Users can update patients in their family" ON public.patients;
 DROP POLICY IF EXISTS "Users can delete patients in their family" ON public.patients;
+DROP POLICY IF EXISTS "Admins can insert patients in their family" ON public.patients;
+DROP POLICY IF EXISTS "Admins can update patients in their family" ON public.patients;
+DROP POLICY IF EXISTS "Admins can delete patients in their family" ON public.patients;
 
 CREATE POLICY "Users can view patients in their family"
   ON public.patients
@@ -628,7 +723,7 @@ CREATE POLICY "Admins can delete meds for their family's patients"
     )
   );
 
--- 4.7 MEAL LOGS (Leitura: membros ativos; Escrita: apenas ADMIN)
+-- 4.7 MEAL LOGS (Leitura: membros ativos; Escrita: apenas ADMIN + autoria íntegra)
 ALTER TABLE public.meal_logs ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Users can view meal logs of their family's patients" ON public.meal_logs;
 DROP POLICY IF EXISTS "Users can insert meal logs for their family's patients" ON public.meal_logs;
@@ -654,7 +749,9 @@ CREATE POLICY "Admins can insert meal logs for their family's patients"
   FOR INSERT
   TO authenticated
   WITH CHECK (
-    EXISTS (
+    created_by = auth.uid()
+    AND updated_by = auth.uid()
+    AND EXISTS (
       SELECT 1 FROM public.patients p
       WHERE p.id = meal_logs.patient_id
         AND public.user_is_family_admin(p.family_id)
@@ -673,7 +770,8 @@ CREATE POLICY "Admins can update meal logs for their family's patients"
     )
   )
   WITH CHECK (
-    EXISTS (
+    updated_by = auth.uid()
+    AND EXISTS (
       SELECT 1 FROM public.patients p
       WHERE p.id = meal_logs.patient_id
         AND public.user_is_family_admin(p.family_id)
@@ -692,7 +790,7 @@ CREATE POLICY "Admins can delete meal logs for their family's patients"
     )
   );
 
--- 4.8 MEDICATION LOGS (Leitura: membros ativos; Escrita: apenas ADMIN)
+-- 4.8 MEDICATION LOGS (Leitura: membros ativos; Escrita: apenas ADMIN + autoria íntegra)
 ALTER TABLE public.medication_logs ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Users can view med logs of their family's patients" ON public.medication_logs;
 DROP POLICY IF EXISTS "Users can insert med logs for their family's patients" ON public.medication_logs;
@@ -718,7 +816,9 @@ CREATE POLICY "Admins can insert med logs for their family's patients"
   FOR INSERT
   TO authenticated
   WITH CHECK (
-    EXISTS (
+    created_by = auth.uid()
+    AND updated_by = auth.uid()
+    AND EXISTS (
       SELECT 1 FROM public.patients p
       WHERE p.id = medication_logs.patient_id
         AND public.user_is_family_admin(p.family_id)
@@ -737,7 +837,8 @@ CREATE POLICY "Admins can update med logs for their family's patients"
     )
   )
   WITH CHECK (
-    EXISTS (
+    updated_by = auth.uid()
+    AND EXISTS (
       SELECT 1 FROM public.patients p
       WHERE p.id = medication_logs.patient_id
         AND public.user_is_family_admin(p.family_id)
@@ -756,7 +857,7 @@ CREATE POLICY "Admins can delete med logs for their family's patients"
     )
   );
 
--- 4.9 DAILY CLOSURES (Leitura: membros ativos; Encerramento e Reabertura: apenas ADMIN)
+-- 4.9 DAILY CLOSURES (Leitura: membros ativos; Encerramento e Reabertura: apenas ADMIN + closed_by = auth.uid())
 ALTER TABLE public.daily_closures ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Users can view daily closures of their family" ON public.daily_closures;
 DROP POLICY IF EXISTS "Users can insert daily closures for their family" ON public.daily_closures;
@@ -790,7 +891,7 @@ CREATE POLICY "Admins can delete daily closures of their family"
   TO authenticated
   USING (public.user_is_family_admin(family_id));
 
--- 4.10 DAILY MOOD LOGS (Leitura: membros ativos; Escrita: apenas ADMIN)
+-- 4.10 DAILY MOOD LOGS (Leitura: membros ativos; Escrita: apenas ADMIN + updated_by = auth.uid())
 ALTER TABLE public.daily_mood_logs ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Membros da família podem visualizar o estado de espírito" ON public.daily_mood_logs;
 DROP POLICY IF EXISTS "Membros da família podem registrar ou atualizar o estado de espírito" ON public.daily_mood_logs;
@@ -809,7 +910,8 @@ CREATE POLICY "Apenas administradores podem inserir o estado de espírito"
   FOR INSERT
   TO authenticated
   WITH CHECK (
-    public.user_is_family_admin(family_id)
+    updated_by = auth.uid()
+    AND public.user_is_family_admin(family_id)
     AND EXISTS (
       SELECT 1 FROM public.patients p
       WHERE p.id = daily_mood_logs.patient_id
@@ -823,7 +925,8 @@ CREATE POLICY "Apenas administradores podem atualizar o estado de espírito"
   TO authenticated
   USING (public.user_is_family_admin(family_id))
   WITH CHECK (
-    public.user_is_family_admin(family_id)
+    updated_by = auth.uid()
+    AND public.user_is_family_admin(family_id)
     AND EXISTS (
       SELECT 1 FROM public.patients p
       WHERE p.id = daily_mood_logs.patient_id

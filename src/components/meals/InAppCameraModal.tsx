@@ -142,8 +142,16 @@ export function InAppCameraModal({
       {
         video: {
           facingMode: { ideal: 'environment' },
-          width: { ideal: 1280 },
-          height: { ideal: 960 },
+          width: { ideal: 3840 },
+          height: { ideal: 2160 },
+        },
+        audio: false,
+      },
+      {
+        video: {
+          facingMode: { ideal: 'environment' },
+          width: { ideal: 1920 },
+          height: { ideal: 1080 },
         },
         audio: false,
       },
@@ -192,6 +200,29 @@ export function InAppCameraModal({
     }
 
     streamRef.current = stream;
+
+    // Try enabling continuous autofocus when hardware/browser exposes capabilities
+    try {
+      const videoTrack =
+        typeof stream.getVideoTracks === 'function'
+          ? stream.getVideoTracks()[0]
+          : stream.getTracks().find((t) => t.kind === 'video');
+      const caps =
+        videoTrack && typeof (videoTrack as any).getCapabilities === 'function'
+          ? (videoTrack as any).getCapabilities()
+          : null;
+      if (
+        videoTrack &&
+        typeof (videoTrack as any).applyConstraints === 'function' &&
+        Array.isArray(caps?.focusMode) &&
+        caps.focusMode.includes('continuous')
+      ) {
+        await (videoTrack as any)
+          .applyConstraints({ advanced: [{ focusMode: 'continuous' }] })
+          .catch(() => {});
+      }
+    } catch {}
+
     if (videoRef.current) {
       try {
         videoRef.current.srcObject = stream;
@@ -250,9 +281,49 @@ export function InAppCameraModal({
     setCameraError(null);
 
     try {
-      const file = captureFrame
-        ? await captureFrame(videoRef.current)
-        : await captureVideoFrameToJpegFile(videoRef.current, 1280, 0.88);
+      let file: File | null = null;
+
+      if (captureFrame) {
+        file = await captureFrame(videoRef.current);
+      } else {
+        // Prefer ImageCapture.takePhoto() (full hardware sensor resolution on Chrome Android)
+        const ImageCaptureCtor = (globalThis as any).ImageCapture;
+        const stream = streamRef.current;
+        const videoTrack = stream
+          ? typeof stream.getVideoTracks === 'function'
+            ? stream.getVideoTracks()[0]
+            : stream.getTracks().find((t) => t.kind === 'video')
+          : null;
+
+        if (typeof ImageCaptureCtor === 'function' && videoTrack) {
+          try {
+            const capturer = new ImageCaptureCtor(videoTrack);
+            let photoSettings: Record<string, any> | undefined;
+            if (typeof capturer.getPhotoCapabilities === 'function') {
+              const caps = await capturer.getPhotoCapabilities().catch(() => null);
+              if (caps?.imageWidth?.max && caps?.imageHeight?.max) {
+                photoSettings = {
+                  imageWidth: caps.imageWidth.max,
+                  imageHeight: caps.imageHeight.max,
+                };
+              }
+            }
+            const photoBlob: Blob = await capturer.takePhoto(photoSettings);
+            if (photoBlob && photoBlob.size > 0) {
+              file = new File([photoBlob], `camera_${Date.now()}.jpg`, {
+                type: photoBlob.type || 'image/jpeg',
+                lastModified: Date.now(),
+              });
+            }
+          } catch {
+            // Fall back to high-res video frame capture if takePhoto() fails
+          }
+        }
+
+        if (!file) {
+          file = await captureVideoFrameToJpegFile(videoRef.current, 2048, 0.92);
+        }
+      }
 
       if (!isMountedRef.current) return;
 

@@ -24,6 +24,11 @@ import {
   deleteMealDraft,
   setActiveMealRecovery,
   blobToFile,
+  isInAppCameraPreferred,
+  setInAppCameraPreferred,
+  markNativeCameraPending,
+  clearNativeCameraPending,
+  consumePendingNativeCameraCrash,
 } from '../../services/mealDrafts';
 import { triggerHapticFeedback } from '../../utils/haptics';
 import type { MealEventData } from '../../types/timeline';
@@ -88,6 +93,8 @@ export function MealModal({
   const [photoRemoved, setPhotoRemoved] = useState(false);
   const [uploadedPhotoPath, setUploadedPhotoPath] = useState<string | null>(null);
   const [wasRecovered, setWasRecovered] = useState(false);
+  const [recoveredFromCameraCrash, setRecoveredFromCameraCrash] = useState(false);
+  const [preferInAppCamera, setPreferInAppCamera] = useState<boolean>(() => isInAppCameraPreferred());
   const [isCameraOpen, setIsCameraOpen] = useState(false);
   const [isPhotoZoomed, setIsPhotoZoomed] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -103,6 +110,8 @@ export function MealModal({
   const activeSessionKeyRef = useRef<string | null>(null);
   const draftReqSeqRef = useRef(0);
   const draftDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const nativeCameraOpenedInThisMountRef = useRef(false);
+  const nativeCancelTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const formRef = useRef({
     consumption,
@@ -133,12 +142,42 @@ export function MealModal({
         clearTimeout(draftDebounceRef.current);
         draftDebounceRef.current = null;
       }
+      if (nativeCancelTimerRef.current) {
+        clearTimeout(nativeCancelTimerRef.current);
+        nativeCancelTimerRef.current = null;
+      }
       if (objectUrlRef.current) {
         URL.revokeObjectURL(objectUrlRef.current);
         objectUrlRef.current = null;
       }
     };
   }, []);
+
+  // If the same JS runtime resumes after user cancels native camera (without OS process kill),
+  // wait briefly for onChange and then clear pending intent without flagging a crash.
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const scheduleSameSessionCancelClear = () => {
+      if (!nativeCameraOpenedInThisMountRef.current) return;
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+      if (nativeCancelTimerRef.current) {
+        clearTimeout(nativeCancelTimerRef.current);
+      }
+      nativeCancelTimerRef.current = setTimeout(() => {
+        nativeCancelTimerRef.current = null;
+        nativeCameraOpenedInThisMountRef.current = false;
+        clearNativeCameraPending({ userId: profileId, patientId, mealId: event.id, eventDate });
+      }, 1500);
+    };
+
+    window.addEventListener('focus', scheduleSameSessionCancelClear);
+    document.addEventListener('visibilitychange', scheduleSameSessionCancelClear);
+    return () => {
+      window.removeEventListener('focus', scheduleSameSessionCancelClear);
+      document.removeEventListener('visibilitychange', scheduleSameSessionCancelClear);
+    };
+  }, [isOpen, profileId, patientId, event.id, eventDate]);
 
   const persistDraftNow = useCallback(
     async (overrides?: {
@@ -205,13 +244,28 @@ export function MealModal({
     if (activeSessionKeyRef.current !== sessionKey) {
       activeSessionKeyRef.current = sessionKey;
       hasLocalEditsRef.current = false;
+      nativeCameraOpenedInThisMountRef.current = false;
 
       if (objectUrlRef.current) {
         URL.revokeObjectURL(objectUrlRef.current);
         objectUrlRef.current = null;
       }
 
-      setMode(!canEdit ? 'view' : event.log ? 'view' : 'edit');
+      const crashedInNativeCamera = Boolean(
+        profileId &&
+          patientId &&
+          event.id &&
+          eventDate &&
+          allowEdit &&
+          consumePendingNativeCameraCrash({
+            userId: profileId,
+            patientId,
+            mealId: event.id,
+            eventDate,
+          })
+      );
+
+      setMode(crashedInNativeCamera ? 'edit' : !canEdit ? 'view' : event.log ? 'view' : 'edit');
       setConsumption(event.log?.consumption_status || 'normal');
       setDescription(event.log?.description || '');
       setDrinkDescription(event.log?.drink_description || '');
@@ -221,7 +275,9 @@ export function MealModal({
       setPhotoPreview(event.photoSignedUrl || null);
       setPhotoRemoved(false);
       setUploadedPhotoPath(null);
-      setWasRecovered(false);
+      setWasRecovered(crashedInNativeCamera);
+      setRecoveredFromCameraCrash(crashedInNativeCamera);
+      setPreferInAppCamera(crashedInNativeCamera || isInAppCameraPreferred());
       setIsCameraOpen(false);
       setIsPhotoZoomed(false);
       setError('');
@@ -378,6 +434,13 @@ export function MealModal({
   const handleClose = () => {
     if (loading || isSavingRef.current || isCameraOpen) return;
 
+    if (nativeCancelTimerRef.current) {
+      clearTimeout(nativeCancelTimerRef.current);
+      nativeCancelTimerRef.current = null;
+    }
+    nativeCameraOpenedInThisMountRef.current = false;
+    clearNativeCameraPending({ userId: profileId, patientId, mealId: event.id, eventDate });
+
     const uncommittedPath = formRef.current.uploadedPhotoPath;
     if (uncommittedPath && uncommittedPath !== event.log?.photo_url) {
       deleteStorageFile('meal-records', uncommittedPath).catch(() => {});
@@ -427,6 +490,7 @@ export function MealModal({
     setPhotoRemoved(false);
     setUploadedPhotoPath(null);
     setWasRecovered(false);
+    setRecoveredFromCameraCrash(false);
     setIsCameraOpen(false);
     setError('');
 
@@ -440,6 +504,13 @@ export function MealModal({
   };
 
   const handlePhotoSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (nativeCancelTimerRef.current) {
+      clearTimeout(nativeCancelTimerRef.current);
+      nativeCancelTimerRef.current = null;
+    }
+    nativeCameraOpenedInThisMountRef.current = false;
+    clearNativeCameraPending({ userId: profileId, patientId, mealId: event.id, eventDate });
+
     const file = e.target.files?.[0];
     e.target.value = '';
     if (!file) return;
@@ -455,8 +526,18 @@ export function MealModal({
   const handleTriggerNativeCamera = () => {
     if (loading || !allowEdit) return;
     markRecoveryBeforePicker();
+    nativeCameraOpenedInThisMountRef.current = true;
+    markNativeCameraPending({ userId: profileId, patientId, mealId: event.id, eventDate });
     setIsCameraOpen(false);
     cameraInputRef.current?.click();
+  };
+
+  const handlePrimaryTakePhoto = () => {
+    if (preferInAppCamera) {
+      handleOpenInAppCamera();
+      return;
+    }
+    handleTriggerNativeCamera();
   };
 
   const handleTriggerGallery = () => {
@@ -534,7 +615,7 @@ export function MealModal({
           setSavingStatus('Preparando foto...');
           let compressed: File;
           try {
-            compressed = await compressImage(photoFile, 1280);
+            compressed = await compressImage(photoFile, 2048);
           } catch (compressionErr: any) {
             throw new Error(
               compressionErr?.message ||
@@ -848,12 +929,19 @@ export function MealModal({
           </div>
         ) : (
           <>
-            {wasRecovered && (
+            {recoveredFromCameraCrash ? (
+              <div className="p-3 bg-amber-50/90 dark:bg-amber-950/40 border border-amber-200/80 dark:border-amber-800/50 text-amber-900 dark:text-amber-200 rounded-xl text-xs flex items-start gap-2">
+                <CheckCircle2 className="w-4 h-4 shrink-0 text-amber-600 dark:text-amber-400 mt-0.5" />
+                <span>
+                  Seu celular fechou o aplicativo ao abrir a câmera externa. Use o botão abaixo para fotografar sem sair do app ou escolha da galeria.
+                </span>
+              </div>
+            ) : wasRecovered ? (
               <div className="p-3 bg-indigo-50/90 dark:bg-indigo-950/40 border border-indigo-200/80 dark:border-indigo-800/50 text-indigo-800 dark:text-indigo-200 rounded-xl text-xs flex items-center gap-2">
                 <CheckCircle2 className="w-4 h-4 shrink-0 text-indigo-600 dark:text-indigo-400" />
                 <span>Seu registro em andamento foi recuperado.</span>
               </div>
-            )}
+            ) : null}
 
             {error && (
               <div className="p-3 bg-red-50 dark:bg-rose-950/40 dark:border dark:border-rose-800/50 text-red-700 dark:text-rose-300 rounded-xl text-sm">
@@ -1054,27 +1142,55 @@ export function MealModal({
                   )}
                 </div>
               ) : (
-                <div className="grid grid-cols-2 gap-3">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    disabled={loading}
-                    className="w-full min-h-[48px] py-3 flex items-center justify-center gap-2 rounded-xl"
-                    onClick={handleOpenInAppCamera}
-                  >
-                    <Camera className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
-                    <span>Tirar foto</span>
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    disabled={loading}
-                    className="w-full min-h-[48px] py-3 flex items-center justify-center gap-2 rounded-xl"
-                    onClick={handleTriggerGallery}
-                  >
-                    <ImageIcon className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
-                    <span>Da galeria</span>
-                  </Button>
+                <div className="space-y-2">
+                  <div className="grid grid-cols-2 gap-3">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      disabled={loading}
+                      className="w-full min-h-[48px] py-3 flex items-center justify-center gap-2 rounded-xl"
+                      onClick={handlePrimaryTakePhoto}
+                    >
+                      <Camera className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
+                      <span>Tirar foto</span>
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      disabled={loading}
+                      className="w-full min-h-[48px] py-3 flex items-center justify-center gap-2 rounded-xl"
+                      onClick={handleTriggerGallery}
+                    >
+                      <ImageIcon className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
+                      <span>Da galeria</span>
+                    </Button>
+                  </div>
+                  <div className="flex justify-center">
+                    {preferInAppCamera ? (
+                      <button
+                        type="button"
+                        disabled={loading}
+                        onClick={() => {
+                          setInAppCameraPreferred(false);
+                          setPreferInAppCamera(false);
+                          setRecoveredFromCameraCrash(false);
+                          handleTriggerNativeCamera();
+                        }}
+                        className="text-[11px] text-gray-400 dark:text-zinc-500 hover:text-gray-600 dark:hover:text-zinc-300 underline-offset-2 hover:underline py-1"
+                      >
+                        Usar câmera do aparelho
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        disabled={loading}
+                        onClick={handleOpenInAppCamera}
+                        className="text-[11px] text-gray-400 dark:text-zinc-500 hover:text-gray-600 dark:hover:text-zinc-300 underline-offset-2 hover:underline py-1"
+                      >
+                        Usar câmera no app
+                      </button>
+                    )}
+                  </div>
                 </div>
               )}
 

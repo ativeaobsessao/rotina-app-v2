@@ -1,9 +1,9 @@
 const ALLOWED_IMAGE_MIME_PREFIX = 'image/';
 const UNSUPPORTED_IMAGE_MIMES = new Set(['image/svg+xml']);
 const SUPPORTED_EXTENSIONS = /\.(jpe?g|png|webp|gif|bmp|heic|heif|avif)$/i;
-const MAX_PASSTHROUGH_BYTES = 800 * 1024;
+const MAX_PASSTHROUGH_BYTES = 1500 * 1024;
 const HEADER_SLICE_BYTES = 128 * 1024;
-const DEFAULT_QUALITY = 0.85;
+const DEFAULT_QUALITY = 0.9;
 
 export interface ImageHeaderMetadata {
   format: 'jpeg' | 'png' | 'webp';
@@ -287,12 +287,12 @@ async function decodeImageSafely(
   return decodeWithImageElement(file);
 }
 
-export async function compressImage(file: File, maxWidth = 1280): Promise<File> {
+export async function compressImage(file: File, maxWidth = 2048): Promise<File> {
   validateImageFile(file);
 
   const meta = await inspectImageHeader(file);
 
-  // Ultra-fast passthrough ONLY for already-upright, <= maxWidth, small JPEGs
+  // Ultra-fast passthrough ONLY for already-upright, <= maxWidth, <= 1.5MB JPEGs
   if (
     meta &&
     meta.format === 'jpeg' &&
@@ -359,6 +359,20 @@ export async function compressImage(file: File, maxWidth = 1280): Promise<File> 
       type: 'image/jpeg',
       lastModified: Date.now(),
     });
+  } catch (err: any) {
+    // Graceful fallback: if a valid huge camera JPEG/PNG hits browser canvas memory limits, keep original up to 10MB
+    if (
+      file.type &&
+      file.type !== 'image/svg+xml' &&
+      file.size > 0 &&
+      file.size <= 10 * 1024 * 1024 &&
+      meta &&
+      meta.width > 0 &&
+      meta.height > 0
+    ) {
+      return file;
+    }
+    throw err;
   } finally {
     releaseCanvas(canvas);
     try {
@@ -369,8 +383,8 @@ export async function compressImage(file: File, maxWidth = 1280): Promise<File> 
 
 export async function captureVideoFrameToJpegFile(
   video: HTMLVideoElement,
-  maxWidth = 1280,
-  quality = 0.88
+  maxWidth = 2048,
+  quality = 0.92
 ): Promise<File> {
   const vw = video.videoWidth || 0;
   const vh = video.videoHeight || 0;

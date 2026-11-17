@@ -4,9 +4,12 @@ export const MEAL_DRAFT_KEY_PREFIX = 'meal_draft:';
 export const LEGACY_MEAL_DRAFT_KEY = 'duca_meal_draft';
 export const ACTIVE_MEAL_RECOVERY_KEY = 'duca_active_meal_recovery';
 export const ACTIVE_FLOW_UNTIL_KEY = 'duca_active_flow_until';
+export const CAMERA_INTENT_PENDING_KEY = 'duca_native_camera_pending';
+export const PREFER_INAPP_CAMERA_KEY = 'duca_prefer_inapp_camera';
 
 export const MEAL_DRAFT_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 export const ACTIVE_RECOVERY_TTL_MS = 60 * 60 * 1000; // 1 hour
+export const CAMERA_INTENT_TTL_MS = 15 * 60 * 1000; // 15 minutes
 
 export interface MealDraftScope {
   userId: string;
@@ -183,11 +186,104 @@ export function clearActiveMealRecovery(matchScope?: Partial<MealDraftScope>): v
       }
     }
     localStorage.removeItem(ACTIVE_MEAL_RECOVERY_KEY);
+    localStorage.removeItem(CAMERA_INTENT_PENDING_KEY);
     localStorage.removeItem(LEGACY_MEAL_DRAFT_KEY);
     if (typeof sessionStorage !== 'undefined') {
       sessionStorage.removeItem(LEGACY_MEAL_DRAFT_KEY);
     }
   } catch {}
+}
+
+export function isInAppCameraPreferred(): boolean {
+  try {
+    if (typeof localStorage === 'undefined') return false;
+    return localStorage.getItem(PREFER_INAPP_CAMERA_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+export function setInAppCameraPreferred(preferred: boolean): void {
+  try {
+    if (typeof localStorage === 'undefined') return;
+    if (preferred) {
+      localStorage.setItem(PREFER_INAPP_CAMERA_KEY, '1');
+    } else {
+      localStorage.removeItem(PREFER_INAPP_CAMERA_KEY);
+    }
+  } catch {}
+}
+
+export function markNativeCameraPending(scope: MealDraftScope, now = Date.now()): void {
+  if (!isValidScope(scope)) return;
+  try {
+    if (typeof localStorage === 'undefined') return;
+    localStorage.setItem(
+      CAMERA_INTENT_PENDING_KEY,
+      JSON.stringify({
+        userId: scope.userId,
+        patientId: scope.patientId,
+        mealId: scope.mealId,
+        eventDate: scope.eventDate,
+        ts: now,
+        expiresAt: now + CAMERA_INTENT_TTL_MS,
+      })
+    );
+  } catch {}
+}
+
+export function clearNativeCameraPending(matchScope?: Partial<MealDraftScope>): void {
+  try {
+    if (typeof localStorage === 'undefined') return;
+    if (matchScope) {
+      const raw = localStorage.getItem(CAMERA_INTENT_PENDING_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as Partial<MealDraftScope>;
+      if (
+        (matchScope.userId && parsed.userId !== matchScope.userId) ||
+        (matchScope.patientId && parsed.patientId !== matchScope.patientId) ||
+        (matchScope.mealId && parsed.mealId !== matchScope.mealId) ||
+        (matchScope.eventDate && parsed.eventDate !== matchScope.eventDate)
+      ) {
+        return;
+      }
+    }
+    localStorage.removeItem(CAMERA_INTENT_PENDING_KEY);
+  } catch {}
+}
+
+/**
+ * Checks on cold mount whether the browser/PWA restarted while a native camera intent was open
+ * for the given meal scope. If so, clears the pending flag, enables per-device in-app fallback,
+ * and returns true so the UI can explain and offer the in-app camera immediately.
+ */
+export function consumePendingNativeCameraCrash(
+  scope: MealDraftScope,
+  now = Date.now()
+): boolean {
+  if (!isValidScope(scope)) return false;
+  try {
+    if (typeof localStorage === 'undefined') return false;
+    const raw = localStorage.getItem(CAMERA_INTENT_PENDING_KEY);
+    if (!raw) return false;
+    const parsed = JSON.parse(raw) as Partial<MealDraftScope> & { expiresAt?: number };
+    const matches =
+      parsed.userId === scope.userId &&
+      parsed.patientId === scope.patientId &&
+      parsed.mealId === scope.mealId &&
+      parsed.eventDate === scope.eventDate;
+    if (!matches) return false;
+
+    localStorage.removeItem(CAMERA_INTENT_PENDING_KEY);
+    if (typeof parsed.expiresAt !== 'number' || parsed.expiresAt <= now) {
+      return false;
+    }
+
+    setInAppCameraPreferred(true);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export async function saveMealDraft(

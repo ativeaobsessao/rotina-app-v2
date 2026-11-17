@@ -18,6 +18,9 @@ import {
   cleanupExpiredMealDrafts,
   readActiveMealRecovery,
   clearActiveMealRecovery,
+  CAMERA_INTENT_PENDING_KEY,
+  isInAppCameraPreferred,
+  setInAppCameraPreferred,
   type MealDraftStorageAdapter,
 } from '../src/services/mealDrafts.ts';
 import {
@@ -196,18 +199,25 @@ function createMemoryDraftAdapter(): {
 
 function makeFakeStream() {
   let stoppedCount = 0;
+  let appliedConstraints: any[] = [];
   const track = {
     kind: 'video',
+    getCapabilities: () => ({ focusMode: ['continuous', 'manual'] }),
+    applyConstraints: async (c: any) => {
+      appliedConstraints.push(c);
+    },
     stop: () => {
       stoppedCount += 1;
     },
   };
   const stream = {
     getTracks: () => [track],
+    getVideoTracks: () => [track],
   } as unknown as MediaStream;
   return {
     stream,
     getStoppedCount: () => stoppedCount,
+    getAppliedConstraints: () => appliedConstraints,
   };
 }
 
@@ -424,6 +434,73 @@ test('[Teste A] InAppCameraModal trata permissão negada/câmera indisponível c
     assert.equal(activeStream.getStoppedCount(), 1);
     assert.match(container.textContent || '', /câmera foi pausada/i);
   } finally {
+    await act(async () => root.unmount());
+    dom.window.close();
+  }
+});
+
+test('[Teste A] InAppCameraModal solicita até 4K, ativa foco contínuo e usa ImageCapture.takePhoto() em alta resolução', async () => {
+  const { dom, createRoot } = await setupDom();
+  const container = dom.window.document.getElementById('root')!;
+  const root = createRoot(container);
+
+  const origImageCapture = (globalThis as any).ImageCapture;
+  const requestedConstraints: MediaStreamConstraints[] = [];
+  const fakeStream = makeFakeStream();
+  const confirmedFiles: File[] = [];
+  let takePhotoSettingsSeen: any = null;
+
+  (globalThis as any).ImageCapture = class MockImageCapture {
+    async getPhotoCapabilities() {
+      return { imageWidth: { max: 4032 }, imageHeight: { max: 3024 } };
+    }
+    async takePhoto(settings?: any) {
+      takePhotoSettingsSeen = settings;
+      return new Blob([buildMinimalJpegHeader(4032, 3024, 1)], { type: 'image/jpeg' });
+    }
+  };
+
+  try {
+    await act(async () => {
+      root.render(
+        React.createElement(InAppCameraModal, {
+          isOpen: true,
+          onClose: () => {},
+          onCaptureConfirm: (f) => confirmedFiles.push(f),
+          onFallbackNativeCamera: () => {},
+          onFallbackGallery: () => {},
+          requestMediaStream: async (c) => {
+            requestedConstraints.push(c);
+            return fakeStream.stream;
+          },
+        })
+      );
+    });
+
+    assert.equal((requestedConstraints[0].video as any).width.ideal, 3840);
+    assert.equal((requestedConstraints[0].video as any).height.ideal, 2160);
+    assert.deepEqual(fakeStream.getAppliedConstraints()[0], {
+      advanced: [{ focusMode: 'continuous' }],
+    });
+
+    const captureBtn = container.querySelector('button[aria-label="Capturar foto"]') as HTMLButtonElement;
+    await act(async () => {
+      captureBtn.click();
+    });
+
+    assert.deepEqual(takePhotoSettingsSeen, { imageWidth: 4032, imageHeight: 3024 });
+    const confirmBtn = (Array.from(container.querySelectorAll('button')) as HTMLButtonElement[]).find((b) =>
+      b.textContent?.includes('Usar esta foto')
+    ) as HTMLButtonElement;
+    await act(async () => {
+      confirmBtn.click();
+    });
+
+    assert.equal(confirmedFiles.length, 1);
+    assert.equal(confirmedFiles[0].type, 'image/jpeg');
+    assert.ok(confirmedFiles[0].size > 10);
+  } finally {
+    (globalThis as any).ImageCapture = origImageCapture;
     await act(async () => root.unmount());
     dom.window.close();
   }
@@ -652,6 +729,12 @@ test('[Teste B] Capturar foto no MealModal persiste em IndexedDB e TodayScreen/M
       notesInput.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
     });
 
+    const nativeInput = container.querySelector('[data-testid="native-camera-input"]') as HTMLInputElement;
+    let nativeInputClicked = false;
+    nativeInput.click = () => {
+      nativeInputClicked = true;
+    };
+
     const takePhotoBtn = (Array.from(container.querySelectorAll('button')) as HTMLButtonElement[]).find((b) =>
       b.textContent?.includes('Tirar foto')
     ) as HTMLButtonElement;
@@ -659,18 +742,21 @@ test('[Teste B] Capturar foto no MealModal persiste em IndexedDB e TodayScreen/M
       takePhotoBtn.click();
     });
 
-    const captureBtn = container.querySelector('button[aria-label="Capturar foto"]') as HTMLButtonElement;
-    await act(async () => {
-      captureBtn.click();
-    });
+    assert.equal(nativeInputClicked, true);
+    assert.ok(dom.window.localStorage.getItem(CAMERA_INTENT_PENDING_KEY));
 
-    const confirmPhotoBtn = (Array.from(container.querySelectorAll('button')) as HTMLButtonElement[]).find((b) =>
-      b.textContent?.includes('Usar esta foto')
-    ) as HTMLButtonElement;
+    const returnedFile = new File([capturedBytes], 'almoco-camera.jpg', { type: 'image/jpeg' });
+    Object.defineProperty(nativeInput, 'files', {
+      value: [returnedFile],
+      configurable: true,
+    });
     await act(async () => {
-      confirmPhotoBtn.click();
+      nativeInput.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
       await new Promise((r) => setTimeout(r, 40));
     });
+
+    assert.equal(dom.window.localStorage.getItem(CAMERA_INTENT_PENDING_KEY), null);
+    assert.equal(isInAppCameraPreferred(), false);
 
     // Verifica rascunho persistido em IndexedDB com Blob + ponteiro síncrono no localStorage
     const savedDraft = await getMealDraft({
@@ -730,6 +816,157 @@ test('[Teste B] Capturar foto no MealModal persiste em IndexedDB e TodayScreen/M
   }
 });
 
+test('[Teste B.2] Auto-adaptação Android: se o app fechar durante câmera nativa, reabre com aviso e passa a usar câmera no app', async () => {
+  const { dom, createRoot } = await setupDom();
+  const container = dom.window.document.getElementById('root')!;
+
+  const origAuthGetUser = supabase.auth.getUser.bind(supabase.auth);
+  const origAuthGetSession = supabase.auth.getSession.bind(supabase.auth);
+  const origFrom = (supabase as any).from;
+  const origChannel = (supabase as any).channel;
+  const origRemoveChannel = (supabase as any).removeChannel;
+
+  const makeQueryChain = (rows: any) => {
+    const res = { data: rows, error: null };
+    const singleRes = { data: Array.isArray(rows) ? rows[0] ?? null : rows, error: null };
+    const chain: any = {
+      select: () => chain,
+      eq: () => chain,
+      in: () => chain,
+      order: () => chain,
+      limit: () => chain,
+      single: async () => singleRes,
+      maybeSingle: async () => singleRes,
+      then: (resolve: (v: any) => any) => Promise.resolve(res).then(resolve),
+    };
+    return chain;
+  };
+
+  (supabase.auth as any).getUser = async () => ({
+    data: { user: { id: 'admin-1', email: 'admin@duca.local' } },
+    error: null,
+  });
+  (supabase.auth as any).getSession = async () => ({
+    data: { session: { user: { id: 'admin-1', email: 'admin@duca.local' } } },
+    error: null,
+  });
+  (supabase as any).channel = () => {
+    const ch: any = { on: () => ch, subscribe: () => ch, unsubscribe: async () => 'ok' };
+    return ch;
+  };
+  (supabase as any).removeChannel = async () => 'ok';
+  (supabase as any).from = (table: string) => {
+    switch (table) {
+      case 'profiles':
+        return makeQueryChain({
+          id: 'admin-1',
+          family_id: 'fam-1',
+          name: 'Cuidadora Ana',
+          email: 'admin@duca.local',
+        });
+      case 'patients':
+        return makeQueryChain([
+          { id: 'pat-1', family_id: 'fam-1', name: 'Dona Maria', photo_url: null, gender: 'F' },
+        ]);
+      case 'family_members':
+        return makeQueryChain([{ id: 'fm-1', user_id: 'admin-1', family_id: 'fam-1', role: 'ADMIN' }]);
+      case 'meal_configs':
+        return makeQueryChain([
+          {
+            id: 'mc-lunch',
+            patient_id: 'pat-1',
+            name: 'Almoço',
+            type: 'lunch',
+            scheduled_time: '12:00:00',
+            display_order: 1,
+            active: true,
+          },
+        ]);
+      case 'medication_periods':
+      case 'medications':
+      case 'meal_logs':
+      case 'medication_logs':
+        return makeQueryChain([]);
+      default:
+        return makeQueryChain(null);
+    }
+  };
+
+  const root1 = createRoot(container);
+  let root2: ReturnType<typeof createRoot> | null = null;
+
+  try {
+    await act(async () => {
+      root1.render(
+        React.createElement(MealModal, {
+          isOpen: true,
+          onClose: () => {},
+          event: makeBaseMealEvent(),
+          patientId: 'pat-1',
+          profileId: 'admin-1',
+          eventDate: '2026-11-16',
+          patientGender: 'F',
+          canEdit: true,
+          onSuccess: () => {},
+        })
+      );
+    });
+
+    const nativeInput = container.querySelector('[data-testid="native-camera-input"]') as HTMLInputElement;
+    nativeInput.click = () => {};
+
+    const takePhotoBtn = (Array.from(container.querySelectorAll('button')) as HTMLButtonElement[]).find((b) =>
+      b.textContent?.includes('Tirar foto')
+    ) as HTMLButtonElement;
+
+    await act(async () => {
+      takePhotoBtn.click();
+      await new Promise((r) => setTimeout(r, 30));
+    });
+
+    // Processo morre antes de o arquivo voltar da câmera externa
+    await act(async () => {
+      root1.unmount();
+    });
+
+    root2 = createRoot(container);
+    await act(async () => {
+      root2!.render(
+        React.createElement(
+          ThemeProvider,
+          null,
+          React.createElement(TodayScreen, {
+            nowProvider: () => new Date('2026-11-16T15:30:00.000Z'),
+          })
+        )
+      );
+      await new Promise((r) => setTimeout(r, 150));
+    });
+
+    assert.equal(isInAppCameraPreferred(), true);
+    assert.match(container.textContent || '', /Seu celular fechou o aplicativo ao abrir a câmera externa/);
+
+    // Agora "Tirar foto" abre diretamente a câmera integrada nesse aparelho
+    const adaptedTakePhotoBtn = (
+      Array.from(container.querySelectorAll('button')) as HTMLButtonElement[]
+    ).find((b) => b.textContent?.includes('Tirar foto')) as HTMLButtonElement;
+    await act(async () => {
+      adaptedTakePhotoBtn.click();
+    });
+
+    assert.ok(container.querySelector('[aria-label="Câmera da refeição"]'));
+    setInAppCameraPreferred(false);
+  } finally {
+    if (root2) await act(async () => root2!.unmount());
+    (supabase.auth as any).getUser = origAuthGetUser;
+    (supabase.auth as any).getSession = origAuthGetSession;
+    (supabase as any).from = origFrom;
+    (supabase as any).channel = origChannel;
+    (supabase as any).removeChannel = origRemoveChannel;
+    dom.window.close();
+  }
+});
+
 // ============================================================================
 // TESTE C — PROCESSAMENTO DE IMAGEM, EXIF, VALIDAÇÃO E LIMPEZA DE RECURSOS
 // ============================================================================
@@ -766,14 +1003,14 @@ test('[Teste C] validateImageFile, parseImageHeaderBytes e compressImage protege
     orientation: 6,
   });
 
-  // 1. Passthrough seguro para JPEG pequeno (<= 1280px, orientation=1, <= 800KB)
-  const smallUpright = new File([buildMinimalJpegHeader(800, 600, 1)], 'small.jpg', {
+  // 1. Passthrough seguro para JPEG <= 2048px, orientation=1, <= 1.5MB
+  const smallUpright = new File([buildMinimalJpegHeader(1600, 1200, 1)], 'small.jpg', {
     type: 'image/jpeg',
   });
-  const passthroughRes = await compressImage(smallUpright, 1280);
+  const passthroughRes = await compressImage(smallUpright);
   assert.equal(passthroughRes, smallUpright);
 
-  // 2. Redimensionamento decode-time para foto 4032x3024 com EXIF orientation=6
+  // 2. Redimensionamento decode-time para foto 4032x3024 com EXIF orientation=6 até 2048px
   const origCreateImageBitmap = (globalThis as any).createImageBitmap;
   const origCreateElement = dom.window.document.createElement.bind(dom.window.document);
 
@@ -785,8 +1022,8 @@ test('[Teste C] validateImageFile, parseImageHeaderBytes e compressImage protege
   (globalThis as any).createImageBitmap = async (_file: any, opts?: any) => {
     resizeOptsSeen = opts;
     return {
-      width: 960,
-      height: 1280,
+      width: 1536,
+      height: 2048,
       close: () => {
         bitmapClosed = true;
       },
@@ -831,13 +1068,13 @@ test('[Teste C] validateImageFile, parseImageHeaderBytes e compressImage protege
     const bigRotated = new File([buildMinimalJpegHeader(4032, 3024, 6)], 'IMG_4K.png', {
       type: 'image/jpeg',
     });
-    const out = await compressImage(bigRotated, 1280);
+    const out = await compressImage(bigRotated);
 
     assert.equal(out.type, 'image/jpeg');
     assert.equal(out.name, 'IMG_4K.jpg');
     assert.deepEqual(resizeOptsSeen, {
       imageOrientation: 'from-image',
-      resizeWidth: 1280,
+      resizeWidth: 2048,
       resizeQuality: 'high',
     });
     assert.equal(bitmapClosed, true);
@@ -943,12 +1180,12 @@ test('[Teste D] Salvamento online envia para meal-records/{patientId}/, não dup
       );
     });
 
-    // Captura via câmera integrada
-    const takePhotoBtn = (Array.from(container.querySelectorAll('button')) as HTMLButtonElement[]).find((b) =>
-      b.textContent?.includes('Tirar foto')
+    // Captura via câmera integrada (opção alternativa "Usar câmera no app")
+    const inAppBtn = (Array.from(container.querySelectorAll('button')) as HTMLButtonElement[]).find((b) =>
+      b.textContent?.includes('Usar câmera no app')
     ) as HTMLButtonElement;
     await act(async () => {
-      takePhotoBtn.click();
+      inAppBtn.click();
     });
     const captureBtn = container.querySelector('button[aria-label="Capturar foto"]') as HTMLButtonElement;
     await act(async () => {
@@ -1093,21 +1330,20 @@ test('[Teste E] Foto registrada offline entra na fila com Blob, persiste entre s
       });
     }
 
+    const nativeInput = container.querySelector('[data-testid="native-camera-input"]') as HTMLInputElement;
+    nativeInput.click = () => {};
     const takePhotoBtn = (Array.from(container.querySelectorAll('button')) as HTMLButtonElement[]).find((b) =>
       b.textContent?.includes('Tirar foto')
     ) as HTMLButtonElement;
     await act(async () => {
       takePhotoBtn.click();
     });
-    const captureBtn = container.querySelector('button[aria-label="Capturar foto"]') as HTMLButtonElement;
-    await act(async () => {
-      captureBtn.click();
+    Object.defineProperty(nativeInput, 'files', {
+      value: [validSmallJpeg],
+      configurable: true,
     });
-    const confirmPhotoBtn = (Array.from(container.querySelectorAll('button')) as HTMLButtonElement[]).find((b) =>
-      b.textContent?.includes('Usar esta foto')
-    ) as HTMLButtonElement;
     await act(async () => {
-      confirmPhotoBtn.click();
+      nativeInput.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
     });
 
     const confirmMealBtn = (Array.from(container.querySelectorAll('button')) as HTMLButtonElement[]).find((b) =>

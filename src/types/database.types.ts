@@ -466,6 +466,14 @@ export interface Database {
         Args: { p_invite_id: string };
         Returns: undefined;
       };
+      delete_family_invite: {
+        Args: { p_invite_id: string };
+        Returns: undefined;
+      };
+      clear_family_invite_history: {
+        Args: { p_family_id: string };
+        Returns: number;
+      };
       set_active_family: {
         Args: { p_family_id: string };
         Returns: undefined;

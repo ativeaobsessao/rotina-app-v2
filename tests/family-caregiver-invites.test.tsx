@@ -10,6 +10,8 @@ import {
   createFamilyInvite,
   acceptFamilyInvite,
   revokeFamilyInvite,
+  deleteFamilyInvite,
+  clearFamilyInviteHistory,
   removeFamilyMember,
   updateFamilyMemberRole,
   getFamilyMembers,
@@ -310,6 +312,33 @@ function installFamilySupabaseMock(initialActorId = 'admin-1') {
       }
       if (inv.status === 'pending') inv.status = 'revoked';
       return { data: null, error: null };
+    }
+
+    if (fn === 'delete_family_invite') {
+      const inv = invites.find((i) => i.id === args.p_invite_id);
+      if (!inv) return { data: null, error: { message: 'Convite não encontrado.' } };
+      const caller = members.find((m) => m.family_id === inv.family_id && m.user_id === currentActorId);
+      if (!caller || caller.role !== 'ADMIN') {
+        return { data: null, error: { code: '42501', message: 'Apenas administradores podem apagar registros de convite.' } };
+      }
+      invites = invites.filter((i) => i.id !== args.p_invite_id);
+      return { data: null, error: null };
+    }
+
+    if (fn === 'clear_family_invite_history') {
+      const caller = members.find((m) => m.family_id === args.p_family_id && m.user_id === currentActorId);
+      if (!caller || caller.role !== 'ADMIN') {
+        return { data: null, error: { code: '42501', message: 'Apenas administradores podem limpar o histórico de convites.' } };
+      }
+      const before = invites.length;
+      const nowMs = Date.now();
+      invites = invites.filter((i) => {
+        if (i.family_id !== args.p_family_id) return true;
+        const isExpiredPending = i.status === 'pending' && new Date(i.expires_at).getTime() < nowMs;
+        const shouldDelete = ['accepted', 'revoked', 'expired'].includes(i.status) || isExpiredPending;
+        return !shouldDelete;
+      });
+      return { data: before - invites.length, error: null };
     }
 
     return { data: null, error: null };
@@ -704,6 +733,135 @@ test('[Testes G & H] MEMBER não vê ações administrativas nem consegue execut
     assert.ok(loadedMembers.every((m) => m.member_type === 'FAMILY' || m.member_type === 'CAREGIVER'));
     const loadedInvites = await getFamilyInvites(mock.familyId);
     assert.equal(loadedInvites.length, 1);
+
+    // MEMBER também é bloqueado de apagar ou limpar registros de convites
+    mock.setActor('fam-member-1');
+    await assert.rejects(
+      () => deleteFamilyInvite(legacyInvite.invite_id),
+      { message: /Apenas administradores/ }
+    );
+    await assert.rejects(
+      () => clearFamilyInviteHistory(mock.familyId),
+      { message: /Apenas administradores/ }
+    );
+  } finally {
+    await act(async () => root.unmount());
+    mock.restore();
+    dom.window.close();
+  }
+});
+
+// ============================================================================
+// TESTE ESTÁTICO DA MIGRATION 0016 + UX EMPÁTICA DE APAGAMENTO DE CONVITES
+// ============================================================================
+
+test('[Estático SQL + React/JSDOM] Migration 0016 e UI permitem ADM apagar convites com pop-up empático preservando membros ativos', async () => {
+  const sql0016 = fs.readFileSync(path.resolve('supabase/migrations/0016_delete_family_invites.sql'), 'utf8');
+  assert.match(sql0016, /CREATE OR REPLACE FUNCTION public\.delete_family_invite\(p_invite_id UUID\)/);
+  assert.match(sql0016, /CREATE OR REPLACE FUNCTION public\.clear_family_invite_history\(p_family_id UUID\)/);
+  assert.ok(sql0016.includes('user_is_family_admin'));
+  assert.ok(sql0016.includes('REVOKE ALL ON FUNCTION public.delete_family_invite(uuid) FROM PUBLIC, anon;'));
+  assert.ok(sql0016.includes('GRANT EXECUTE ON FUNCTION public.delete_family_invite(uuid) TO authenticated, service_role;'));
+  assert.ok(sql0016.includes('REVOKE ALL ON FUNCTION public.clear_family_invite_history(uuid) FROM PUBLIC, anon;'));
+  assert.ok(sql0016.includes('GRANT EXECUTE ON FUNCTION public.clear_family_invite_history(uuid) TO authenticated, service_role;'));
+  assert.equal(/DELETE FROM public\.family_members/i.test(sql0016), false);
+
+  const { dom, createRoot } = await setupDom();
+  const container = dom.window.document.getElementById('root')!;
+  const root = createRoot(container);
+  const mock = installFamilySupabaseMock('admin-1');
+
+  try {
+    // 1. Cria dois convites: 1 aceito pela cuidadora + 1 pendente ativo
+    const careInvite = await createFamilyInvite({ invitedName: 'Enf. Carla', memberType: 'CAREGIVER' });
+    const pendingInvite = await createFamilyInvite({ invitedName: 'Tia Helena', memberType: 'FAMILY' });
+
+    mock.setActor('caregiver-user-1');
+    await acceptFamilyInvite(careInvite.token);
+
+    mock.setActor('admin-1');
+    // Adiciona mais um revogado antigo no histórico
+    mock.addInviteDirect({
+      id: 'inv-old-revoked',
+      family_id: mock.familyId,
+      created_by: 'admin-1',
+      token: 'tok-rev',
+      token_hash: 'hash-rev',
+      status: 'revoked',
+      invited_name: 'Convite antigo',
+      member_type: 'FAMILY',
+      expires_at: '2026-11-18T10:00:00.000Z',
+      accepted_by: null,
+      accepted_at: null,
+      created_at: '2026-11-10T10:00:00.000Z',
+    });
+
+    await act(async () => {
+      root.render(
+        React.createElement(FamilyModal, {
+          familyId: mock.familyId,
+          currentUserId: 'admin-1',
+          lovedOneName: 'Vovó Dude',
+          onClose: () => {},
+        })
+      );
+    });
+
+    // Clica para apagar o registro individual do convite pendente 'Tia Helena'
+    const deletePendingBtn = container.querySelector(
+      'button[aria-label="Apagar registro de Tia Helena"]'
+    ) as HTMLButtonElement;
+    assert.ok(deletePendingBtn);
+    await act(async () => {
+      deletePendingBtn.click();
+    });
+
+    const singleDialog = container.querySelector('[role="dialog"]');
+    assert.ok(singleDialog);
+    const singleDialogText = singleDialog.textContent || '';
+    assert.match(singleDialogText, /Fique tranquilo\(a\): ninguém perde o acesso/i);
+    assert.match(singleDialogText, /não remove nenhum familiar nem cuidador/i);
+    assert.match(singleDialogText, /rotina de Vovó Dude/i);
+
+    const confirmSingleBtn = (Array.from(singleDialog.querySelectorAll('button')) as HTMLButtonElement[]).find((b) =>
+      b.textContent?.includes('Apagar da Lista')
+    );
+    assert.ok(confirmSingleBtn);
+    await act(async () => {
+      confirmSingleBtn.click();
+    });
+
+    assert.equal(mock.getInvites().some((i) => i.id === pendingInvite.invite_id), false);
+
+    // Clica em 'Limpar lista' no acompanhamento recente para limpar 'Enf. Carla' (aceito) e 'Convite antigo' (revogado)
+    const clearBtn = (Array.from(container.querySelectorAll('button')) as HTMLButtonElement[]).find((b) =>
+      b.textContent?.includes('Limpar lista')
+    );
+    assert.ok(clearBtn);
+    await act(async () => {
+      clearBtn.click();
+    });
+
+    const bulkDialog = container.querySelector('[role="dialog"]');
+    assert.ok(bulkDialog);
+    const bulkDialogText = bulkDialog.textContent || '';
+    assert.match(bulkDialogText, /Fique tranquilo\(a\): nenhum acesso será removido/i);
+    assert.match(bulkDialogText, /Todos os familiares e cuidadores continuam acompanhando a rotina de Vovó Dude/i);
+
+    const confirmBulkBtn = (Array.from(bulkDialog.querySelectorAll('button')) as HTMLButtonElement[]).find((b) =>
+      b.textContent?.includes('Limpar Registros da Tela')
+    );
+    assert.ok(confirmBulkBtn);
+    await act(async () => {
+      confirmBulkBtn.click();
+    });
+
+    assert.equal(mock.getInvites().length, 0);
+    // Garante que a cuidadora que aceitou o convite CONTINUA vinculada normalmente!
+    assert.equal(
+      mock.getMembers().some((m) => m.user_id === 'caregiver-user-1' && m.member_type === 'CAREGIVER'),
+      true
+    );
   } finally {
     await act(async () => root.unmount());
     mock.restore();

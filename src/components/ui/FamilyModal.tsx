@@ -9,6 +9,8 @@ import {
   getFamilyInvites, 
   createFamilyInvite, 
   revokeFamilyInvite, 
+  deleteFamilyInvite,
+  clearFamilyInviteHistory,
   removeFamilyMember,
   updateFamilyMemberRole 
 } from '../../services/api';
@@ -50,6 +52,8 @@ export function FamilyModal({ familyId, currentUserId, lovedOneName, onClose }: 
   const [linkCopied, setLinkCopied] = useState(false);
   const [memberToRemove, setMemberToRemove] = useState<any>(null);
   const [memberToChangeRole, setMemberToChangeRole] = useState<any>(null);
+  const [inviteToDelete, setInviteToDelete] = useState<any>(null);
+  const [confirmClearHistory, setConfirmClearHistory] = useState(false);
   
   const currentMember = members.find(m => m.user_id === currentUserId);
   const isAdmin = currentMember?.role === 'ADMIN';
@@ -143,6 +147,41 @@ export function FamilyModal({ familyId, currentUserId, lovedOneName, onClose }: 
       await loadData();
     } catch (err: any) {
       setError(err.message || 'Erro ao revogar convite.');
+    } finally {
+      setActionLoading(false);
+    }
+  }
+
+  async function handleConfirmDeleteInvite() {
+    if (!inviteToDelete) return;
+    setActionLoading(true);
+    setError('');
+    setSuccessMsg('');
+    try {
+      await deleteFamilyInvite(inviteToDelete.id);
+      setInviteToDelete(null);
+      setSuccessMsg('Registro de convite apagado da lista. Os acessos à rotina permanecem intactos.');
+      await loadData();
+      setTimeout(() => setSuccessMsg(''), 4000);
+    } catch (err: any) {
+      setError(err.message || 'Erro ao apagar registro de convite.');
+    } finally {
+      setActionLoading(false);
+    }
+  }
+
+  async function handleConfirmClearHistory() {
+    setActionLoading(true);
+    setError('');
+    setSuccessMsg('');
+    try {
+      await clearFamilyInviteHistory(familyId);
+      setConfirmClearHistory(false);
+      setSuccessMsg('Lista de convites antigos limpa com sucesso. Todos os vínculos continuam ativos.');
+      await loadData();
+      setTimeout(() => setSuccessMsg(''), 4000);
+    } catch (err: any) {
+      setError(err.message || 'Erro ao limpar histórico de convites.');
     } finally {
       setActionLoading(false);
     }
@@ -631,13 +670,27 @@ export function FamilyModal({ familyId, currentUserId, lovedOneName, onClose }: 
                                     )}
                                   </div>
                                 </div>
-                                <button 
-                                  onClick={() => handleRevoke(i.id)}
-                                  disabled={actionLoading}
-                                  className="text-xs font-bold text-red-600 dark:text-rose-300 bg-red-50 dark:bg-rose-950/40 hover:bg-red-100 dark:hover:bg-rose-950/60 px-3.5 py-2 rounded-xl transition-colors active:scale-95 shrink-0"
-                                >
-                                  Revogar
-                                </button>
+                                <div className="flex items-center gap-1.5 shrink-0">
+                                  {!expired && (
+                                    <button 
+                                      onClick={() => handleRevoke(i.id)}
+                                      disabled={actionLoading}
+                                      className="text-xs font-bold text-red-600 dark:text-rose-300 bg-red-50 dark:bg-rose-950/40 hover:bg-red-100 dark:hover:bg-rose-950/60 px-3 py-2 rounded-xl transition-colors active:scale-95 shrink-0"
+                                    >
+                                      Revogar
+                                    </button>
+                                  )}
+                                  <button
+                                    type="button"
+                                    onClick={() => setInviteToDelete(i)}
+                                    disabled={actionLoading}
+                                    aria-label={`Apagar registro de ${i.invited_name?.trim() || 'convite'}`}
+                                    title="Apagar registro da lista"
+                                    className="p-2 text-gray-400 dark:text-zinc-400 hover:text-gray-700 dark:hover:text-zinc-200 hover:bg-gray-100 dark:hover:bg-white/[0.08] rounded-xl transition-colors active:scale-95"
+                                  >
+                                    <Trash2 className="w-4 h-4" />
+                                  </button>
+                                </div>
                               </div>
                             );
                           })
@@ -646,10 +699,18 @@ export function FamilyModal({ familyId, currentUserId, lovedOneName, onClose }: 
 
                       {historyInvites.length > 0 && (
                         <div className="border-t border-gray-100 dark:border-white/[0.06] bg-gray-50/40 dark:bg-[#16161b]/60">
-                          <div className="px-5 py-2.5 border-b border-gray-100 dark:border-white/[0.06]">
+                          <div className="px-5 py-2.5 border-b border-gray-100 dark:border-white/[0.06] flex items-center justify-between gap-2">
                             <h5 className="text-[11px] font-bold uppercase tracking-wider text-gray-400 dark:text-zinc-500">
                               Acompanhamento recente
                             </h5>
+                            <button
+                              type="button"
+                              onClick={() => setConfirmClearHistory(true)}
+                              disabled={actionLoading}
+                              className="text-[11px] font-semibold text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-300 px-2.5 py-1 rounded-lg hover:bg-indigo-50/70 dark:hover:bg-indigo-950/40 transition-colors active:scale-95"
+                            >
+                              Limpar lista
+                            </button>
                           </div>
                           <div className="divide-y divide-gray-100/80 dark:divide-white/[0.05]">
                             {historyInvites.slice(0, 6).map(i => {
@@ -679,9 +740,21 @@ export function FamilyModal({ familyId, currentUserId, lovedOneName, onClose }: 
                                       )}
                                     </div>
                                   </div>
-                                  <span className={`px-2 py-0.5 rounded-md text-[11px] font-semibold shrink-0 ${statusClass}`}>
-                                    {statusLabel}
-                                  </span>
+                                  <div className="flex items-center gap-1.5 shrink-0">
+                                    <span className={`px-2 py-0.5 rounded-md text-[11px] font-semibold shrink-0 ${statusClass}`}>
+                                      {statusLabel}
+                                    </span>
+                                    <button
+                                      type="button"
+                                      onClick={() => setInviteToDelete(i)}
+                                      disabled={actionLoading}
+                                      aria-label={`Apagar registro de ${i.invited_name?.trim() || 'convite'}`}
+                                      title="Apagar registro da lista"
+                                      className="p-1.5 text-gray-400 dark:text-zinc-500 hover:text-gray-700 dark:hover:text-zinc-200 hover:bg-gray-100 dark:hover:bg-white/[0.08] rounded-lg transition-colors active:scale-95"
+                                    >
+                                      <Trash2 className="w-3.5 h-3.5" />
+                                    </button>
+                                  </div>
                                 </div>
                               );
                             })}
@@ -773,6 +846,125 @@ export function FamilyModal({ familyId, currentUserId, lovedOneName, onClose }: 
                 className="w-full py-4 text-base font-bold rounded-2xl bg-gray-100 dark:bg-[#1c1c22] hover:bg-gray-200 dark:hover:bg-[#222229] text-gray-700 dark:text-zinc-200 active:scale-[0.98] transition-transform"
               >
                 Cancelar
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Pop-up Empático (Apple HIG): Confirmar apagamento de um registro de convite */}
+      {inviteToDelete && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="delete-invite-title"
+          className="fixed inset-0 z-[200] flex items-center justify-center bg-black/40 dark:bg-black/75 backdrop-blur-md p-4 animate-in fade-in duration-200"
+        >
+          <div className="bg-white dark:bg-[#121216] dark:border dark:border-white/[0.08] rounded-[2rem] w-full max-w-sm p-6 shadow-2xl animate-in zoom-in-95 duration-200">
+            <div className="w-16 h-16 bg-gray-100 dark:bg-[#1c1c22] rounded-full flex items-center justify-center mx-auto mb-5">
+              <Trash2 className="w-7 h-7 text-gray-600 dark:text-zinc-300" />
+            </div>
+            <h3
+              id="delete-invite-title"
+              className="text-xl font-bold text-gray-900 dark:text-zinc-100 text-center mb-2 tracking-tight"
+            >
+              Apagar registro da lista?
+            </h3>
+            <p className="text-sm text-gray-500 dark:text-zinc-400 text-center mb-5 leading-relaxed px-1">
+              Você está removendo apenas o registro visual de{' '}
+              <strong className="text-gray-700 dark:text-zinc-200">
+                {inviteToDelete.invited_name?.trim() || 'convite'}
+              </strong>{' '}
+              para deixar sua tela organizada.
+            </p>
+
+            <div className="rounded-2xl bg-indigo-50/70 dark:bg-indigo-950/35 border border-indigo-100 dark:border-indigo-800/40 p-4 mb-6 text-left">
+              <div className="flex items-start gap-2.5">
+                <HeartHandshake className="w-5 h-5 text-indigo-600 dark:text-indigo-400 shrink-0 mt-0.5" />
+                <div className="text-xs text-indigo-950/90 dark:text-indigo-100/90 leading-relaxed space-y-1.5">
+                  <p className="font-semibold">Fique tranquilo(a): ninguém perde o acesso.</p>
+                  <p>
+                    Apagar este registro <strong>não remove nenhum familiar nem cuidador</strong> do acompanhamento. Quem já faz parte da equipe continua acompanhando a rotina de {targetName} normalmente.
+                  </p>
+                  {inviteToDelete.status === 'pending' && !isInviteExpired(inviteToDelete) && (
+                    <p className="text-[11px] text-indigo-800/80 dark:text-indigo-200/80 pt-1">
+                      Como este link ainda estava aguardando aceite, ele deixará de funcionar ao ser apagado.
+                    </p>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <Button
+                onClick={handleConfirmDeleteInvite}
+                disabled={actionLoading}
+                className="w-full py-4 text-base font-bold rounded-2xl bg-gray-900 hover:bg-black dark:bg-zinc-100 dark:hover:bg-white text-white dark:text-zinc-950 border-transparent shadow-md active:scale-[0.98] transition-transform"
+              >
+                {actionLoading ? <Spinner className="text-white dark:text-zinc-950 w-5 h-5" /> : 'Apagar da Lista'}
+              </Button>
+              <Button
+                onClick={() => setInviteToDelete(null)}
+                disabled={actionLoading}
+                variant="ghost"
+                className="w-full py-4 text-base font-bold rounded-2xl bg-gray-100 dark:bg-[#1c1c22] hover:bg-gray-200 dark:hover:bg-[#222229] text-gray-700 dark:text-zinc-200 active:scale-[0.98] transition-transform"
+              >
+                Manter na Lista
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Pop-up Empático (Apple HIG): Confirmar limpeza em lote de registros antigos */}
+      {confirmClearHistory && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="clear-invites-title"
+          className="fixed inset-0 z-[200] flex items-center justify-center bg-black/40 dark:bg-black/75 backdrop-blur-md p-4 animate-in fade-in duration-200"
+        >
+          <div className="bg-white dark:bg-[#121216] dark:border dark:border-white/[0.08] rounded-[2rem] w-full max-w-sm p-6 shadow-2xl animate-in zoom-in-95 duration-200">
+            <div className="w-16 h-16 bg-gray-100 dark:bg-[#1c1c22] rounded-full flex items-center justify-center mx-auto mb-5">
+              <Trash2 className="w-7 h-7 text-gray-600 dark:text-zinc-300" />
+            </div>
+            <h3
+              id="clear-invites-title"
+              className="text-xl font-bold text-gray-900 dark:text-zinc-100 text-center mb-2 tracking-tight"
+            >
+              Limpar lista de convites?
+            </h3>
+            <p className="text-sm text-gray-500 dark:text-zinc-400 text-center mb-5 leading-relaxed px-1">
+              Os registros antigos (aceitos, revogados e expirados) serão removidos para deixar sua tela mais leve.
+            </p>
+
+            <div className="rounded-2xl bg-indigo-50/70 dark:bg-indigo-950/35 border border-indigo-100 dark:border-indigo-800/40 p-4 mb-6 text-left">
+              <div className="flex items-start gap-2.5">
+                <HeartHandshake className="w-5 h-5 text-indigo-600 dark:text-indigo-400 shrink-0 mt-0.5" />
+                <div className="text-xs text-indigo-950/90 dark:text-indigo-100/90 leading-relaxed space-y-1.5">
+                  <p className="font-semibold">Fique tranquilo(a): nenhum acesso será removido.</p>
+                  <p>
+                    Esta limpeza organiza apenas os avisos de convite. Todos os familiares e cuidadores continuam acompanhando a rotina de {targetName} normalmente.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <Button
+                onClick={handleConfirmClearHistory}
+                disabled={actionLoading}
+                className="w-full py-4 text-base font-bold rounded-2xl bg-gray-900 hover:bg-black dark:bg-zinc-100 dark:hover:bg-white text-white dark:text-zinc-950 border-transparent shadow-md active:scale-[0.98] transition-transform"
+              >
+                {actionLoading ? <Spinner className="text-white dark:text-zinc-950 w-5 h-5" /> : 'Limpar Registros da Tela'}
+              </Button>
+              <Button
+                onClick={() => setConfirmClearHistory(false)}
+                disabled={actionLoading}
+                variant="ghost"
+                className="w-full py-4 text-base font-bold rounded-2xl bg-gray-100 dark:bg-[#1c1c22] hover:bg-gray-200 dark:hover:bg-[#222229] text-gray-700 dark:text-zinc-200 active:scale-[0.98] transition-transform"
+              >
+                Manter na Lista
               </Button>
             </div>
           </div>

@@ -1552,6 +1552,17 @@ export async function revokeFamilyInvite(inviteId: string) {
   if (error) throw error;
 }
 
+export async function deleteFamilyInvite(inviteId: string) {
+  const { error } = await (supabase as any).rpc('delete_family_invite', { p_invite_id: inviteId });
+  if (error) throw error;
+}
+
+export async function clearFamilyInviteHistory(familyId: string): Promise<number> {
+  const { data, error } = await (supabase as any).rpc('clear_family_invite_history', { p_family_id: familyId });
+  if (error) throw error;
+  return typeof data === 'number' ? data : 0;
+}
+
 export async function setActiveFamily(familyId: string) {
   const { error } = await (supabase as any).rpc('set_active_family', { p_family_id: familyId });
   if (error) throw error;

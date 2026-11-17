@@ -9,7 +9,7 @@ import {
   getMealLogs,
   getMedicationLogs,
   getDailyMoodLog,
-  getMyFamilyRole,
+  getMyFamilyPermissions,
   type DailyMoodLog,
   getPatientPhotoUrl,
   getMealPhotoUrl,
@@ -164,6 +164,7 @@ export function TodayScreen({
   const [showMoodModal, setShowMoodModal] = useState(false);
   const [moodModalMode, setMoodModalMode] = useState<'view' | 'edit'>('view');
   const [isAdmin, setIsAdmin] = useState(false);
+  const [canRecordDailyActivities, setCanRecordDailyActivities] = useState(false);
 
   // Modals state
   const [selectedMealEvent, setSelectedMealEvent] = useState<MealEventData | null>(null);
@@ -468,13 +469,14 @@ export function TodayScreen({
       }
       setProfile(prof);
 
-      const [pat, role] = await Promise.all([
+      const [pat, perms] = await Promise.all([
         getPatient(prof.family_id),
-        getMyFamilyRole(prof.family_id),
+        getMyFamilyPermissions(prof.family_id),
       ]);
       if (!isMountedRef.current || seq !== loadSeqRef.current) return;
 
-      setIsAdmin(role === 'ADMIN');
+      setIsAdmin(perms.isAdmin);
+      setCanRecordDailyActivities(perms.isMember);
       if (!pat) {
         setPatient(null);
         return;
@@ -817,14 +819,14 @@ export function TodayScreen({
             <button
               type="button"
               onClick={() => {
-                setMoodModalMode(todayMood || !isAdmin ? 'view' : 'edit');
+                setMoodModalMode(todayMood || !canRecordDailyActivities ? 'view' : 'edit');
                 setShowMoodModal(true);
               }}
               className="relative group transition-transform active:scale-95 focus:outline-none shrink-0"
               title={
                 todayMood
                   ? 'Ver avaliação de bem-estar de hoje'
-                  : isAdmin
+                  : canRecordDailyActivities
                   ? 'Registrar como está hoje'
                   : 'Ver bem-estar de hoje'
               }
@@ -847,7 +849,7 @@ export function TodayScreen({
                 >
                   {moodEmoji}
                 </div>
-              ) : isAdmin ? (
+              ) : canRecordDailyActivities ? (
                 <div className="absolute -bottom-0.5 -right-0.5 w-5 h-5 rounded-full bg-indigo-50 dark:bg-indigo-950 border-2 border-white dark:border-[#111115] ring-1 ring-indigo-200 dark:ring-indigo-700 flex items-center justify-center text-[10px] text-indigo-600 dark:text-indigo-300 shadow-sm">
                   +
                 </div>
@@ -877,7 +879,7 @@ export function TodayScreen({
                     <span className="text-xs shrink-0">{moodEmoji}</span>
                     <span className="truncate">{moodSummaryText}</span>
                   </button>
-                ) : isAdmin ? (
+                ) : canRecordDailyActivities ? (
                   <button
                     type="button"
                     onClick={() => {
@@ -1221,7 +1223,7 @@ export function TodayScreen({
           eventDate={localDate}
           patientGender={patient.gender}
           isDayClosed={!!dailyClosure}
-          canEdit={isAdmin}
+          canEdit={canRecordDailyActivities}
           recoveryTab="today"
           editingDateStr={editingDateStr || null}
           onSuccess={handleMealRefresh}
@@ -1237,7 +1239,7 @@ export function TodayScreen({
           profileId={profile.id}
           eventDate={localDate}
           isDayClosed={!!dailyClosure}
-          canEdit={isAdmin}
+          canEdit={canRecordDailyActivities}
           onSuccess={handleMedRefresh}
           onPartialSuccess={() => {
             if (patient) refreshTimeline(patient.id, localDate);
@@ -1257,7 +1259,7 @@ export function TodayScreen({
           dateStr={localDate}
           currentLog={todayMood}
           mode={moodModalMode}
-          canEdit={isAdmin}
+          canEdit={canRecordDailyActivities}
           onSuccess={(updatedLog) => {
             setTodayMood(updatedLog);
           }}

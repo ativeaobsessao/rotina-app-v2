@@ -1566,16 +1566,16 @@ test('[Teste F] Regressão: refeição sem foto salva normal, remover foto envia
     assert.equal(updates[0].photo_url, null);
     assert.deepEqual(storageRemoves, ['pat-1/antiga-2.jpg']);
 
-    // 3. Dia encerrado e MEMBER permanecem estritamente protegidos
+    // 3. Dia encerrado e contas sem vínculo ativo permanecem estritamente protegidos
     await act(async () => {
       root.render(
         React.createElement(MealModal, {
-          key: 'member-readonly',
+          key: 'unlinked-readonly',
           isOpen: true,
           onClose: () => {},
           event: makeBaseMealEvent(),
           patientId: 'pat-1',
-          profileId: 'member-1',
+          profileId: 'removed-1',
           eventDate: '2026-11-16',
           canEdit: false,
           onSuccess: () => {},

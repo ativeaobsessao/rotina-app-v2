@@ -305,6 +305,8 @@ export function isPermanentSyncError(error: any): boolean {
     msg.includes('já foi encerrado') ||
     msg.includes('apenas administradores') ||
     msg.includes('administrador') ||
+    msg.includes('vínculo ativo') ||
+    msg.includes('permissão ativa') ||
     msg.includes('outro cuidador') ||
     msg.includes('outro familiar')
   ) {

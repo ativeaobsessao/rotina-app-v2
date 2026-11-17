@@ -110,7 +110,7 @@ export function MedicationModal({
   const executeBatchConfirm = async () => {
     if (isSubmittingRef.current || loading) return;
     if (!canEdit) {
-      setError('Apenas administradores podem registrar ou editar medicamentos.');
+      setError('Sua conta não possui permissão ativa nesta família para registrar ou editar medicamentos.');
       return;
     }
     if (isDayClosed) {
@@ -223,7 +223,7 @@ export function MedicationModal({
   const handleConfirmAllClick = () => {
     if (isSubmittingRef.current || loading) return;
     if (!canEdit) {
-      setError('Apenas administradores podem registrar ou editar medicamentos.');
+      setError('Sua conta não possui permissão ativa nesta família para registrar ou editar medicamentos.');
       return;
     }
     if (isDayClosed) {
@@ -250,7 +250,7 @@ export function MedicationModal({
   const handleSaveNotAdministered = async () => {
     if (!notAdministeredMedId || isSubmittingRef.current || loading) return;
     if (!canEdit) {
-      setError('Apenas administradores podem registrar ou editar medicamentos.');
+      setError('Sua conta não possui permissão ativa nesta família para registrar ou editar medicamentos.');
       return;
     }
     if (isDayClosed) {

@@ -219,7 +219,7 @@ export function FamilyModal({ familyId, currentUserId, lovedOneName, onClose }: 
   // ── Mensagem acolhedora, afetuosa e empática para o WhatsApp ───────────────
   const warmShareMessage =
     activeShareType === 'CAREGIVER'
-      ? `${greetingPrefix} Estou te convidando para acompanhar a rotina de cuidados de ${targetName} no DUCA ❤️.\n\nPor aqui, você poderá consultar os horários de medicamentos, refeições e o bem-estar do dia a dia com clareza.\n\nPara acessar, é só entrar por este link seguro:\n${inviteLink}`
+      ? `${greetingPrefix} Estou te convidando para acompanhar a rotina de cuidados de ${targetName} no DUCA ❤️.\n\nPor aqui, você poderá consultar e registrar os horários de medicamentos, refeições e o bem-estar do dia a dia com clareza.\n\nPara acessar, é só entrar por este link seguro:\n${inviteLink}`
       : `${greetingPrefix} Estou te convidando para acompanhar com a gente a rotina de cuidados de ${targetName} no DUCA ❤️.\n\nPor aqui, você poderá ver e acompanhar os horários de medicamentos, refeições e o bem-estar do dia a dia com todo o carinho e união da nossa família.\n\nPara acessar, é só entrar por este link seguro:\n${inviteLink}`;
 
   async function handleCopy() {
@@ -428,7 +428,7 @@ export function FamilyModal({ familyId, currentUserId, lovedOneName, onClose }: 
                           <span className="text-sm font-bold text-gray-900 dark:text-zinc-100">Cuidador</span>
                         </div>
                         <span className="text-[11px] text-gray-500 dark:text-zinc-400 leading-snug">
-                          Entra como consulta; promovível a ADM
+                          Registra cuidados; promovível a ADM
                         </span>
                       </button>
                     </div>
@@ -551,7 +551,7 @@ export function FamilyModal({ familyId, currentUserId, lovedOneName, onClose }: 
                       </span>
                     </div>
                     <div className="px-5 py-3 bg-indigo-50/40 dark:bg-indigo-950/30 border-b border-indigo-100/60 dark:border-indigo-900/40 text-[11px] text-indigo-900/80 dark:text-indigo-200/85 leading-relaxed">
-                      <strong>Administrador (ADM):</strong> registra a rotina, o bem-estar diário e gerencia convites. <strong>Acompanhante:</strong> apenas acompanha a rotina com tranquilidade.
+                      <strong>Administrador (ADM):</strong> pode registrar os cuidados diários, configurar a rotina e gerenciar membros e convites. <strong>Acompanhante:</strong> pode acompanhar e registrar refeições, medicamentos e bem-estar, mas não pode administrar configurações, membros ou convites.
                     </div>
                     <div className="divide-y divide-gray-50 dark:divide-white/[0.06]">
                       {familyMembers.length === 0 ? (
@@ -578,7 +578,7 @@ export function FamilyModal({ familyId, currentUserId, lovedOneName, onClose }: 
                       </span>
                     </div>
                     <div className="px-5 py-3 bg-emerald-50/40 dark:bg-emerald-950/25 border-b border-emerald-100/60 dark:border-emerald-900/40 text-[11px] text-emerald-900/80 dark:text-emerald-200/85 leading-relaxed">
-                      Cuidadores entram com acesso de consulta e podem ser promovidos a <strong>Administrador (ADM)</strong> quando você precisar.
+                      Cuidadores podem acompanhar e registrar os cuidados diários desde a entrada, sem acesso administrativo, e podem ser promovidos a <strong>Administrador (ADM)</strong> quando você precisar.
                     </div>
                     <div className="divide-y divide-gray-50 dark:divide-white/[0.06]">
                       {caregiverMembers.length === 0 ? (
@@ -793,8 +793,8 @@ export function FamilyModal({ familyId, currentUserId, lovedOneName, onClose }: 
             </h3>
             <p className="text-sm text-gray-500 dark:text-zinc-400 text-center mb-8 font-medium px-2 leading-relaxed">
               {memberToChangeRole.role === 'ADMIN'
-                ? `${memberToChangeRole.profile?.name} passará a ser Acompanhante e não poderá mais registrar humor/dores, convidar pessoas nem gerenciar permissões.`
-                : `${memberToChangeRole.profile?.name} terá privilégios de Administrador (ADM), podendo registrar o estado de humor e dores diárias, além de convidar pessoas.`
+                ? `${memberToChangeRole.profile?.name} passará a ser Acompanhante, continuando a registrar os cuidados diários, mas sem acesso para configurar a rotina, encerrar dias ou gerenciar convites e permissões.`
+                : `${memberToChangeRole.profile?.name} terá privilégios de Administrador (ADM), podendo configurar a rotina, encerrar dias e gerenciar membros e convites.`
               }
             </p>
             

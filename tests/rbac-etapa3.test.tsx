@@ -221,7 +221,7 @@ test('[Unitário] api.ts & syncQueue.ts rejeitam RLS 42501 sem enfileirar offlin
 // 3. TESTES REACT/JSDOM (UI RBAC PARA MEMBER vs ADMIN)
 // ============================================================================
 
-test('[React/JSDOM] MealModal impõe modo somente leitura para MEMBER (pendente e registrado com foto)', async () => {
+test('[React/JSDOM] MealModal impõe modo somente leitura quando conta não possui permissão ativa de registro (pendente e registrado com foto)', async () => {
   const dom = setupDom();
   const container = dom.window.document.getElementById('root')!;
   const root = createRoot(container);
@@ -303,7 +303,7 @@ test('[React/JSDOM] MealModal impõe modo somente leitura para MEMBER (pendente 
   }
 });
 
-test('[React/JSDOM] MedicationModal impõe modo somente leitura para MEMBER', async () => {
+test('[React/JSDOM] MedicationModal impõe modo somente leitura quando conta não possui permissão ativa de registro', async () => {
   const dom = setupDom();
   const container = dom.window.document.getElementById('root')!;
   const root = createRoot(container);
@@ -379,7 +379,7 @@ test('[React/JSDOM] MedicationModal impõe modo somente leitura para MEMBER', as
   }
 });
 
-test('[React/JSDOM] HistoryDayGroup oculta ações de ADMIN para MEMBER preservando visualização de foto, e mantém edição para ADMIN', async () => {
+test('[React/JSDOM] HistoryDayGroup separa edição de registros (MEMBER em dia aberto) de encerramento/reabertura (ADMIN) e bloqueia conta sem vínculo', async () => {
   const dom = setupDom();
   const container = dom.window.document.getElementById('root')!;
   const root = createRoot(container);
@@ -431,12 +431,15 @@ test('[React/JSDOM] HistoryDayGroup oculta ações de ADMIN para MEMBER preserva
   let viewedPhotoUrl: string | null = null;
 
   try {
+    // 1. Conta sem vínculo ativo (canEditRecords=false, canManageClosures=false): apenas leitura + lightbox
     await act(async () => {
       root.render(
         React.createElement(HistoryDayGroup, {
           day: sampleDay,
-          profileId: 'member-1',
+          profileId: 'removed-1',
           canEdit: false,
+          canEditRecords: false,
+          canManageClosures: false,
           onViewPhoto: (url) => {
             viewedPhotoUrl = url;
           },
@@ -458,10 +461,10 @@ test('[React/JSDOM] HistoryDayGroup oculta ações de ADMIN para MEMBER preserva
       accordionBtn.click();
     });
 
-    const memberText = container.textContent || '';
-    assert.equal(memberText.includes('Encerrar Dia'), false);
-    assert.equal(memberText.includes('Editar registros deste dia'), false);
-    assert.match(memberText, /Sem intercorrências/);
+    const unlinkedText = container.textContent || '';
+    assert.equal(unlinkedText.includes('Encerrar Dia'), false);
+    assert.equal(unlinkedText.includes('Editar registros deste dia'), false);
+    assert.match(unlinkedText, /Sem intercorrências/);
 
     const photoBtn = (Array.from(container.querySelectorAll('button')) as HTMLButtonElement[]).find((b) =>
       b.textContent?.includes('Toque para ampliar')
@@ -474,12 +477,86 @@ test('[React/JSDOM] HistoryDayGroup oculta ações de ADMIN para MEMBER preserva
     assert.equal(editMealCalled, 0);
     assert.equal(editMedCalled, 0);
 
+    // 2. MEMBER ativo em dia aberto: edita registros, mas NÃO vê "Encerrar Dia"
+    await act(async () => {
+      root.render(
+        React.createElement(HistoryDayGroup, {
+          day: sampleDay,
+          profileId: 'member-1',
+          canEdit: false,
+          canEditRecords: true,
+          canManageClosures: false,
+          onViewPhoto: (url) => {
+            viewedPhotoUrl = url;
+          },
+          onEditMeal: () => {
+            editMealCalled += 1;
+          },
+          onEditMed: () => {
+            editMedCalled += 1;
+          },
+          onRequestCloseDay: () => {},
+          onOpenDayEdit: () => {},
+        })
+      );
+    });
+
+    const memberOpenText = container.textContent || '';
+    assert.equal(memberOpenText.includes('Encerrar Dia'), false);
+    assert.match(memberOpenText, /Editar registros deste dia/);
+
+    const memberButtons = Array.from(container.querySelectorAll('button')) as HTMLButtonElement[];
+    const memberMealBtn = memberButtons.find((b) => b.textContent?.includes('Arroz e peixe'));
+    const memberMedBtn = memberButtons.find((b) => b.textContent?.includes('Vitamina D'));
+    assert.ok(memberMealBtn);
+    assert.ok(memberMedBtn);
+    await act(async () => {
+      memberMealBtn.click();
+      memberMedBtn.click();
+    });
+    assert.equal(editMealCalled, 1);
+    assert.equal(editMedCalled, 1);
+
+    // 3. MEMBER ativo em dia ENCERRADO: NÃO vê "Visualizar / Reabrir este dia" e não edita registros
+    await act(async () => {
+      root.render(
+        React.createElement(HistoryDayGroup, {
+          day: {
+            ...sampleDay,
+            closure: { id: 'cl-1', closed_at: '2026-11-14T23:00:00.000Z', closed_by_profile: { name: 'Admin' } },
+          },
+          profileId: 'member-1',
+          canEdit: false,
+          canEditRecords: true,
+          canManageClosures: false,
+          onViewPhoto: (url) => {
+            viewedPhotoUrl = url;
+          },
+          onEditMeal: () => {
+            editMealCalled += 1;
+          },
+          onEditMed: () => {
+            editMedCalled += 1;
+          },
+          onRequestCloseDay: () => {},
+          onOpenDayEdit: () => {},
+        })
+      );
+    });
+    const memberClosedText = container.textContent || '';
+    assert.match(memberClosedText, /DIA ENCERRADO/);
+    assert.equal(memberClosedText.includes('Visualizar / Reabrir este dia'), false);
+    assert.equal(memberClosedText.includes('Editar registros deste dia'), false);
+
+    // 4. ADMIN em dia aberto: vê tudo (Encerrar Dia + Editar registros + cards clicáveis)
     await act(async () => {
       root.render(
         React.createElement(HistoryDayGroup, {
           day: sampleDay,
           profileId: 'admin-1',
           canEdit: true,
+          canEditRecords: true,
+          canManageClosures: true,
           onEditMeal: () => {
             editMealCalled += 1;
           },
@@ -507,8 +584,8 @@ test('[React/JSDOM] HistoryDayGroup oculta ações de ADMIN para MEMBER preserva
       medCardBtn.click();
     });
 
-    assert.equal(editMealCalled, 1);
-    assert.equal(editMedCalled, 1);
+    assert.equal(editMealCalled, 2);
+    assert.equal(editMedCalled, 2);
   } finally {
     await act(async () => root.unmount());
     dom.window.close();

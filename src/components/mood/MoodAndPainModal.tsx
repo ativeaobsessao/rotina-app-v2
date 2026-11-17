@@ -92,6 +92,10 @@ export function MoodAndPainModal({
 
   const handleSave = async () => {
     if (isSavingRef.current) return;
+    if (!canEdit) {
+      setError('Sua conta não possui permissão ativa nesta família para registrar ou alterar o bem-estar.');
+      return;
+    }
     isSavingRef.current = true;
     setLoading(true);
     setError('');

@@ -3,7 +3,7 @@ import { MainLayout } from '../layouts/MainLayout';
 import {
   getCurrentProfile,
   getPatient,
-  getMyFamilyRole,
+  getMyFamilyPermissions,
   getHistoricalMealLogs,
   getHistoricalMedicationLogs,
   getMealPhotoUrl,
@@ -295,6 +295,8 @@ export function HistoryDayGroup({
   isClosingDay,
   onOpenDayEdit,
   canEdit = true,
+  canEditRecords,
+  canManageClosures,
 }: {
   day: DayData;
   onOpenDayEdit?: () => void;
@@ -305,11 +307,18 @@ export function HistoryDayGroup({
   isClosingDay?: boolean;
   profileId?: string;
   canEdit?: boolean;
+  canEditRecords?: boolean;
+  canManageClosures?: boolean;
   key?: React.Key;
 }) {
   const [expanded, setExpanded] = useState(false);
   const friendly = formatFriendlyDate(day.dateStr);
   const { closure, meals, meds } = day;
+
+  const effectiveCanEditRecords = canEditRecords ?? canEdit;
+  const effectiveCanManageClosures = canManageClosures ?? canEdit;
+  const canOpenActivityForDay = closure ? effectiveCanManageClosures : effectiveCanEditRecords;
+  const canOpenDayEditAction = closure ? effectiveCanManageClosures : effectiveCanEditRecords;
 
   const totalMeals = meals.length;
   const totalMeds = meds.length;
@@ -371,7 +380,7 @@ export function HistoryDayGroup({
                 <Circle className="w-3.5 h-3.5" />
                 DIA EM ABERTO
               </div>
-              {canEdit && onRequestCloseDay && (
+              {effectiveCanManageClosures && onRequestCloseDay && (
                 <button
                   type="button"
                   onClick={(e) => {
@@ -394,8 +403,8 @@ export function HistoryDayGroup({
             </div>
           )}
 
-          {/* Edit/Reopen button: exclusive to ADMIN */}
-          {canEdit && onOpenDayEdit && (
+          {/* Open-day activity edit (active members) or closed-day reopen/view (exclusive to ADMIN) */}
+          {canOpenDayEditAction && onOpenDayEdit && (
             <button
               type="button"
               onClick={(e) => {
@@ -420,8 +429,8 @@ export function HistoryDayGroup({
                     profileId={profileId}
                     key={meal.logId}
                     meal={meal}
-                    canEdit={canEdit}
-                    onEdit={canEdit && onEditMeal ? () => onEditMeal(meal) : undefined}
+                    canEdit={canOpenActivityForDay}
+                    onEdit={canOpenActivityForDay && onEditMeal ? () => onEditMeal(meal) : undefined}
                     onViewPhoto={onViewPhoto}
                   />
                 ))}
@@ -441,8 +450,8 @@ export function HistoryDayGroup({
                     profileId={profileId}
                     key={med.logId}
                     med={med}
-                    canEdit={canEdit}
-                    onEdit={canEdit && onEditMed ? () => onEditMed(med) : undefined}
+                    canEdit={canOpenActivityForDay}
+                    onEdit={canOpenActivityForDay && onEditMed ? () => onEditMed(med) : undefined}
                   />
                 ))}
               </div>
@@ -506,6 +515,7 @@ export function HistoryScreen({
   const [patient, setPatient] = useState<any>(null);
   const [profile, setProfile] = useState<any>(null);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [canRecordDailyActivities, setCanRecordDailyActivities] = useState(false);
   const [days, setDays] = useState<DayData[]>([]);
 
   // Modal state — meal / med editing & read-only photo lightbox
@@ -555,12 +565,13 @@ export function HistoryScreen({
       }
       setProfile(prof);
 
-      const [pat, role] = await Promise.all([
+      const [pat, perms] = await Promise.all([
         getPatient(prof.family_id),
-        getMyFamilyRole(prof.family_id),
+        getMyFamilyPermissions(prof.family_id),
       ]);
       if (!isMountedRef.current || reqSeq !== loadSeqRef.current) return;
-      setIsAdmin(role === 'ADMIN');
+      setIsAdmin(perms.isAdmin);
+      setCanRecordDailyActivities(perms.isMember);
       if (!pat) {
         setPatient(null);
         return;
@@ -933,45 +944,52 @@ export function HistoryScreen({
               </p>
             </div>
           ) : (
-            days.map((day) => (
-              <HistoryDayGroup
-                profileId={profile?.id}
-                key={day.dateStr}
-                day={day}
-                canEdit={isAdmin}
-                onViewPhoto={(url, title) => setPhotoLightbox({ url, title })}
-                onEditMeal={
-                  isAdmin
-                    ? (meal) =>
-                        setSelectedMeal({
-                          meal,
-                          dateStr: day.dateStr,
-                          isDayClosed: Boolean(day.closure),
-                        })
-                    : undefined
-                }
-                onEditMed={
-                  isAdmin
-                    ? (med) =>
-                        setSelectedMed({
-                          med,
-                          dateStr: day.dateStr,
-                          isDayClosed: Boolean(day.closure),
-                        })
-                    : undefined
-                }
-                onRequestCloseDay={
-                  isAdmin
-                    ? (date) => {
-                        setActionError(null);
-                        setPendingClosureDate(date);
-                      }
-                    : undefined
-                }
-                isClosingDay={closingDateStr === day.dateStr}
-                onOpenDayEdit={isAdmin ? () => onEditPastDay?.(day.dateStr) : undefined}
-              />
-            ))
+            days.map((day) => {
+              const canEditThisDayActivities = day.closure ? isAdmin : canRecordDailyActivities;
+              return (
+                <HistoryDayGroup
+                  profileId={profile?.id}
+                  key={day.dateStr}
+                  day={day}
+                  canEdit={isAdmin}
+                  canEditRecords={canRecordDailyActivities}
+                  canManageClosures={isAdmin}
+                  onViewPhoto={(url, title) => setPhotoLightbox({ url, title })}
+                  onEditMeal={
+                    canEditThisDayActivities
+                      ? (meal) =>
+                          setSelectedMeal({
+                            meal,
+                            dateStr: day.dateStr,
+                            isDayClosed: Boolean(day.closure),
+                          })
+                      : undefined
+                  }
+                  onEditMed={
+                    canEditThisDayActivities
+                      ? (med) =>
+                          setSelectedMed({
+                            med,
+                            dateStr: day.dateStr,
+                            isDayClosed: Boolean(day.closure),
+                          })
+                      : undefined
+                  }
+                  onRequestCloseDay={
+                    isAdmin
+                      ? (date) => {
+                          setActionError(null);
+                          setPendingClosureDate(date);
+                        }
+                      : undefined
+                  }
+                  isClosingDay={closingDateStr === day.dateStr}
+                  onOpenDayEdit={
+                    canEditThisDayActivities ? () => onEditPastDay?.(day.dateStr) : undefined
+                  }
+                />
+              );
+            })
           )}
 
           {days.length > 0 && !filterStartDate && (
@@ -1028,8 +1046,8 @@ export function HistoryScreen({
         </div>
       )}
 
-      {/* Meal edit modal (ADMIN only) */}
-      {isAdmin && selectedMeal && patient && profile && (
+      {/* Meal edit modal (any active family member on open days; view-only protected on closed days) */}
+      {canRecordDailyActivities && selectedMeal && patient && profile && (
         <MealModal
           isOpen={!!selectedMeal}
           onClose={() => setSelectedMeal(null)}
@@ -1039,7 +1057,7 @@ export function HistoryScreen({
           eventDate={selectedMeal.dateStr}
           patientGender={patient.gender}
           isDayClosed={selectedMeal.isDayClosed}
-          canEdit={isAdmin}
+          canEdit={canRecordDailyActivities}
           recoveryTab="history"
           onSuccess={() => {
             loadData();
@@ -1048,8 +1066,8 @@ export function HistoryScreen({
         />
       )}
 
-      {/* Medication edit modal (ADMIN only) */}
-      {isAdmin && selectedMed && patient && profile && (
+      {/* Medication edit modal (any active family member on open days; view-only protected on closed days) */}
+      {canRecordDailyActivities && selectedMed && patient && profile && (
         <MedicationModal
           isOpen={!!selectedMed}
           onClose={() => setSelectedMed(null)}
@@ -1058,7 +1076,7 @@ export function HistoryScreen({
           profileId={profile.id}
           eventDate={selectedMed.dateStr}
           isDayClosed={selectedMed.isDayClosed}
-          canEdit={isAdmin}
+          canEdit={canRecordDailyActivities}
           onSuccess={() => {
             loadData();
             setSelectedMed(null);

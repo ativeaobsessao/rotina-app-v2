@@ -579,7 +579,7 @@ export function MealModal({
   const handleSave = async () => {
     if (isSavingRef.current || loading) return;
     if (!canEdit) {
-      setError('Apenas administradores podem registrar ou editar refeições.');
+      setError('Sua conta não possui permissão ativa nesta família para registrar ou editar refeições.');
       return;
     }
     if (isDayClosed) {

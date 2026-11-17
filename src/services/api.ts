@@ -42,7 +42,9 @@ export function isRlsPermissionError(err: any): boolean {
     msg.includes('row-level security') ||
     msg.includes('permission denied') ||
     msg.includes('insufficient_privilege') ||
-    msg.includes('apenas administradores')
+    msg.includes('apenas administradores') ||
+    msg.includes('vínculo ativo') ||
+    msg.includes('permissão ativa')
   );
 }
 
@@ -608,7 +610,7 @@ export async function upsertDailyMoodLog(log: DailyMoodLog): Promise<DailyMoodLo
       String(err?.message || '').toLowerCase().includes('row-level security') ||
       String(err?.message || '').toLowerCase().includes('permission');
     if (isPermissionError) {
-      throw new Error('Apenas contas Administrador podem registrar ou alterar o estado de bem-estar.');
+      throw new Error('Sua conta não possui vínculo ativo com esta família para registrar ou alterar o estado de bem-estar.');
     }
 
     if (isTransientNetworkError(err)) {
@@ -828,7 +830,7 @@ export async function createMealLog(
         }
       }
       if (isRlsPermissionError(error)) {
-        throw new Error('Apenas administradores podem registrar refeições.');
+        throw new Error('Sua conta não possui vínculo ativo com esta família para registrar refeições.');
       }
       if (error.code === 'PGRST204') {
         console.error("ERRO CRÍTICO: Coluna ausente no banco (meal_time / drink_description).");
@@ -841,7 +843,7 @@ export async function createMealLog(
     return data;
   } catch (err: any) {
     if (isRlsPermissionError(err)) {
-      throw new Error('Apenas administradores podem registrar refeições.');
+      throw new Error('Sua conta não possui vínculo ativo com esta família para registrar refeições.');
     }
     if (isTransientNetworkError(err)) {
       const tempId = `offline_meal_${log.meal_config_id}_${log.event_date}_${Date.now()}`;
@@ -935,7 +937,7 @@ export async function updateMealLog(
 
     if (error) {
       if (isRlsPermissionError(error)) {
-        throw new Error('Apenas administradores podem editar refeições.');
+        throw new Error('Sua conta não possui vínculo ativo com esta família para editar refeições.');
       }
       if (error.code === 'PGRST204') {
         console.error("ERRO CRÍTICO: Coluna ausente no banco.");
@@ -948,7 +950,7 @@ export async function updateMealLog(
     return data;
   } catch (err: any) {
     if (isRlsPermissionError(err)) {
-      throw new Error('Apenas administradores podem editar refeições.');
+      throw new Error('Sua conta não possui vínculo ativo com esta família para editar refeições.');
     }
     if (isTransientNetworkError(err)) {
       const userId = await getCurrentSessionUserId();
@@ -1035,7 +1037,7 @@ export async function createMedicationLog(log: Database['public']['Tables']['med
         }
       }
       if (isRlsPermissionError(error)) {
-        throw new Error('Apenas administradores podem registrar medicamentos.');
+        throw new Error('Sua conta não possui vínculo ativo com esta família para registrar medicamentos.');
       }
       throw error;
     }
@@ -1045,7 +1047,7 @@ export async function createMedicationLog(log: Database['public']['Tables']['med
     return data;
   } catch (err: any) {
     if (isRlsPermissionError(err)) {
-      throw new Error('Apenas administradores podem registrar medicamentos.');
+      throw new Error('Sua conta não possui vínculo ativo com esta família para registrar medicamentos.');
     }
     if (isTransientNetworkError(err)) {
       const tempId = `offline_med_${log.medication_id}_${log.event_date}_${Date.now()}`;
@@ -1133,7 +1135,7 @@ export async function updateMedicationLog(
 
     if (error) {
       if (isRlsPermissionError(error)) {
-        throw new Error('Apenas administradores podem editar medicamentos.');
+        throw new Error('Sua conta não possui vínculo ativo com esta família para editar medicamentos.');
       }
       throw error;
     }
@@ -1143,7 +1145,7 @@ export async function updateMedicationLog(
     return data;
   } catch (err: any) {
     if (isRlsPermissionError(err)) {
-      throw new Error('Apenas administradores podem editar medicamentos.');
+      throw new Error('Sua conta não possui vínculo ativo com esta família para editar medicamentos.');
     }
     if (isTransientNetworkError(err)) {
       const userId = await getCurrentSessionUserId();
@@ -1466,6 +1468,30 @@ export async function getMyFamilyMemberships(): Promise<any[]> {
     [],
     { throwIfNoCacheWhenOnline: true }
   );
+}
+
+export async function getMyFamilyPermissions(
+  familyId: string
+): Promise<{ isMember: boolean; isAdmin: boolean; role: 'ADMIN' | 'MEMBER' | null }> {
+  if (!familyId) {
+    return { isMember: false, isAdmin: false, role: null };
+  }
+  const memberships = await getMyFamilyMemberships();
+  const match = memberships.find((m: any) => m.family_id === familyId);
+  if (!match) {
+    return { isMember: false, isAdmin: false, role: null };
+  }
+  const role = match.role === 'ADMIN' ? 'ADMIN' : 'MEMBER';
+  return {
+    isMember: true,
+    isAdmin: role === 'ADMIN',
+    role,
+  };
+}
+
+export async function hasActiveFamilyMembership(familyId: string): Promise<boolean> {
+  const { isMember } = await getMyFamilyPermissions(familyId);
+  return isMember;
 }
 
 export async function getMyFamilyRole(familyId: string): Promise<'ADMIN' | 'MEMBER'> {

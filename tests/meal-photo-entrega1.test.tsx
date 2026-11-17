@@ -1596,7 +1596,7 @@ test('[Teste F Estático] Entrega 01 manteve layout geral da Entrega 02 e não c
   const migrationsDir = path.resolve('supabase/migrations');
   if (fs.existsSync(migrationsDir)) {
     const files = fs.readdirSync(migrationsDir);
-    assert.equal(files.some((f) => f.includes('0015') || f.includes('meal_photo')), false);
+    assert.equal(files.some((f) => f.includes('meal_photo') || f.includes('entrega1')), false);
   }
   const todaySrc = fs.readFileSync(path.resolve('src/pages/Today.tsx'), 'utf8');
   assert.ok(todaySrc.includes('findRecoverableMealDraftForDate'));

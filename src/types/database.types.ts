@@ -7,6 +7,7 @@ export type Json =
   | Json[];
 
 export type FamilyRole = 'ADMIN' | 'MEMBER';
+export type FamilyMemberType = 'FAMILY' | 'CAREGIVER';
 export type MealConsumptionStatus = 'normal' | 'partial' | 'none';
 export type MedicationLogStatus = 'administered' | 'not_administered';
 export type MedicationFrequency = 'daily' | 'weekly';
@@ -376,6 +377,7 @@ export interface Database {
           family_id: string;
           user_id: string;
           role: FamilyRole;
+          member_type: FamilyMemberType;
           created_at: string;
         };
         Insert: {
@@ -383,6 +385,7 @@ export interface Database {
           family_id: string;
           user_id: string;
           role: FamilyRole;
+          member_type?: FamilyMemberType;
           created_at?: string;
         };
         Update: {
@@ -390,6 +393,7 @@ export interface Database {
           family_id?: string;
           user_id?: string;
           role?: FamilyRole;
+          member_type?: FamilyMemberType;
           created_at?: string;
         };
       };
@@ -400,6 +404,8 @@ export interface Database {
           created_by: string;
           token_hash: string;
           status: InviteStatus;
+          invited_name: string | null;
+          member_type: FamilyMemberType;
           expires_at: string;
           accepted_by: string | null;
           accepted_at: string | null;
@@ -411,6 +417,8 @@ export interface Database {
           created_by: string;
           token_hash: string;
           status?: InviteStatus;
+          invited_name?: string | null;
+          member_type?: FamilyMemberType;
           expires_at: string;
           accepted_by?: string | null;
           accepted_at?: string | null;
@@ -422,6 +430,8 @@ export interface Database {
           created_by?: string;
           token_hash?: string;
           status?: InviteStatus;
+          invited_name?: string | null;
+          member_type?: FamilyMemberType;
           expires_at?: string;
           accepted_by?: string | null;
           accepted_at?: string | null;
@@ -434,12 +444,23 @@ export interface Database {
     };
     Functions: {
       create_family_invite: {
-        Args: Record<string, never>;
-        Returns: { invite_id: string; token: string; expires_at: string };
+        Args: { p_invited_name?: string | null; p_member_type?: FamilyMemberType };
+        Returns: {
+          invite_id: string;
+          token: string;
+          expires_at: string;
+          invited_name: string | null;
+          member_type: FamilyMemberType;
+        };
       };
       accept_family_invite: {
         Args: { p_token: string };
-        Returns: { success: boolean; family_id: string };
+        Returns: {
+          success: boolean;
+          family_id: string;
+          role?: FamilyRole;
+          member_type?: FamilyMemberType;
+        };
       };
       revoke_family_invite: {
         Args: { p_invite_id: string };

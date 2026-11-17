@@ -1482,22 +1482,27 @@ export async function getFamilyMembers(familyId: string): Promise<any[]> {
     .eq('family_id', familyId);
   if (error) throw error;
 
-  if (data && data.length > 0) {
-    const userIds = (data as any[]).map((m) => m.user_id);
+  const normalizedMembers = (data || []).map((m: any) => ({
+    ...m,
+    member_type: m.member_type === 'CAREGIVER' ? 'CAREGIVER' : 'FAMILY',
+  }));
+
+  if (normalizedMembers.length > 0) {
+    const userIds = normalizedMembers.map((m) => m.user_id);
     const { data: profiles } = await supabase
       .from('profiles')
       .select('id, name, email, avatar_url')
       .in('id', userIds);
 
     if (profiles) {
-      return (data as any[]).map((m) => ({
+      return normalizedMembers.map((m) => ({
         ...m,
         profile: (profiles as any[]).find((p) => p.id === m.user_id),
       }));
     }
   }
 
-  return data || [];
+  return normalizedMembers;
 }
 
 export async function getFamilyInvites(familyId: string): Promise<any[]> {
@@ -1507,11 +1512,31 @@ export async function getFamilyInvites(familyId: string): Promise<any[]> {
     .eq('family_id', familyId)
     .order('created_at', { ascending: false });
   if (error) throw error;
-  return data || [];
+  return (data || []).map((inv: any) => ({
+    ...inv,
+    invited_name: inv.invited_name ?? null,
+    member_type: inv.member_type === 'CAREGIVER' ? 'CAREGIVER' : 'FAMILY',
+  }));
 }
 
-export async function createFamilyInvite(): Promise<any> {
-  const { data, error } = await (supabase as any).rpc('create_family_invite');
+export interface CreateFamilyInviteInput {
+  invitedName: string;
+  memberType: Database['public']['Tables']['family_invites']['Row']['member_type'];
+}
+
+export async function createFamilyInvite(input?: CreateFamilyInviteInput): Promise<any> {
+  const invitedName = input?.invitedName?.trim() || '';
+  const memberType = input?.memberType === 'CAREGIVER' ? 'CAREGIVER' : 'FAMILY';
+
+  if (input && !invitedName) {
+    throw new Error('Informe o nome da pessoa convidada.');
+  }
+
+  const rpcArgs = input
+    ? { p_invited_name: invitedName, p_member_type: memberType }
+    : { p_invited_name: null, p_member_type: 'FAMILY' };
+
+  const { data, error } = await (supabase as any).rpc('create_family_invite', rpcArgs);
   if (error) throw error;
   return data || [];
 }

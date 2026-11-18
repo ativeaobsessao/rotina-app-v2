@@ -1,8 +1,9 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { supabase } from '../../services/supabase';
-import { LogOut, Camera, Lock, UserPen, Users, Moon, Sun } from 'lucide-react';
+import { LogOut, Camera, Lock, UserPen, Users, Moon, Sun, Download } from 'lucide-react';
 import { useTheme } from '../../contexts/ThemeContext';
+import { usePWAInstall } from '../../hooks/usePWAInstall';
 import { FamilyModal } from './FamilyModal';
 import { getCurrentProfile, getPatient, clearAllUserCaches } from '../../services/api';
 import { clearActiveMealRecovery } from '../../services/mealDrafts';
@@ -10,6 +11,7 @@ import { compressImage } from '../../utils/image';
 
 export function UserProfile() {
   const { theme, toggleTheme } = useTheme();
+  const { isRunningStandalone, isInstalled, openInstallGuideModal } = usePWAInstall();
   const [isOpen, setIsOpen] = useState(false);
   const [profile, setProfile] = useState<any>(null);
   const [uploading, setUploading] = useState(false);
@@ -353,6 +355,20 @@ export function UserProfile() {
               <Users className="w-4 h-4 mr-2 text-gray-400 dark:text-zinc-400" />
               Trocar Familiar
             </button>
+
+            {!isRunningStandalone && (
+              <button
+                type="button"
+                onClick={() => {
+                  setIsOpen(false);
+                  openInstallGuideModal();
+                }}
+                className="w-full text-left px-4 py-3 text-sm text-indigo-700 dark:text-indigo-300 font-medium hover:bg-indigo-50/70 dark:hover:bg-indigo-950/40 flex items-center transition-colors border-b border-gray-100 dark:border-white/[0.06]"
+              >
+                <Download className="w-4 h-4 mr-2 text-indigo-600 dark:text-indigo-400" />
+                {isInstalled ? 'Como abrir no aplicativo' : 'Baixar aplicativo'}
+              </button>
+            )}
 
             <button
               type="button"

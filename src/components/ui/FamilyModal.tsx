@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, Users, UserPlus, Trash2, Link, ShieldCheck, Shield, Check, HeartHandshake, Clock, RotateCw } from 'lucide-react';
+import { X, Users, UserPlus, Trash2, Link, ShieldCheck, Shield, Check, HeartHandshake, Clock, RotateCw, AlertCircle } from 'lucide-react';
 import { Spinner } from './Spinner';
 import { Button } from './Button';
 import { Input } from './Input';
@@ -43,6 +43,7 @@ export function FamilyModal({ familyId, currentUserId, lovedOneName, onClose }: 
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
   const [error, setError] = useState('');
+  const [dialogError, setDialogError] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
   
   const [showInviteModal, setShowInviteModal] = useState(false);
@@ -161,14 +162,29 @@ export function FamilyModal({ familyId, currentUserId, lovedOneName, onClose }: 
 
   async function handleConfirmRemove() {
     if (!memberToRemove) return;
+    const removedUserId = memberToRemove.user_id;
+    const removedName = memberToRemove.profile?.name || 'membro';
+
     setActionLoading(true);
     setError('');
+    setDialogError('');
+    setSuccessMsg('');
     try {
-      await removeFamilyMember(memberToRemove.user_id, familyId);
+      if (memberToRemove.role === 'ADMIN') {
+        const adminCount = members.filter(m => m.role === 'ADMIN').length;
+        if (adminCount <= 1) {
+          throw new Error('A família precisa ter ao menos um Administrador ativo.');
+        }
+      }
+
+      await removeFamilyMember(removedUserId, familyId);
+      setMembers(prev => prev.filter(m => m.user_id !== removedUserId));
       setMemberToRemove(null);
+      setSuccessMsg(`Acesso de ${removedName} removido com sucesso.`);
       await loadData();
+      setTimeout(() => setSuccessMsg(''), 3500);
     } catch (err: any) {
-      setError(err.message || 'Erro ao remover membro.');
+      setDialogError(err?.message || 'Erro ao remover membro.');
     } finally {
       setActionLoading(false);
     }
@@ -191,6 +207,7 @@ export function FamilyModal({ familyId, currentUserId, lovedOneName, onClose }: 
     if (!inviteToDelete) return;
     setActionLoading(true);
     setError('');
+    setDialogError('');
     setSuccessMsg('');
     try {
       await deleteFamilyInvite(inviteToDelete.id);
@@ -199,7 +216,7 @@ export function FamilyModal({ familyId, currentUserId, lovedOneName, onClose }: 
       await loadData();
       setTimeout(() => setSuccessMsg(''), 4000);
     } catch (err: any) {
-      setError(err.message || 'Erro ao apagar registro de convite.');
+      setDialogError(err?.message || 'Erro ao apagar registro de convite.');
     } finally {
       setActionLoading(false);
     }
@@ -208,6 +225,7 @@ export function FamilyModal({ familyId, currentUserId, lovedOneName, onClose }: 
   async function handleConfirmClearHistory() {
     setActionLoading(true);
     setError('');
+    setDialogError('');
     setSuccessMsg('');
     try {
       await clearFamilyInviteHistory(familyId);
@@ -216,16 +234,19 @@ export function FamilyModal({ familyId, currentUserId, lovedOneName, onClose }: 
       await loadData();
       setTimeout(() => setSuccessMsg(''), 4000);
     } catch (err: any) {
-      setError(err.message || 'Erro ao limpar histórico de convites.');
+      setDialogError(err?.message || 'Erro ao limpar histórico de convites.');
     } finally {
       setActionLoading(false);
     }
   }
 
   async function handleToggleRole(member: any) {
-    const newRole = member.role === 'ADMIN' ? 'MEMBER' : 'ADMIN';
+    const newRole: 'ADMIN' | 'MEMBER' = member.role === 'ADMIN' ? 'MEMBER' : 'ADMIN';
+    const memberName = member.profile?.name || 'membro';
+
     setActionLoading(true);
     setError('');
+    setDialogError('');
     setSuccessMsg('');
     try {
       // Se estiver retirando o admin, garantir que não seja o único
@@ -237,12 +258,15 @@ export function FamilyModal({ familyId, currentUserId, lovedOneName, onClose }: 
       }
 
       await updateFamilyMemberRole(member.user_id, familyId, newRole);
+      setMembers(prev =>
+        prev.map(m => (m.user_id === member.user_id ? { ...m, role: newRole } : m))
+      );
       setMemberToChangeRole(null);
-      setSuccessMsg(`Papel de ${member.profile?.name || 'membro'} alterado para ${newRole === 'ADMIN' ? 'Administrador (ADM)' : 'Acompanhante'} com sucesso!`);
+      setSuccessMsg(`Papel de ${memberName} alterado para ${newRole === 'ADMIN' ? 'Administrador (ADM)' : 'Acompanhante'} com sucesso!`);
       await loadData();
       setTimeout(() => setSuccessMsg(''), 3500);
     } catch (err: any) {
-      setError(err.message || 'Erro ao atualizar o papel do membro.');
+      setDialogError(err?.message || 'Erro ao atualizar o papel do membro.');
     } finally {
       setActionLoading(false);
     }
@@ -329,8 +353,17 @@ export function FamilyModal({ familyId, currentUserId, lovedOneName, onClose }: 
         {isAdmin && m.user_id !== currentUserId && (
           <div className="flex items-center gap-1 shrink-0">
             <button
-              onClick={() => setMemberToChangeRole(m)}
+              type="button"
+              onClick={() => {
+                setDialogError('');
+                setMemberToChangeRole(m);
+              }}
               disabled={actionLoading}
+              aria-label={
+                m.role === 'ADMIN'
+                  ? `Alterar ${m.profile?.name || 'membro'} para Acompanhante`
+                  : `Eleger ${m.profile?.name || 'membro'} como Administrador`
+              }
               className="p-2 text-gray-400 dark:text-zinc-400 hover:text-indigo-600 dark:hover:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-950/50 rounded-xl transition-all text-xs font-semibold flex items-center gap-1 active:scale-95"
               title={m.role === 'ADMIN' ? 'Alterar para Acompanhante' : 'Promover a Administrador (ADM)'}
             >
@@ -340,8 +373,13 @@ export function FamilyModal({ familyId, currentUserId, lovedOneName, onClose }: 
               </span>
             </button>
             <button
-              onClick={() => setMemberToRemove(m)}
+              type="button"
+              onClick={() => {
+                setDialogError('');
+                setMemberToRemove(m);
+              }}
               disabled={actionLoading}
+              aria-label={`Remover ${m.profile?.name || 'membro'} da família`}
               className="p-2 text-gray-400 dark:text-zinc-400 hover:text-red-600 dark:hover:text-rose-400 hover:bg-red-50 dark:hover:bg-rose-950/40 rounded-xl transition-colors active:scale-95"
               title="Remover Membro"
             >
@@ -717,7 +755,10 @@ export function FamilyModal({ familyId, currentUserId, lovedOneName, onClose }: 
                                   </div>
                                   <button
                                     type="button"
-                                    onClick={() => setInviteToDelete(i)}
+                                    onClick={() => {
+                                      setDialogError('');
+                                      setInviteToDelete(i);
+                                    }}
                                     disabled={actionLoading}
                                     aria-label={`Apagar registro de ${i.invited_name?.trim() || 'convite'}`}
                                     title="Apagar registro da lista"
@@ -762,7 +803,10 @@ export function FamilyModal({ familyId, currentUserId, lovedOneName, onClose }: 
                             </h5>
                             <button
                               type="button"
-                              onClick={() => setConfirmClearHistory(true)}
+                              onClick={() => {
+                                setDialogError('');
+                                setConfirmClearHistory(true);
+                              }}
                               disabled={actionLoading}
                               className="text-[11px] font-semibold text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-300 px-2.5 py-1 rounded-lg hover:bg-indigo-50/70 dark:hover:bg-indigo-950/40 transition-colors active:scale-95"
                             >
@@ -815,7 +859,10 @@ export function FamilyModal({ familyId, currentUserId, lovedOneName, onClose }: 
                                     </span>
                                     <button
                                       type="button"
-                                      onClick={() => setInviteToDelete(i)}
+                                      onClick={() => {
+                                        setDialogError('');
+                                        setInviteToDelete(i);
+                                      }}
                                       disabled={actionLoading}
                                       aria-label={`Apagar registro de ${i.invited_name?.trim() || 'convite'}`}
                                       title="Apagar registro da lista"
@@ -852,20 +899,40 @@ export function FamilyModal({ familyId, currentUserId, lovedOneName, onClose }: 
 
       {/* Modal de Confirmação: Alterar Papel (Eleger Administrador) */}
       {memberToChangeRole && (
-        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/40 dark:bg-black/75 backdrop-blur-md p-4 animate-in fade-in duration-200">
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="change-role-title"
+          className="fixed inset-0 z-[200] flex items-center justify-center bg-black/40 dark:bg-black/75 backdrop-blur-md p-4 animate-in fade-in duration-200"
+        >
           <div className="bg-white dark:bg-[#121216] dark:border dark:border-white/[0.08] rounded-[2rem] w-full max-w-sm p-6 shadow-2xl animate-in zoom-in-95 duration-200">
             <div className="w-16 h-16 bg-indigo-50 dark:bg-indigo-950/50 rounded-full flex items-center justify-center mx-auto mb-5">
               <ShieldCheck className="w-8 h-8 text-indigo-600 dark:text-indigo-400" />
             </div>
-            <h3 className="text-xl font-bold text-gray-900 dark:text-zinc-100 text-center mb-2">
+            <h3
+              id="change-role-title"
+              className="text-xl font-bold text-gray-900 dark:text-zinc-100 text-center mb-2"
+            >
               {memberToChangeRole.role === 'ADMIN' ? 'Remover Administrador?' : 'Eleger como Administrador?'}
             </h3>
-            <p className="text-sm text-gray-500 dark:text-zinc-400 text-center mb-8 font-medium px-2 leading-relaxed">
+            <p className="text-sm text-gray-500 dark:text-zinc-400 text-center mb-6 font-medium px-2 leading-relaxed">
               {memberToChangeRole.role === 'ADMIN'
                 ? `${memberToChangeRole.profile?.name} passará a ser Acompanhante, continuando a registrar os cuidados diários e encerrar o dia, mas sem acesso para configurar a rotina, reabrir dias encerrados ou gerenciar convites e permissões.`
                 : `${memberToChangeRole.profile?.name} terá privilégios de Administrador (ADM), podendo configurar a rotina, reabrir dias encerrados e gerenciar membros e convites.`
               }
             </p>
+
+            {dialogError && (
+              <div
+                role="alert"
+                className="mb-4 rounded-2xl bg-red-50 dark:bg-rose-950/45 border border-red-100 dark:border-rose-800/50 p-3.5 flex items-start gap-2.5 text-left"
+              >
+                <AlertCircle className="w-4 h-4 text-red-600 dark:text-rose-400 shrink-0 mt-0.5" />
+                <p className="text-xs font-medium text-red-700 dark:text-rose-200 leading-relaxed">
+                  {dialogError}
+                </p>
+              </div>
+            )}
             
             <div className="space-y-3">
               <Button 
@@ -876,7 +943,10 @@ export function FamilyModal({ familyId, currentUserId, lovedOneName, onClose }: 
                 {actionLoading ? <Spinner className="text-white w-5 h-5" /> : 'Confirmar Alteração'}
               </Button>
               <Button 
-                onClick={() => setMemberToChangeRole(null)}
+                onClick={() => {
+                  setDialogError('');
+                  setMemberToChangeRole(null);
+                }}
                 disabled={actionLoading}
                 variant="ghost"
                 className="w-full py-4 text-base font-bold rounded-2xl bg-gray-100 dark:bg-[#1c1c22] hover:bg-gray-200 dark:hover:bg-[#222229] text-gray-700 dark:text-zinc-200 active:scale-[0.98] transition-transform"
@@ -890,15 +960,37 @@ export function FamilyModal({ familyId, currentUserId, lovedOneName, onClose }: 
 
       {/* Modal de Confirmação: Remover Membro */}
       {memberToRemove && (
-        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/40 dark:bg-black/75 backdrop-blur-md p-4 animate-in fade-in duration-200">
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="remove-member-title"
+          className="fixed inset-0 z-[200] flex items-center justify-center bg-black/40 dark:bg-black/75 backdrop-blur-md p-4 animate-in fade-in duration-200"
+        >
           <div className="bg-white dark:bg-[#121216] dark:border dark:border-white/[0.08] rounded-[2rem] w-full max-w-sm p-6 shadow-2xl animate-in zoom-in-95 duration-200">
             <div className="w-16 h-16 bg-red-50 dark:bg-rose-950/50 rounded-full flex items-center justify-center mx-auto mb-5">
               <Trash2 className="w-8 h-8 text-red-600 dark:text-rose-400" />
             </div>
-            <h3 className="text-xl font-bold text-gray-900 dark:text-zinc-100 text-center mb-2">Remover Membro?</h3>
-            <p className="text-sm text-gray-500 dark:text-zinc-400 text-center mb-8 font-medium px-2">
+            <h3
+              id="remove-member-title"
+              className="text-xl font-bold text-gray-900 dark:text-zinc-100 text-center mb-2"
+            >
+              Remover Membro?
+            </h3>
+            <p className="text-sm text-gray-500 dark:text-zinc-400 text-center mb-6 font-medium px-2">
               Esta pessoa perderá o acesso à rotina e ao histórico de {targetName} imediatamente.
             </p>
+
+            {dialogError && (
+              <div
+                role="alert"
+                className="mb-4 rounded-2xl bg-red-50 dark:bg-rose-950/45 border border-red-100 dark:border-rose-800/50 p-3.5 flex items-start gap-2.5 text-left"
+              >
+                <AlertCircle className="w-4 h-4 text-red-600 dark:text-rose-400 shrink-0 mt-0.5" />
+                <p className="text-xs font-medium text-red-700 dark:text-rose-200 leading-relaxed">
+                  {dialogError}
+                </p>
+              </div>
+            )}
             
             <div className="space-y-3">
               <Button 
@@ -909,7 +1001,10 @@ export function FamilyModal({ familyId, currentUserId, lovedOneName, onClose }: 
                 {actionLoading ? <Spinner className="text-white w-5 h-5" /> : 'Remover Acesso'}
               </Button>
               <Button 
-                onClick={() => setMemberToRemove(null)}
+                onClick={() => {
+                  setDialogError('');
+                  setMemberToRemove(null);
+                }}
                 disabled={actionLoading}
                 variant="ghost"
                 className="w-full py-4 text-base font-bold rounded-2xl bg-gray-100 dark:bg-[#1c1c22] hover:bg-gray-200 dark:hover:bg-[#222229] text-gray-700 dark:text-zinc-200 active:scale-[0.98] transition-transform"
@@ -964,6 +1059,18 @@ export function FamilyModal({ familyId, currentUserId, lovedOneName, onClose }: 
               </div>
             </div>
 
+            {dialogError && (
+              <div
+                role="alert"
+                className="mb-4 rounded-2xl bg-red-50 dark:bg-rose-950/45 border border-red-100 dark:border-rose-800/50 p-3.5 flex items-start gap-2.5 text-left"
+              >
+                <AlertCircle className="w-4 h-4 text-red-600 dark:text-rose-400 shrink-0 mt-0.5" />
+                <p className="text-xs font-medium text-red-700 dark:text-rose-200 leading-relaxed">
+                  {dialogError}
+                </p>
+              </div>
+            )}
+
             <div className="space-y-3">
               <Button
                 onClick={handleConfirmDeleteInvite}
@@ -973,7 +1080,10 @@ export function FamilyModal({ familyId, currentUserId, lovedOneName, onClose }: 
                 {actionLoading ? <Spinner className="text-white dark:text-zinc-950 w-5 h-5" /> : 'Apagar da Lista'}
               </Button>
               <Button
-                onClick={() => setInviteToDelete(null)}
+                onClick={() => {
+                  setDialogError('');
+                  setInviteToDelete(null);
+                }}
                 disabled={actionLoading}
                 variant="ghost"
                 className="w-full py-4 text-base font-bold rounded-2xl bg-gray-100 dark:bg-[#1c1c22] hover:bg-gray-200 dark:hover:bg-[#222229] text-gray-700 dark:text-zinc-200 active:scale-[0.98] transition-transform"
@@ -1019,6 +1129,18 @@ export function FamilyModal({ familyId, currentUserId, lovedOneName, onClose }: 
               </div>
             </div>
 
+            {dialogError && (
+              <div
+                role="alert"
+                className="mb-4 rounded-2xl bg-red-50 dark:bg-rose-950/45 border border-red-100 dark:border-rose-800/50 p-3.5 flex items-start gap-2.5 text-left"
+              >
+                <AlertCircle className="w-4 h-4 text-red-600 dark:text-rose-400 shrink-0 mt-0.5" />
+                <p className="text-xs font-medium text-red-700 dark:text-rose-200 leading-relaxed">
+                  {dialogError}
+                </p>
+              </div>
+            )}
+
             <div className="space-y-3">
               <Button
                 onClick={handleConfirmClearHistory}
@@ -1028,7 +1150,10 @@ export function FamilyModal({ familyId, currentUserId, lovedOneName, onClose }: 
                 {actionLoading ? <Spinner className="text-white dark:text-zinc-950 w-5 h-5" /> : 'Limpar Registros da Tela'}
               </Button>
               <Button
-                onClick={() => setConfirmClearHistory(false)}
+                onClick={() => {
+                  setDialogError('');
+                  setConfirmClearHistory(false);
+                }}
                 disabled={actionLoading}
                 variant="ghost"
                 className="w-full py-4 text-base font-bold rounded-2xl bg-gray-100 dark:bg-[#1c1c22] hover:bg-gray-200 dark:hover:bg-[#222229] text-gray-700 dark:text-zinc-200 active:scale-[0.98] transition-transform"

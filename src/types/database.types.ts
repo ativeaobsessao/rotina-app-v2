@@ -490,11 +490,22 @@ export interface Database {
       };
       remove_family_member: {
         Args: { p_user_id: string; p_family_id: string };
-        Returns: undefined;
+        Returns: {
+          success: boolean;
+          family_id: string;
+          removed_user_id: string;
+          fallback_family_id?: string | null;
+        } | undefined;
       };
       update_family_member_role: {
-        Args: { p_user_id: string; p_family_id: string; p_new_role: string };
-        Returns: { success: boolean; user_id: string; role: string };
+        Args: { p_user_id: string; p_family_id: string; p_new_role: FamilyRole };
+        Returns: {
+          success: boolean;
+          family_id?: string;
+          user_id: string;
+          role: FamilyRole;
+          member_type?: FamilyMemberType;
+        };
       };
     };
     Enums: {

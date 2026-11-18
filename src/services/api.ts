@@ -1657,12 +1657,33 @@ export async function clearAllUserCaches() {
   } catch {}
 }
 
+function normalizeMemberManagementRpcError(error: any, fallbackMessage: string): Error {
+  const code = String(error?.code || '');
+  const rawMessage = String(error?.message || '');
+
+  if (
+    code === 'PGRST202' ||
+    /could not find the function/i.test(rawMessage) ||
+    /schema cache/i.test(rawMessage)
+  ) {
+    return new Error(
+      'Serviço de gerenciamento de membros ainda não atualizado no banco de dados (migration 0019 pendente no Supabase).'
+    );
+  }
+
+  return new Error(rawMessage || fallbackMessage);
+}
+
 export async function removeFamilyMember(userId: string, familyId: string) {
-  const { error } = await (supabase as any).rpc('remove_family_member', {
+  const { data, error } = await (supabase as any).rpc('remove_family_member', {
     p_user_id: userId,
     p_family_id: familyId,
   });
-  if (error) throw error;
+  if (error) {
+    throw normalizeMemberManagementRpcError(error, 'Não foi possível remover o membro da família.');
+  }
+  await clearFamilyAndProfileCaches();
+  return data;
 }
 
 export async function updateFamilyMemberRole(
@@ -1675,7 +1696,9 @@ export async function updateFamilyMemberRole(
     p_family_id: familyId,
     p_new_role: newRole,
   });
-  if (error) throw error;
+  if (error) {
+    throw normalizeMemberManagementRpcError(error, 'Não foi possível atualizar a permissão do membro.');
+  }
   await clearFamilyAndProfileCaches();
   return data;
 }

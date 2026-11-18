@@ -41,12 +41,14 @@ export default defineConfig(() => {
           name: 'DUCA',
           short_name: 'DUCA',
           description: 'Acompanhamento da rotina diária e cuidados com a saúde familiar',
+          lang: 'pt-BR',
           theme_color: '#ffffff',
           background_color: '#ffffff',
           display: 'standalone',
           orientation: 'portrait',
           start_url: '/',
           scope: '/',
+          prefer_related_applications: false,
           icons: [
             {
               src: '/web-app-manifest-192x192.png',

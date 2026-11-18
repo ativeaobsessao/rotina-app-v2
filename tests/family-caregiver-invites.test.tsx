@@ -1086,3 +1086,144 @@ test('[Estático SQL + React/JSDOM] Migration 0017 e UI permitem ADM reenviar co
     dom.window.close();
   }
 });
+
+test('Migration 0019 + UI E2E: eleger ADM, remover membro e exibir erros dentro do modal z-[200]', async () => {
+  // 1. Verifica integridade estrutural da migration 0019
+  const sqlPath = path.resolve(
+    process.cwd(),
+    'supabase/migrations/0019_fix_family_member_management_rpcs.sql'
+  );
+  const sql = fs.readFileSync(sqlPath, 'utf8');
+  assert.match(sql, /CREATE OR REPLACE FUNCTION public\.update_family_member_role/i);
+  assert.match(sql, /CREATE OR REPLACE FUNCTION public\.remove_family_member/i);
+  assert.match(sql, /SECURITY DEFINER/i);
+  assert.match(sql, /SET search_path = public/i);
+  assert.match(sql, /GRANT EXECUTE ON FUNCTION public\.update_family_member_role\(UUID, UUID, TEXT\) TO authenticated, service_role/i);
+  assert.match(sql, /GRANT EXECUTE ON FUNCTION public\.remove_family_member\(UUID, UUID\) TO authenticated, service_role/i);
+  assert.match(sql, /UPDATE public\.profiles[\s\S]*SET family_id = v_fallback_family_id/i);
+  assert.match(sql, /NOTIFY pgrst, 'reload schema'/i);
+
+  // 2. Fluxo E2E na UI: Eleger membro como ADM, rebaixar de volta e remover membro
+  const { dom, createRoot } = await setupDom();
+  const mock = installFamilySupabaseMock('admin-1');
+  const container = dom.window.document.getElementById('root')!;
+  const root = createRoot(container);
+
+  try {
+    await act(async () => {
+      root.render(
+        React.createElement(FamilyModal, {
+          familyId: mock.familyId,
+          currentUserId: 'admin-1',
+          lovedOneName: 'Vovó Dude',
+          onClose: () => {},
+        })
+      );
+    });
+
+    // Clica em "Eleger Ana (Irmã) como Administrador"
+    const promoteBtn = container.querySelector(
+      'button[aria-label="Eleger Ana (Irmã) como Administrador"]'
+    ) as HTMLButtonElement;
+    assert.ok(promoteBtn, 'Botão de eleger Ana como ADM deve existir');
+    await act(async () => {
+      promoteBtn.click();
+    });
+
+    const roleDialog = container.querySelector('[role="dialog"][aria-labelledby="change-role-title"]');
+    assert.ok(roleDialog, 'Modal de confirmação de papel deve abrir');
+    assert.match(roleDialog.textContent || '', /Eleger como Administrador\?/);
+
+    const confirmRoleBtn = (Array.from(roleDialog.querySelectorAll('button')) as HTMLButtonElement[]).find((b) =>
+      b.textContent?.includes('Confirmar Alteração')
+    );
+    assert.ok(confirmRoleBtn);
+    await act(async () => {
+      confirmRoleBtn.click();
+    });
+
+    // Modal fecha, membro vira ADMIN no estado e na lista, banner de sucesso aparece
+    assert.equal(container.querySelector('[role="dialog"][aria-labelledby="change-role-title"]'), null);
+    const anaAfterPromote = mock.getMembers().find((m) => m.user_id === 'fam-member-1');
+    assert.equal(anaAfterPromote?.role, 'ADMIN');
+    assert.match(container.textContent || '', /alterado para Administrador \(ADM\) com sucesso/);
+    assert.ok(
+      container.querySelector('button[aria-label="Alterar Ana (Irmã) para Acompanhante"]'),
+      'Botão deve refletir novo papel de ADM imediatamente'
+    );
+
+    // 3. Simula falha PGRST202 (schema cache) e garante que o erro aparece DENTRO do modal z-[200]
+    const originalRpc = supabase.rpc;
+    (supabase as any).rpc = async () => ({
+      data: null,
+      error: {
+        code: 'PGRST202',
+        message: 'Could not find the function public.remove_family_member in the schema cache',
+      },
+    });
+
+    const removeBtn = container.querySelector(
+      'button[aria-label="Remover Ana (Irmã) da família"]'
+    ) as HTMLButtonElement;
+    assert.ok(removeBtn);
+    await act(async () => {
+      removeBtn.click();
+    });
+
+    const removeDialog = container.querySelector('[role="dialog"][aria-labelledby="remove-member-title"]');
+    assert.ok(removeDialog, 'Modal de confirmação de remoção deve abrir');
+
+    const confirmRemoveBtn = (Array.from(removeDialog.querySelectorAll('button')) as HTMLButtonElement[]).find((b) =>
+      b.textContent?.includes('Remover Acesso')
+    );
+    assert.ok(confirmRemoveBtn);
+    await act(async () => {
+      confirmRemoveBtn.click();
+    });
+
+    // O erro DEVE estar visível dentro do próprio modal z-[200] (role="alert")
+    const inlineAlert = removeDialog.querySelector('[role="alert"]');
+    assert.ok(inlineAlert, 'Alerta de erro deve ser exibido dentro do modal de confirmação z-[200]');
+    assert.match(inlineAlert.textContent || '', /migration 0019 pendente no Supabase/);
+
+    // Ao clicar em Cancelar, limpa o erro e fecha o modal
+    const cancelRemoveBtn = (Array.from(removeDialog.querySelectorAll('button')) as HTMLButtonElement[]).find((b) =>
+      b.textContent?.trim() === 'Cancelar'
+    );
+    assert.ok(cancelRemoveBtn);
+    await act(async () => {
+      cancelRemoveBtn.click();
+    });
+    assert.equal(container.querySelector('[role="dialog"][aria-labelledby="remove-member-title"]'), null);
+
+    // 4. Restaura RPC real do mock e confirma remoção com sucesso
+    (supabase as any).rpc = originalRpc;
+    const removeBtnRetry = container.querySelector(
+      'button[aria-label="Remover Ana (Irmã) da família"]'
+    ) as HTMLButtonElement;
+    assert.ok(removeBtnRetry);
+    await act(async () => {
+      removeBtnRetry.click();
+    });
+
+    const removeDialogRetry = container.querySelector('[role="dialog"][aria-labelledby="remove-member-title"]')!;
+    const confirmRemoveRetry = (Array.from(removeDialogRetry.querySelectorAll('button')) as HTMLButtonElement[]).find(
+      (b) => b.textContent?.includes('Remover Acesso')
+    )!;
+    await act(async () => {
+      confirmRemoveRetry.click();
+    });
+
+    assert.equal(container.querySelector('[role="dialog"][aria-labelledby="remove-member-title"]'), null);
+    assert.equal(mock.getMembers().some((m) => m.user_id === 'fam-member-1'), false);
+    const familySection = container.querySelector('section[aria-label="Membros da Família"]');
+    assert.ok(familySection);
+    assert.equal(familySection.textContent?.includes('Ana (Irmã)'), false);
+    assert.match(container.textContent || '', /Acesso de Ana \(Irmã\) removido com sucesso\./);
+  } finally {
+    await act(async () => root.unmount());
+    mock.restore();
+    dom.window.close();
+  }
+});
+

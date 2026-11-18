@@ -5,6 +5,9 @@ import App from './App.tsx';
 import './index.css';
 import { ThemeProvider } from './contexts/ThemeContext.tsx';
 import { ErrorBoundary } from './components/ErrorBoundary.tsx';
+import { initPWAInstallTracking } from './services/pwaInstallStore.ts';
+
+initPWAInstallTracking();
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

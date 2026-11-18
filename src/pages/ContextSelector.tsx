@@ -3,6 +3,7 @@ import { getMyFamilyMemberships, getPatient, setActiveFamily, getPatientPhotoUrl
 import { supabase } from '../services/supabase';
 import { getLocalDateString } from '../utils/date';
 import { Spinner } from '../components/ui/Spinner';
+import { PWAInstallBanner } from '../components/pwa/PWAInstallBanner';
 import { User, LogOut, Sparkles, Heart } from 'lucide-react';
 
 const CACHED_MOODS_KEY = 'duca_cached_context_moods';
@@ -362,6 +363,7 @@ export function ContextSelectorScreen({ onSelect, initialPatients }: { onSelect:
            </button>
         </div>
       </div>
+      <PWAInstallBanner />
     </div>
   );
 }

@@ -1,11 +1,11 @@
 <!doctype html>
-<html lang="en">
+<html lang="pt-BR">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>DUCA</title>
     <link rel="icon" type="image/png" sizes="96x96" href="/favicon-96x96.png" />
-    <link rel="apple-touch-icon" href="/apple-touch.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch.png" />
     <meta name="description" content="Acompanhamento da rotina diária e cuidados com a saúde familiar" />
     <meta property="og:title" content="DUCA" />
     <meta property="og:description" content="Acompanhamento da rotina diária e cuidados com a saúde familiar" />
@@ -16,6 +16,23 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <meta name="apple-mobile-web-app-title" content="DUCA" />
+    <script>
+      (function () {
+        window.__ducaInstallPrompt = null;
+        window.__ducaAppInstalled = false;
+        window.addEventListener('beforeinstallprompt', function (e) {
+          e.preventDefault();
+          window.__ducaInstallPrompt = e;
+          try { localStorage.removeItem('duca_app_installed'); } catch (_) {}
+          window.dispatchEvent(new CustomEvent('duca:pwa-prompt-captured'));
+        });
+        window.addEventListener('appinstalled', function () {
+          window.__ducaInstallPrompt = null;
+          window.__ducaAppInstalled = true;
+          window.dispatchEvent(new CustomEvent('duca:pwa-app-installed'));
+        });
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

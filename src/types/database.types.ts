@@ -175,6 +175,8 @@ export interface Database {
           dosage: string;
           frequency: MedicationFrequency;
           weekday: string | null;
+          weekdays: string[] | null;
+          daily_dosages: Record<string, string> | null;
           active: boolean;
           created_at: string;
           updated_at: string;
@@ -187,6 +189,8 @@ export interface Database {
           dosage: string;
           frequency: MedicationFrequency;
           weekday?: string | null;
+          weekdays?: string[] | null;
+          daily_dosages?: Record<string, string> | null;
           active?: boolean;
           created_at?: string;
           updated_at?: string;
@@ -199,6 +203,8 @@ export interface Database {
           dosage?: string;
           frequency?: MedicationFrequency;
           weekday?: string | null;
+          weekdays?: string[] | null;
+          daily_dosages?: Record<string, string> | null;
           active?: boolean;
           created_at?: string;
           updated_at?: string;
@@ -263,6 +269,7 @@ export interface Database {
           status: MedicationLogStatus;
           reason: string | null;
           notes: string | null;
+          applied_dosage: string | null;
           administered_at: string | null;
           created_by: string;
           created_at: string;
@@ -277,6 +284,7 @@ export interface Database {
           status: MedicationLogStatus;
           reason?: string | null;
           notes?: string | null;
+          applied_dosage?: string | null;
           administered_at?: string | null;
           created_by: string;
           created_at?: string;
@@ -291,6 +299,7 @@ export interface Database {
           status?: MedicationLogStatus;
           reason?: string | null;
           notes?: string | null;
+          applied_dosage?: string | null;
           administered_at?: string | null;
           created_by?: string;
           created_at?: string;

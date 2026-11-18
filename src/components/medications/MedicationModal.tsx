@@ -6,6 +6,7 @@ import { Spinner } from '../ui/Spinner';
 import { cn } from '../../utils/cn';
 import { createMedicationLog, updateMedicationLog } from '../../services/api';
 import { formatDateToTime } from '../../utils/date';
+import { getMedicationDosageForDate } from '../../utils/medicationSchedule';
 import { triggerHapticFeedback } from '../../utils/haptics';
 import type { MedicationEventData } from '../../types/timeline';
 
@@ -151,6 +152,7 @@ export function MedicationModal({
     for (const med of targets) {
       try {
         const existingLog = event.logs.find((l) => l.medication_id === med.id);
+        const dayDosage = getMedicationDosageForDate(med, eventDate) || med.dosage || null;
         if (existingLog) {
           await updateMedicationLog(
             existingLog.id,
@@ -160,6 +162,7 @@ export function MedicationModal({
               status: 'administered',
               reason: null,
               notes: null,
+              applied_dosage: dayDosage,
               updated_by: profileId,
               administered_at: new Date().toISOString(),
             },
@@ -171,6 +174,7 @@ export function MedicationModal({
             patient_id: patientId,
             event_date: eventDate,
             status: 'administered',
+            applied_dosage: dayDosage,
             created_by: profileId,
             updated_by: profileId,
             administered_at: new Date().toISOString(),
@@ -264,11 +268,16 @@ export function MedicationModal({
 
     try {
       const existingLog = event.logs.find((l) => l.medication_id === notAdministeredMedId);
+      const targetMed = event.medications.find((m) => m.id === notAdministeredMedId);
+      const dayDosage = targetMed
+        ? getMedicationDosageForDate(targetMed, eventDate) || targetMed.dosage || null
+        : null;
 
       const logData = {
         status: 'not_administered' as const,
         reason: notAdminReason,
         notes: notAdminNotes.trim() || null,
+        applied_dosage: dayDosage,
         updated_by: profileId,
       };
 
@@ -335,7 +344,9 @@ export function MedicationModal({
 
           <div>
             <p className="text-gray-900 dark:text-zinc-100 font-medium mb-1">{med?.name}</p>
-            <p className="text-gray-500 dark:text-zinc-400 text-sm">{med?.dosage}</p>
+            <p className="text-gray-500 dark:text-zinc-400 text-sm">
+              {med ? getMedicationDosageForDate(med, eventDate) : ''}
+            </p>
           </div>
 
           <div className="space-y-3">
@@ -421,7 +432,9 @@ export function MedicationModal({
                 >
                   <div>
                     <h4 className="font-medium text-gray-900 dark:text-zinc-100">{med.name}</h4>
-                    <p className="text-sm text-gray-500 dark:text-zinc-400">{med.dosage}</p>
+                    <p className="text-sm text-gray-500 dark:text-zinc-400">
+                      {getMedicationDosageForDate(med, eventDate)}
+                    </p>
                   </div>
                   <span className="text-[10px] font-bold uppercase tracking-widest px-2 py-1 rounded-full bg-gray-100 dark:bg-white/[0.08] text-gray-500 dark:text-zinc-400">
                     Pendente
@@ -443,14 +456,37 @@ export function MedicationModal({
             <div className="space-y-3">
               {event.medications.map((med) => {
                 const log = event.logs.find((l) => l.medication_id === med.id);
-                if (!log) return null;
+                const dayDosage = log?.applied_dosage || getMedicationDosageForDate(med, eventDate);
+
+                if (!log) {
+                  return (
+                    <div
+                      key={med.id}
+                      className="bg-amber-50/60 dark:bg-amber-950/20 border border-amber-200/70 dark:border-amber-800/40 rounded-2xl p-4 flex flex-col gap-2"
+                    >
+                      <div className="flex justify-between items-start gap-2">
+                        <div>
+                          <h4 className="font-medium text-gray-900 dark:text-zinc-100">{med.name}</h4>
+                          <p className="text-sm text-gray-600 dark:text-zinc-300">{dayDosage}</p>
+                        </div>
+                        <span className="text-[10px] font-bold uppercase tracking-widest px-2 py-1 rounded-full bg-amber-100 text-amber-800 dark:bg-amber-950/70 dark:text-amber-300 whitespace-nowrap shrink-0">
+                          Pendente
+                        </span>
+                      </div>
+                      <p className="text-xs text-amber-800/80 dark:text-amber-300/80">
+                        Aguardando confirmação neste horário.
+                      </p>
+                    </div>
+                  );
+                }
+
                 const isNotAdministered = log.status === 'not_administered';
                 return (
                   <div
                     key={med.id}
                     className="bg-gray-50 dark:bg-[#1c1c22] dark:border dark:border-white/[0.08] rounded-2xl p-4 flex flex-col gap-3"
                   >
-                    <div className="flex justify-between items-start">
+                    <div className="flex justify-between items-start gap-2">
                       <div>
                         <h4
                           className={cn(
@@ -462,11 +498,11 @@ export function MedicationModal({
                         >
                           {med.name}
                         </h4>
-                        <p className="text-sm text-gray-500 dark:text-zinc-400">{med.dosage}</p>
+                        <p className="text-sm text-gray-500 dark:text-zinc-400">{dayDosage}</p>
                       </div>
                       <span
                         className={cn(
-                          'text-[10px] font-bold uppercase tracking-widest px-2 py-1 rounded-full',
+                          'text-[10px] font-bold uppercase tracking-widest px-2 py-1 rounded-full whitespace-nowrap shrink-0',
                           isNotAdministered
                             ? 'bg-red-100 text-red-700 dark:bg-rose-950/60 dark:text-rose-300'
                             : 'bg-green-100 text-green-700 dark:bg-emerald-950/60 dark:text-emerald-300'
@@ -516,14 +552,33 @@ export function MedicationModal({
 
             {allowEdit && (
               <div className="pt-2">
-                <Button
-                  type="button"
-                  onClick={() => setMode('edit')}
-                  className="w-full font-medium"
-                  variant="outline"
-                >
-                  EDITAR REGISTRO
-                </Button>
+                {(() => {
+                  const pendingCount = event.medications.filter(
+                    (m) => !event.logs.some((l) => l.medication_id === m.id)
+                  ).length;
+                  if (pendingCount > 0) {
+                    return (
+                      <Button
+                        type="button"
+                        onClick={() => setMode('edit')}
+                        className="w-full font-semibold"
+                        size="lg"
+                      >
+                        {pendingCount === 1 ? 'Registrar medicamento pendente' : `Registrar ${pendingCount} pendentes`}
+                      </Button>
+                    );
+                  }
+                  return (
+                    <Button
+                      type="button"
+                      onClick={() => setMode('edit')}
+                      className="w-full font-medium"
+                      variant="outline"
+                    >
+                      EDITAR REGISTRO
+                    </Button>
+                  );
+                })()}
               </div>
             )}
           </div>
@@ -546,6 +601,7 @@ export function MedicationModal({
                 const isChecked = checkedIds.has(med.id);
                 const log = event.logs.find((l) => l.medication_id === med.id);
                 const isNotAdministered = log?.status === 'not_administered';
+                const dayDosage = log?.applied_dosage || getMedicationDosageForDate(med, eventDate);
 
                 return (
                   <div
@@ -585,7 +641,7 @@ export function MedicationModal({
                         >
                           {med.name}
                         </h4>
-                        <p className="text-sm text-gray-500 dark:text-zinc-400">{med.dosage}</p>
+                        <p className="text-sm text-gray-500 dark:text-zinc-400">{dayDosage}</p>
                         {isNotAdministered && log.reason && (
                           <p className="text-xs text-red-600 dark:text-rose-400 mt-1 font-medium">
                             Não administrado: {log.reason}

@@ -19,6 +19,7 @@ import {
   formatFriendlyDate,
   formatTime,
 } from '../utils/date';
+import { getMedicationDosageForDate } from '../utils/medicationSchedule';
 import { Spinner } from '../components/ui/Spinner';
 import { UserProfile } from '../components/ui/UserProfile';
 import {
@@ -669,13 +670,18 @@ export function HistoryScreen({
 
         const medication = log.medication || null;
         const period = medication?.period || null;
+        const resolvedDosage =
+          log.applied_dosage ||
+          (medication
+            ? getMedicationDosageForDate(medication, d)
+            : '');
 
         medsByDate[d].push({
           id: log.medication_id,
           logId: log.id,
           medicationId: log.medication_id,
           name: medication?.name || 'Medicamento',
-          dosage: medication?.dosage || '',
+          dosage: resolvedDosage,
           status: log.status,
           reason: log.reason ?? null,
           time: period?.scheduled_time || '00:00:00',

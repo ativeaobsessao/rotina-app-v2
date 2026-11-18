@@ -17,24 +17,59 @@ export function TimelineItem({ event, onClick, profileId }: TimelineItemProps) {
   const Icon = isMeal ? Coffee : Pill;
 
   let badgeLabel = 'Aguardando';
-  if (event.status === 'pending') badgeLabel = 'Pendente';
-  if (event.status === 'confirmed') badgeLabel = 'Confirmado';
-  if (event.status === 'attention') badgeLabel = 'Atenção';
+  let badgeVariant: 'waiting' | 'pending' | 'confirmed' | 'attention' = 'waiting';
+  if (event.status === 'pending') {
+    badgeLabel = 'Pendente';
+    badgeVariant = 'pending';
+  }
+  if (event.status === 'confirmed') {
+    badgeLabel = 'Confirmado';
+    badgeVariant = 'confirmed';
+  }
+  if (event.status === 'attention') {
+    badgeLabel = 'Atenção';
+    badgeVariant = 'attention';
+  }
 
   let subLabel = '';
   if (event.type === 'medication_period') {
     const total = event.medications.length;
-    const administered = event.logs.filter(l => l.status === 'administered').length;
+    const loggedMedIds = new Set(event.logs.map((l) => l.medication_id));
+    const loggedCount = loggedMedIds.size;
+    const administered = event.logs.filter((l) => l.status === 'administered').length;
+    const notAdministered = event.logs.filter((l) => l.status === 'not_administered').length;
+    const remaining = Math.max(0, total - loggedCount);
+
     if (event.status === 'attention') {
-      badgeLabel = 'Não administrado';
-      subLabel = 'Verifique os detalhes';
+      if (remaining === 0) {
+        badgeLabel = 'Não administrado';
+        badgeVariant = 'attention';
+        subLabel = 'Verifique os detalhes';
+      } else {
+        badgeLabel = `${loggedCount} de ${total} registrados`;
+        badgeVariant = 'attention';
+        subLabel = remaining === 1 ? 'Falta 1 medicamento' : `Faltam ${remaining} medicamentos`;
+      }
     } else if (event.status === 'confirmed') {
       badgeLabel = `${administered} de ${total} confirmados`;
+      badgeVariant = 'confirmed';
+    } else if (loggedCount > 0 && remaining > 0) {
+      if (notAdministered > 0) {
+        badgeLabel = `${loggedCount} de ${total} registrados`;
+        badgeVariant = 'attention';
+      } else {
+        badgeLabel = `${administered} de ${total} confirmados`;
+        badgeVariant = 'pending';
+      }
+      subLabel = remaining === 1 ? 'Falta 1 medicamento' : `Faltam ${remaining} medicamentos`;
     } else if (event.status === 'pending') {
       badgeLabel = 'Pendente';
-      subLabel = `${total} medicamentos`;
+      badgeVariant = 'pending';
+      subLabel = total === 1 ? '1 medicamento' : `${total} medicamentos`;
     } else {
-      subLabel = `${total} medicamentos`;
+      badgeLabel = 'Aguardando';
+      badgeVariant = 'waiting';
+      subLabel = total === 1 ? '1 medicamento' : `${total} medicamentos`;
     }
   } else if (event.type === 'meal') {
     if (event.status === 'confirmed' && event.log) {
@@ -42,6 +77,7 @@ export function TimelineItem({ event, onClick, profileId }: TimelineItemProps) {
       if (event.log.consumption_status === 'partial') subLabel = 'Comeu parcialmente';
       if (event.log.consumption_status === 'none') {
         badgeLabel = 'Não comeu';
+        badgeVariant = 'attention';
         subLabel = 'Registrado';
       }
     }
@@ -54,6 +90,12 @@ export function TimelineItem({ event, onClick, profileId }: TimelineItemProps) {
 
   const isFailedSync = event._syncStatus === 'failed';
 
+  const hasMedicationLogs = event.type === 'medication_period' && event.logs.length > 0;
+  const hasPartialMedicationLogs =
+    event.type === 'medication_period' &&
+    event.logs.length > 0 &&
+    event.logs.length < event.medications.length;
+
   return (
     <div className="relative flex items-center justify-between group is-active">
       {/* Icon node */}
@@ -61,8 +103,9 @@ export function TimelineItem({ event, onClick, profileId }: TimelineItemProps) {
         className={cn(
           'flex items-center justify-center w-10 h-10 rounded-full border-4 border-gray-50 dark:border-[#09090b] bg-white dark:bg-[#18181e] shadow-sm shrink-0 z-10',
           {
-            'text-gray-400 dark:text-zinc-500': event.status === 'waiting',
-            'text-yellow-500 dark:text-amber-400': event.status === 'pending',
+            'text-gray-400 dark:text-zinc-500': event.status === 'waiting' && !hasPartialMedicationLogs,
+            'text-yellow-500 dark:text-amber-400':
+              event.status === 'pending' || (hasPartialMedicationLogs && event.status !== 'attention'),
             'text-green-500 dark:text-emerald-400': event.status === 'confirmed',
             'text-red-500 dark:text-rose-400':
               event.status === 'attention' ||
@@ -81,9 +124,9 @@ export function TimelineItem({ event, onClick, profileId }: TimelineItemProps) {
           'w-[calc(100%-2.75rem)] rounded-2xl border text-left transition-all active:scale-[0.98] overflow-hidden',
           {
             'bg-white dark:bg-[#121216] border-gray-100 dark:border-white/[0.08] hover:border-gray-200 dark:hover:border-white/[0.15] shadow-sm':
-              event.status === 'waiting',
+              event.status === 'waiting' && !hasPartialMedicationLogs,
             'bg-yellow-50/50 dark:bg-amber-950/25 border-yellow-100 dark:border-amber-900/40 hover:border-yellow-200 dark:hover:border-amber-800/60':
-              event.status === 'pending',
+              event.status === 'pending' || (hasPartialMedicationLogs && event.status !== 'attention'),
             'bg-green-50/30 dark:bg-emerald-950/25 border-green-100 dark:border-emerald-900/40 hover:border-green-200 dark:hover:border-emerald-800/60':
               event.status === 'confirmed',
             'bg-red-50/30 dark:bg-rose-950/25 border-red-100 dark:border-rose-900/40 hover:border-red-200 dark:hover:border-rose-800/60':
@@ -112,19 +155,7 @@ export function TimelineItem({ event, onClick, profileId }: TimelineItemProps) {
               )}
               <h4 className="font-semibold text-gray-900 dark:text-zinc-100">{event.title}</h4>
             </div>
-            <Badge
-              variant={
-                event.status === 'confirmed'
-                  ? 'confirmed'
-                  : event.status === 'pending'
-                  ? 'pending'
-                  : event.status === 'attention'
-                  ? 'attention'
-                  : event.type === 'meal' && event.log?.consumption_status === 'none'
-                  ? 'attention'
-                  : 'waiting'
-              }
-            >
+            <Badge variant={badgeVariant} className="whitespace-nowrap shrink-0">
               {badgeLabel}
             </Badge>
           </div>
@@ -160,18 +191,29 @@ export function TimelineItem({ event, onClick, profileId }: TimelineItemProps) {
             </div>
           )}
 
-          {(event.status === 'confirmed' || event.status === 'attention') &&
+          {((event.type === 'meal' && Boolean(event.log)) || hasMedicationLogs) &&
             (() => {
+              const latestMedLog =
+                event.type === 'medication_period'
+                  ? [...event.logs].sort((a, b) =>
+                      String(b?.created_at || '').localeCompare(String(a?.created_at || ''))
+                    )[0]
+                  : null;
               const logCreatorId =
-                event.type === 'meal' ? event.log?.created_by : event.logs?.[0]?.created_by;
+                event.type === 'meal' ? event.log?.created_by : latestMedLog?.created_by;
               const logCreatorName =
                 event.type === 'meal'
                   ? event.log?.creator?.name || 'Familiar'
-                  : event.logs?.[0]?.creator?.name || 'Familiar';
+                  : latestMedLog?.creator?.name || 'Familiar';
               const logCreatedAt =
-                event.type === 'meal' ? event.log?.created_at : event.logs?.[0]?.created_at;
+                event.type === 'meal' ? event.log?.created_at : latestMedLog?.created_at;
 
-              if (profileId && logCreatorId === profileId) return null;
+              const hasOtherCreators =
+                event.type === 'medication_period' &&
+                profileId &&
+                event.logs.some((l) => l?.created_by && l.created_by !== profileId);
+
+              if (profileId && logCreatorId === profileId && !hasOtherCreators) return null;
               const formattedCreatedTime = logCreatedAt ? formatDateToTime(logCreatedAt) : '';
 
               return (

@@ -1009,11 +1009,27 @@ export async function createMedicationLog(log: Database['public']['Tables']['med
   }
 
   try {
-    const { data, error } = await supabase
+    let { data, error } = await supabase
       .from('medication_logs')
       .insert(log as any)
       .select()
       .single();
+
+    if (
+      error &&
+      (error.code === 'PGRST204' || error.code === '42703') &&
+      String(error.message || '').toLowerCase().includes('applied_dosage') &&
+      'applied_dosage' in log
+    ) {
+      const { applied_dosage: _ignored, ...legacyLog } = log as any;
+      const retryRes = await supabase
+        .from('medication_logs')
+        .insert(legacyLog)
+        .select()
+        .single();
+      data = retryRes.data;
+      error = retryRes.error;
+    }
 
     if (error) {
       // Idempotency if already inserted concurrently by same user; conflict if another caregiver inserted
@@ -1126,12 +1142,29 @@ export async function updateMedicationLog(
       }
     }
 
-    const { data, error } = await (supabase as any)
+    let { data, error } = await (supabase as any)
       .from('medication_logs')
       .update(log)
       .eq('id', id)
       .select()
       .single();
+
+    if (
+      error &&
+      (error.code === 'PGRST204' || error.code === '42703') &&
+      String(error.message || '').toLowerCase().includes('applied_dosage') &&
+      'applied_dosage' in log
+    ) {
+      const { applied_dosage: _ignored, ...legacyLog } = log as any;
+      const retryRes = await (supabase as any)
+        .from('medication_logs')
+        .update(legacyLog)
+        .eq('id', id)
+        .select()
+        .single();
+      data = retryRes.data;
+      error = retryRes.error;
+    }
 
     if (error) {
       if (isRlsPermissionError(error)) {
@@ -1406,14 +1439,61 @@ export async function updateMedicationPeriod(
 }
 
 export async function createMedication(med: Database['public']['Tables']['medications']['Insert']) {
-  const { data, error } = await (supabase as any).from('medications').insert(med).select().single();
+  let { data, error } = await (supabase as any).from('medications').insert(med).select().single();
+
+  if (
+    error &&
+    (error.code === 'PGRST204' || error.code === '42703') &&
+    (String(error.message || '').toLowerCase().includes('weekdays') ||
+      String(error.message || '').toLowerCase().includes('daily_dosages'))
+  ) {
+    const needsExtendedCols =
+      (Array.isArray(med.weekdays) && med.weekdays.length > 1) ||
+      Boolean(med.daily_dosages && Object.keys(med.daily_dosages).length > 0);
+    if (needsExtendedCols) {
+      throw new Error(
+        'Atualize o banco de dados no Supabase (migration 0020) para salvar múltiplos dias ou doses diferentes por dia.'
+      );
+    }
+    const { weekdays: _w, daily_dosages: _d, ...legacyMed } = med as any;
+    const retryRes = await (supabase as any).from('medications').insert(legacyMed).select().single();
+    data = retryRes.data;
+    error = retryRes.error;
+  }
+
   if (error) throw error;
   await del(`medications_${med.patient_id}`).catch(() => {});
   return data;
 }
 
 export async function updateMedication(id: string, med: Database['public']['Tables']['medications']['Update']) {
-  const { data, error } = await (supabase as any).from('medications').update(med).eq('id', id).select().single();
+  let { data, error } = await (supabase as any).from('medications').update(med).eq('id', id).select().single();
+
+  if (
+    error &&
+    (error.code === 'PGRST204' || error.code === '42703') &&
+    (String(error.message || '').toLowerCase().includes('weekdays') ||
+      String(error.message || '').toLowerCase().includes('daily_dosages'))
+  ) {
+    const needsExtendedCols =
+      (Array.isArray(med.weekdays) && med.weekdays.length > 1) ||
+      Boolean(med.daily_dosages && Object.keys(med.daily_dosages).length > 0);
+    if (needsExtendedCols) {
+      throw new Error(
+        'Atualize o banco de dados no Supabase (migration 0020) para salvar múltiplos dias ou doses diferentes por dia.'
+      );
+    }
+    const { weekdays: _w, daily_dosages: _d, ...legacyMed } = med as any;
+    const retryRes = await (supabase as any)
+      .from('medications')
+      .update(legacyMed)
+      .eq('id', id)
+      .select()
+      .single();
+    data = retryRes.data;
+    error = retryRes.error;
+  }
+
   if (error) throw error;
   if (data?.patient_id) {
     await del(`medications_${data.patient_id}`).catch(() => {});

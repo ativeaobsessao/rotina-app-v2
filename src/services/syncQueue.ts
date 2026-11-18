@@ -674,6 +674,15 @@ async function runQueueCore(
         dbResult = await client.from('meal_logs').update(data).eq('id', id).select().maybeSingle();
       } else if (item.action === 'createMedicationLog') {
         dbResult = await client.from('medication_logs').insert(currentPayload).select().maybeSingle();
+        if (
+          dbResult.error &&
+          (dbResult.error.code === 'PGRST204' || dbResult.error.code === '42703') &&
+          String(dbResult.error.message || '').toLowerCase().includes('applied_dosage') &&
+          'applied_dosage' in currentPayload
+        ) {
+          const { applied_dosage: _ignored, ...legacyPayload } = currentPayload;
+          dbResult = await client.from('medication_logs').insert(legacyPayload).select().maybeSingle();
+        }
       } else if (item.action === 'updateMedicationLog') {
         const { id, ...data } = currentPayload;
         if (String(id || '').startsWith('offline_')) {
@@ -703,6 +712,15 @@ async function runQueueCore(
           }
         }
         dbResult = await client.from('medication_logs').update(data).eq('id', id).select().maybeSingle();
+        if (
+          dbResult.error &&
+          (dbResult.error.code === 'PGRST204' || dbResult.error.code === '42703') &&
+          String(dbResult.error.message || '').toLowerCase().includes('applied_dosage') &&
+          'applied_dosage' in data
+        ) {
+          const { applied_dosage: _ignored, ...legacyData } = data;
+          dbResult = await client.from('medication_logs').update(legacyData).eq('id', id).select().maybeSingle();
+        }
       } else if (item.action === 'createDailyClosure') {
         dbResult = await client.from('daily_closures').insert(currentPayload).select().maybeSingle();
       } else if (item.action === 'deleteDailyClosure') {

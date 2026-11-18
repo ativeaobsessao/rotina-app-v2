@@ -13,7 +13,7 @@ import {
   getMealPhotoUrl,
   mapWithConcurrency,
 } from '../../services/api';
-import { getWeekdayName } from '../../utils/date';
+import { isMedicationScheduledForDate } from '../../utils/medicationSchedule';
 import { Spinner } from '../ui/Spinner';
 import type { TimelineEvent, MealEventData, MedicationEventData } from '../../types/timeline';
 
@@ -75,8 +75,6 @@ export function DayEditModal({
       if (!isMountedRef.current || seq !== reqSeqRef.current) return;
       setIsDayClosed(Boolean(closure));
 
-      const currentWeekday = getWeekdayName(dateStr);
-
       const resolvedMeals: MealEventData[] = await mapWithConcurrency(meals, 5, async (meal) => {
         const log = mealLogs.find((l) => l.meal_config_id === meal.id);
         const photoSignedUrl = log?.photo_url ? await getMealPhotoUrl(log.photo_url) : null;
@@ -95,13 +93,12 @@ export function DayEditModal({
       if (!isMountedRef.current || seq !== reqSeqRef.current) return;
 
       const timeline: TimelineEvent[] = [...resolvedMeals];
+      const loggedMedIdsOnDate = new Set(medLogs.map((l) => l.medication_id));
 
       for (const period of medPeriods) {
         const periodMeds = allMeds.filter((m) => {
           if (m.medication_period_id !== period.id) return false;
-          if (m.frequency === 'daily') return true;
-          if (m.frequency === 'weekly') return m.weekday === currentWeekday;
-          return false;
+          return isMedicationScheduledForDate(m, dateStr) || loggedMedIdsOnDate.has(m.id);
         });
 
         if (periodMeds.length === 0) continue;
@@ -111,12 +108,12 @@ export function DayEditModal({
         );
 
         let status: 'waiting' | 'pending' | 'confirmed' | 'attention' = 'waiting';
+        const anyNotAdministered = periodLogs.some((l) => l.status === 'not_administered');
 
         if (periodLogs.length === periodMeds.length) {
-          const anyNotAdministered = periodLogs.some((l) => l.status === 'not_administered');
           status = anyNotAdministered ? 'attention' : 'confirmed';
         } else if (periodLogs.length > 0) {
-          status = 'attention';
+          status = anyNotAdministered ? 'attention' : 'pending';
         } else {
           status = 'pending';
         }

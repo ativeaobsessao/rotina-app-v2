@@ -53,7 +53,9 @@ export function DailyProgressBar({ total, completed }: DailyProgressBarProps) {
           ? 'Todos os cuidados de hoje foram registrados com carinho ✨'
           : completed === 0
           ? 'Inicie os registros do dia'
-          : `Faltam ${total - completed} ${total - completed === 1 ? 'item' : 'itens'} na rotina`}
+          : total - completed === 1
+          ? 'Falta 1 item na rotina'
+          : `Faltam ${total - completed} itens na rotina`}
       </p>
     </div>
   );

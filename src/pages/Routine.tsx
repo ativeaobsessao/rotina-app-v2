@@ -1,4 +1,10 @@
 import { formatTime } from '../utils/date';
+import {
+  formatMedicationScheduleSummary,
+  hasCustomDailyDosages,
+  getMedicationWeekdays,
+  WEEKDAY_OPTIONS,
+} from '../utils/medicationSchedule';
 import React, { useEffect, useRef, useState } from 'react';
 import { Plus, Edit2, Camera, AlertCircle, RotateCcw } from 'lucide-react';
 import { MainLayout } from '../layouts/MainLayout';
@@ -86,7 +92,7 @@ export function RoutineScreen({ onTabChange }: RoutineScreenProps) {
       if (!isMountedRef.current || seq !== loadSeqRef.current) return;
       setIsAdmin(role === 'ADMIN');
       if (!pat) {
-        setLoadError('Não foi possível carregar os dados do paciente.');
+        setLoadError('Não foi possível carregar os dados do familiar.');
         return;
       }
       setPatient(pat);
@@ -171,13 +177,6 @@ export function RoutineScreen({ onTabChange }: RoutineScreenProps) {
     );
   }
 
-  const translateWeekday = (day: string) => {
-    const map: Record<string, string> = {
-      Monday: 'Segunda-feira', Tuesday: 'Terça-feira', Wednesday: 'Quarta-feira',
-      Thursday: 'Quinta-feira', Friday: 'Sexta-feira', Saturday: 'Sábado', Sunday: 'Domingo'
-    };
-    return map[day] || day;
-  };
 
   return (
     <MainLayout activeTab="routine" onTabChange={onTabChange}>
@@ -312,8 +311,19 @@ export function RoutineScreen({ onTabChange }: RoutineScreenProps) {
                   </div>
 
                   <div className="space-y-2 mb-4">
-                    {periodMeds.map(med =>
-                      isAdmin ? (
+                    {periodMeds.map((med) => {
+                      const summaryText = formatMedicationScheduleSummary(med);
+                      const customDetails = hasCustomDailyDosages(med)
+                        ? getMedicationWeekdays(med)
+                            .map((dayKey) => {
+                              const opt = WEEKDAY_OPTIONS.find((w) => w.key === dayKey);
+                              const d = med.daily_dosages?.[dayKey] || med.dosage;
+                              return `${opt?.abbr || dayKey}: ${d}`;
+                            })
+                            .join(' · ')
+                        : null;
+
+                      return isAdmin ? (
                         <button
                           key={med.id}
                           onClick={() => {
@@ -322,28 +332,34 @@ export function RoutineScreen({ onTabChange }: RoutineScreenProps) {
                           }}
                           className={`w-full flex items-center justify-between p-3 rounded-xl border transition-colors text-left ${!med.active ? 'bg-gray-50 dark:bg-[#16161b] border-gray-100 dark:border-white/[0.05] opacity-70' : 'bg-white dark:bg-[#1c1c22] border-gray-100 dark:border-white/[0.08] hover:border-gray-200 dark:hover:bg-[#222229]'}`}
                         >
-                          <div>
+                          <div className="min-w-0 pr-2">
                             <p className={`font-medium ${!med.active ? 'text-gray-400 dark:text-zinc-500 line-through' : 'text-gray-900 dark:text-zinc-100'}`}>{med.name}</p>
-                            <p className="text-xs text-gray-500 dark:text-zinc-400">
-                              {med.dosage} • {med.frequency === 'daily' ? 'Diário' : `Semanal (${translateWeekday(med.weekday || '')})`}
-                            </p>
+                            <p className="text-xs text-gray-500 dark:text-zinc-400">{summaryText}</p>
+                            {customDetails && (
+                              <p className="text-[11px] text-indigo-600 dark:text-indigo-400 mt-0.5 leading-snug">
+                                {customDetails}
+                              </p>
+                            )}
                           </div>
-                          <Edit2 className="w-4 h-4 text-gray-300 dark:text-zinc-600" />
+                          <Edit2 className="w-4 h-4 text-gray-300 dark:text-zinc-600 shrink-0" />
                         </button>
                       ) : (
                         <div
                           key={med.id}
                           className={`w-full flex items-center justify-between p-3 rounded-xl border text-left ${!med.active ? 'bg-gray-50 dark:bg-[#16161b] border-gray-100 dark:border-white/[0.05] opacity-70' : 'bg-white dark:bg-[#1c1c22] border-gray-100 dark:border-white/[0.08]'}`}
                         >
-                          <div>
+                          <div className="min-w-0">
                             <p className={`font-medium ${!med.active ? 'text-gray-400 dark:text-zinc-500 line-through' : 'text-gray-900 dark:text-zinc-100'}`}>{med.name}</p>
-                            <p className="text-xs text-gray-500 dark:text-zinc-400">
-                              {med.dosage} • {med.frequency === 'daily' ? 'Diário' : `Semanal (${translateWeekday(med.weekday || '')})`}
-                            </p>
+                            <p className="text-xs text-gray-500 dark:text-zinc-400">{summaryText}</p>
+                            {customDetails && (
+                              <p className="text-[11px] text-indigo-600 dark:text-indigo-400 mt-0.5 leading-snug">
+                                {customDetails}
+                              </p>
+                            )}
                           </div>
                         </div>
-                      )
-                    )}
+                      );
+                    })}
                     {periodMeds.length === 0 && (
                       <p className="text-sm text-gray-400 dark:text-zinc-500 text-center py-2">Nenhum medicamento configurado.</p>
                     )}

@@ -28,11 +28,14 @@ import {
   getLocalDateString,
   getCurrentLocalTime,
   formatFriendlyDate,
-  getWeekdayName,
   formatDateToTime,
   isAfterClosureReminderTime,
   getMsUntilNextClosureBoundary,
 } from '../utils/date';
+import {
+  isMedicationScheduledForDate,
+  getTimelineProgressMetrics,
+} from '../utils/medicationSchedule';
 import {
   isClosureReminderDismissed,
   dismissClosureReminder,
@@ -258,7 +261,6 @@ export function TodayScreen({
         );
 
         const currentTime = getCurrentLocalTime();
-        const currentWeekday = getWeekdayName(dateStr);
 
         // Track new offline object URLs and revoke old ones cleanly only when replacing
         const nextBlobUrls: string[] = [];
@@ -339,12 +341,12 @@ export function TodayScreen({
         const timeline: TimelineEvent[] = [...resolvedMeals];
 
         // 2. Process Medication Periods
+        const loggedMedIdsOnDate = new Set(medLogs.map((l) => l.medication_id));
+
         for (const period of medPeriods) {
           const periodMeds = allMeds.filter((m) => {
             if (m.medication_period_id !== period.id) return false;
-            if (m.frequency === 'daily') return true;
-            if (m.frequency === 'weekly') return m.weekday === currentWeekday;
-            return false;
+            return isMedicationScheduledForDate(m, dateStr) || loggedMedIdsOnDate.has(m.id);
           });
 
           if (periodMeds.length === 0) continue;
@@ -378,7 +380,9 @@ export function TodayScreen({
 
           if (allResolved) {
             status = hasNotAdministered ? 'attention' : 'confirmed';
-          } else if (period.scheduled_time <= currentTime) {
+          } else if (hasNotAdministered) {
+            status = 'attention';
+          } else if (periodLogs.length > 0 || period.scheduled_time <= currentTime) {
             status = 'pending';
           }
 
@@ -709,11 +713,12 @@ export function TodayScreen({
     );
   }
 
-  const resolvedEventsCount = events.filter(
-    (e) => e.status === 'confirmed' || e.status === 'attention'
-  ).length;
-  const pendingEventsCount = events.length - resolvedEventsCount;
-  const isAllEventsCompleted = events.length > 0 && resolvedEventsCount === events.length;
+  const {
+    totalItems,
+    completedItems,
+    pendingItems,
+    allCompleted: isAllEventsCompleted,
+  } = getTimelineProgressMetrics(events);
 
   const isViewingToday = localDate === clockDate;
   const isClosureBannerDismissed =
@@ -939,7 +944,7 @@ export function TodayScreen({
             </div>
           )}
 
-          <DailyProgressBar total={events.length} completed={resolvedEventsCount} />
+          <DailyProgressBar total={totalItems} completed={completedItems} />
         </section>
 
         {/* Contingency stale cache notice */}
@@ -1162,8 +1167,8 @@ export function TodayScreen({
                       <p className="text-xs text-gray-500 dark:text-zinc-400 mt-1 leading-relaxed">
                         {isAllEventsCompleted
                           ? 'Todas as atividades foram registradas. Toque abaixo para finalizar o dia.'
-                          : events.length > 0
-                          ? `${resolvedEventsCount} de ${events.length} atividades registradas. Você pode encerrar o dia a qualquer momento.`
+                          : totalItems > 0
+                          ? `${completedItems} de ${totalItems} atividades registradas. Você pode encerrar o dia a qualquer momento.`
                           : 'Você pode encerrar o dia a qualquer momento.'}
                       </p>
                     </div>
@@ -1199,15 +1204,15 @@ export function TodayScreen({
               Encerrar o dia?
             </h3>
             <p className="text-sm text-gray-500 dark:text-zinc-400 mb-4">
-              {events.length === 0 ? (
+              {totalItems === 0 ? (
                 <>
                   Nenhuma atividade foi configurada na rotina para este dia. Deseja encerrá-lo mesmo assim?
                 </>
-              ) : pendingEventsCount > 0 ? (
+              ) : pendingItems > 0 ? (
                 <>
-                  {pendingEventsCount === 1
+                  {pendingItems === 1
                     ? 'Existe 1 atividade sem registro neste dia. Deseja encerrá-lo mesmo assim?'
-                    : `Existem ${pendingEventsCount} atividades sem registro neste dia. Deseja encerrá-lo mesmo assim?`}
+                    : `Existem ${pendingItems} atividades sem registro neste dia. Deseja encerrá-lo mesmo assim?`}
                   <span className="block mt-2 text-xs text-gray-400 dark:text-zinc-500">
                     Os registros já preenchidos e as pendências continuarão preservados como estão.
                   </span>
@@ -1245,7 +1250,7 @@ export function TodayScreen({
               >
                 {closingDay
                   ? 'Encerrando...'
-                  : events.length === 0 || pendingEventsCount > 0
+                  : totalItems === 0 || pendingItems > 0
                   ? 'Encerrar mesmo assim'
                   : 'Encerrar dia'}
               </button>
@@ -1311,8 +1316,8 @@ export function TodayScreen({
       {/* Nightly Closure Reminder Banner: active members/caregivers/admins, today only, open day only, >= 21:00 America/Sao_Paulo, not dismissed */}
       {showClosureReminderBanner && (
         <ClosureReminderBanner
-          eventsCount={events.length}
-          pendingEventsCount={pendingEventsCount}
+          eventsCount={totalItems}
+          pendingEventsCount={pendingItems}
           onRequestClose={() => {
             setActionError(null);
             setShowClosureModal(true);

@@ -195,21 +195,23 @@ test('[Unitário] Cálculo do próximo marco temporal aponta exatamente para 21:
 test('[Unitário] Dispensa do banner persiste no localStorage isolada por usuário, paciente e data local', () => {
   const storage = makeMemoryStorage();
 
-  // Antes da dispensa: visível apenas para ADMIN no dia atual em aberto após 21h
+  // Antes da dispensa: visível para qualquer membro ativo (ADM, Familiar ou Cuidador) no dia atual em aberto após 21h
   assert.equal(
     shouldShowClosureReminderBanner({
-      isAdmin: true,
+      canCloseDay: true,
+      isAdmin: false,
       isViewingToday: true,
       isDayClosed: false,
       isAfterReminderTime: true,
-      isDismissed: isClosureReminderDismissed('admin-1', 'pat-1', '2026-11-16', storage),
+      isDismissed: isClosureReminderDismissed('member-1', 'pat-1', '2026-11-16', storage),
     }),
     true
   );
 
-  // MEMBER nunca visualiza
+  // Conta sem vínculo ativo na família nunca visualiza
   assert.equal(
     shouldShowClosureReminderBanner({
+      canCloseDay: false,
       isAdmin: false,
       isViewingToday: true,
       isDayClosed: false,
@@ -348,14 +350,14 @@ test('[React/JSDOM] ClosureReminderBanner aciona confirmação ao clicar Encerra
   }
 });
 
-test('[React/JSDOM] TodayScreen exibe cabeçalho compacto (só barra superior sticky), expande recado longo, aparece automaticamente às 21h, abre confirmação e bloqueia MEMBER', async () => {
+test('[React/JSDOM] TodayScreen exibe seção final de Encerramento do dia antes das 21h, lembrete às 21h e libera encerramento para ADM, familiares e cuidadores', async () => {
   const dom = setupDom();
   const container = dom.window.document.getElementById('root')!;
   const root = createRoot(container);
 
   // Começa 20:59:59.750 BRT (faltam ~250ms para 21:00:00 BRT)
   let simulatedNow = new Date('2026-11-16T23:59:59.750Z');
-  let activeRole: 'ADMIN' | 'MEMBER' = 'ADMIN';
+  let activeRole: 'ADMIN' | 'MEMBER' | null = 'ADMIN';
   let activeUserId = 'admin-1';
 
   // Backup original supabase methods
@@ -413,7 +415,11 @@ test('[React/JSDOM] TodayScreen exibe cabeçalho compacto (só barra superior st
       case 'patients':
         return makeQueryChain([{ id: 'pat-1', family_id: 'fam-1', name: 'Dona Maria', photo_url: null, gender: 'F' }]);
       case 'family_members':
-        return makeQueryChain([{ id: 'fm-1', user_id: activeUserId, family_id: 'fam-1', role: activeRole }]);
+        return makeQueryChain(
+          activeRole
+            ? [{ id: 'fm-1', user_id: activeUserId, family_id: 'fam-1', role: activeRole }]
+            : []
+        );
       case 'meal_configs':
         return makeQueryChain([
           { id: 'mc-1', patient_id: 'pat-1', name: 'Café da manhã', type: 'breakfast', scheduled_time: '08:00:00', display_order: 1, active: true },
@@ -496,11 +502,30 @@ test('[React/JSDOM] TodayScreen exibe cabeçalho compacto (só barra superior st
     });
     assert.match(patientSection.textContent || '', /Menos/);
 
-    // TESTE C: Às 20:59 BRT o banner de encerramento deve estar completamente ausente
+    // TESTE C: Às 20:59 BRT o banner flutuante das 21h está ausente, MAS a seção final "Encerramento do dia" já está disponível para fechar o dia antes das 21h!
     assert.equal(
       container.querySelector('[aria-label="Lembrete de encerramento diário"]'),
       null
     );
+    const inlineClosureSectionBefore21 = container.querySelector('section[aria-label="Encerramento do dia"]');
+    assert.ok(inlineClosureSectionBefore21, 'Seção final de encerramento deve existir antes das 21h');
+    const inlineCloseBtnBefore21 = (
+      Array.from(inlineClosureSectionBefore21.querySelectorAll('button')) as HTMLButtonElement[]
+    ).find((b) => b.textContent?.includes('Encerrar Dia'));
+    assert.ok(inlineCloseBtnBefore21, 'Botão Encerrar Dia deve estar disponível antes das 21h');
+
+    // Clicar no botão da seção final antes das 21h abre o modal de confirmação normalmente
+    await act(async () => {
+      inlineCloseBtnBefore21.click();
+    });
+    assert.match(container.textContent || '', /Encerrar o dia\?/);
+    const cancelBefore21Btn = (Array.from(container.querySelectorAll('button')) as HTMLButtonElement[]).find(
+      (b) => b.textContent?.trim() === 'Voltar'
+    );
+    assert.ok(cancelBefore21Btn);
+    await act(async () => {
+      cancelBefore21Btn.click();
+    });
 
     // TESTE D: Ao virar 21:00 BRT, o timer automático exibe o banner sem recarregar a página
     simulatedNow = new Date('2026-11-17T00:00:00.050Z'); // 21:00:00.050 BRT
@@ -513,7 +538,7 @@ test('[React/JSDOM] TodayScreen exibe cabeçalho compacto (só barra superior st
     assert.match(bannerEl.textContent || '', /Encerrar Dia/);
     assert.match(bannerEl.textContent || '', /1 atividade pendente/);
 
-    // Clicar em Encerrar Dia abre o modal de confirmação (não encerra diretamente)
+    // Clicar em Encerrar Dia no banner abre o modal de confirmação (não encerra diretamente)
     const closeDayBtn = (Array.from(bannerEl.querySelectorAll('button')) as HTMLButtonElement[]).find(
       (b) => b.textContent?.trim() === 'Encerrar Dia'
     );
@@ -531,7 +556,7 @@ test('[React/JSDOM] TodayScreen exibe cabeçalho compacto (só barra superior st
       backBtn.click();
     });
 
-    // TESTE E: Clicar no X fecha imediatamente e persiste no localStorage do dia/usuário/paciente
+    // TESTE E: Clicar no X fecha o banner flutuante e persiste no localStorage, mantendo a seção final visível
     const dismissBtn = bannerEl.querySelector(
       'button[aria-label="Dispensar lembrete de encerramento"]'
     ) as HTMLButtonElement | null;
@@ -545,22 +570,23 @@ test('[React/JSDOM] TodayScreen exibe cabeçalho compacto (só barra superior st
       container.querySelector('[aria-label="Lembrete de encerramento diário"]'),
       null
     );
+    assert.ok(container.querySelector('section[aria-label="Encerramento do dia"]'));
     assert.equal(
       dom.window.localStorage.getItem(getClosureReminderDismissKey('admin-1', 'pat-1', '2026-11-16')),
       '1'
     );
 
-    // TESTE F: MEMBER às 21:30 BRT nunca vê o banner nem botão de encerramento
+    // TESTE F: MEMBER ativo (familiar ou cuidadora) TAMBÉM vê a seção final antes/depois das 21h e o lembrete das 21h
     activeRole = 'MEMBER';
     activeUserId = 'member-1';
-    simulatedNow = new Date('2026-11-17T00:30:00.000Z'); // 21:30 BRT
+    simulatedNow = new Date('2026-11-16T18:00:00.000Z'); // 15:00 BRT (antes das 21h)
     await act(async () => {
       root.render(
         React.createElement(
           ThemeProvider,
           null,
           React.createElement(TodayScreen, {
-            key: 'member-view',
+            key: 'member-before-21',
             nowProvider: () => simulatedNow,
           })
         )
@@ -568,10 +594,50 @@ test('[React/JSDOM] TodayScreen exibe cabeçalho compacto (só barra superior st
       await new Promise((r) => setTimeout(r, 120));
     });
 
-    assert.equal(
+    const memberSectionBefore21 = container.querySelector('section[aria-label="Encerramento do dia"]');
+    assert.ok(memberSectionBefore21, 'MEMBER ativo deve ver a seção Encerramento do dia às 15:00 BRT');
+    assert.match(memberSectionBefore21.textContent || '', /Encerrar Dia/);
+    assert.equal(container.querySelector('[aria-label="Lembrete de encerramento diário"]'), null);
+
+    simulatedNow = new Date('2026-11-17T00:30:00.000Z'); // 21:30 BRT
+    await act(async () => {
+      root.render(
+        React.createElement(
+          ThemeProvider,
+          null,
+          React.createElement(TodayScreen, {
+            key: 'member-after-21',
+            nowProvider: () => simulatedNow,
+          })
+        )
+      );
+      await new Promise((r) => setTimeout(r, 120));
+    });
+
+    assert.ok(
       container.querySelector('[aria-label="Lembrete de encerramento diário"]'),
-      null
+      'MEMBER ativo também deve receber o lembrete às 21:30 BRT caso o dia siga aberto'
     );
+
+    // TESTE G: Usuário sem vínculo ativo na família não vê nem seção final nem lembrete
+    activeRole = null;
+    activeUserId = 'unlinked-user';
+    await act(async () => {
+      root.render(
+        React.createElement(
+          ThemeProvider,
+          null,
+          React.createElement(TodayScreen, {
+            key: 'unlinked-view',
+            nowProvider: () => simulatedNow,
+          })
+        )
+      );
+      await new Promise((r) => setTimeout(r, 120));
+    });
+
+    assert.equal(container.querySelector('section[aria-label="Encerramento do dia"]'), null);
+    assert.equal(container.querySelector('[aria-label="Lembrete de encerramento diário"]'), null);
   } finally {
     await act(async () => root.unmount());
     (supabase.auth as any).getUser = origAuthGetUser;

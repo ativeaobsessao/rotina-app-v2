@@ -337,18 +337,29 @@ function installEntrega4SupabaseMock(options: {
 
     const executeWrite = () => {
       if (table === 'daily_closures') {
-        if (!isAdmin()) {
-          return {
-            data: null,
-            error: { code: '42501', message: 'new row violates row-level security policy for table "daily_closures"' },
-          };
-        }
         if (state.op === 'insert') {
-          const row = { id: `cl-${closures.length + 1}`, ...state.payload, closed_at: '2026-11-16T23:00:00.000Z' };
+          if (!isMember() || state.payload?.closed_by !== actorId) {
+            return {
+              data: null,
+              error: { code: '42501', message: 'new row violates row-level security policy for table "daily_closures"' },
+            };
+          }
+          const row = {
+            id: `cl-${closures.length + 1}`,
+            ...state.payload,
+            closed_at: '2026-11-16T23:00:00.000Z',
+            closed_by_profile: { name: profiles.get(actorId)?.name || 'Familiar' },
+          };
           closures.push(row);
           return { data: row, error: null };
         }
         if (state.op === 'delete') {
+          if (!isAdmin()) {
+            return {
+              data: null,
+              error: { code: '42501', message: 'new row violates row-level security policy for table "daily_closures"' },
+            };
+          }
           return { data: null, error: null };
         }
       }
@@ -856,7 +867,7 @@ test('[Teste B] CAREGIVER + MEMBER registra cuidados diários e edita dias em ab
     });
     assert.equal(mood?.updated_by, 'caregiver-member-1');
 
-    // 2. HistoryScreen para CAREGIVER + MEMBER permite editar registros em dia aberto, mas oculta "Encerrar Dia"
+    // 2. HistoryScreen para CAREGIVER + MEMBER permite editar registros e encerrar dia aberto
     let requestedEditDate: string | null = null;
     await act(async () => {
       root.render(
@@ -883,7 +894,7 @@ test('[Teste B] CAREGIVER + MEMBER registra cuidados diários e edita dias em ab
 
     const histText = container.textContent || '';
     assert.match(histText, /Editar registros deste dia/);
-    assert.equal(histText.includes('Encerrar Dia'), false);
+    assert.match(histText, /Encerrar Dia/);
 
     const editDayBtn = (Array.from(container.querySelectorAll('button')) as HTMLButtonElement[]).find((b) =>
       b.textContent?.includes('Editar registros deste dia')
@@ -942,7 +953,7 @@ test('[Testes C & D] ADMIN mantém ações administrativas enquanto MEMBER fica 
     assert.match(container.textContent || '', /Editar perfil/);
     assert.match(container.textContent || '', /Adicionar/);
 
-    // 2. Teste D: Troca para MEMBER — banner desaparece, Rotina fica somente leitura, FamilyModal oculta gestão e daily_closures falha
+    // 2. Teste D: Troca para MEMBER — vê seção final de encerramento e lembrete 21h, encerra o dia, mas Rotina/FamilyModal/Reabrir seguem restritos a ADMIN
     mock.setActor('family-member-1');
     await clearAllUserCaches();
 
@@ -959,7 +970,8 @@ test('[Testes C & D] ADMIN mantém ações administrativas enquanto MEMBER fica 
       );
       await new Promise((r) => setTimeout(r, 120));
     });
-    assert.equal(container.querySelector('[aria-label="Lembrete de encerramento diário"]'), null);
+    assert.ok(container.querySelector('section[aria-label="Encerramento do dia"]'));
+    assert.ok(container.querySelector('[aria-label="Lembrete de encerramento diário"]'));
     assert.match(container.textContent || '', /\+\s*Bem-estar/);
 
     await act(async () => {
@@ -987,11 +999,10 @@ test('[Testes C & D] ADMIN mantém ações administrativas enquanto MEMBER fica 
     assert.equal(familyText.includes('Convites Pendentes'), false);
     assert.equal(container.querySelectorAll('button[title="Remover Membro"]').length, 0);
 
-    // Tentativa direta de encerrar/reabrir dia como MEMBER é barrada sem ir para fila offline
+    // Encerrar dia como MEMBER é permitido com autoria própria, mas reabrir dia encerrado continua restrito a ADMIN
     const closureCreateRes = await createDailyClosure('fam-1', 'pat-1', '2026-11-16', 'family-member-1');
-    assert.equal(closureCreateRes.success, false);
-    assert.equal(closureCreateRes.queued, undefined);
-    assert.match(closureCreateRes.error || '', /Apenas administradores/);
+    assert.equal(closureCreateRes.success, true);
+    assert.equal(closureCreateRes.closure?.closed_by, 'family-member-1');
 
     const closureDeleteRes = await deleteDailyClosure('pat-1', '2026-11-16');
     assert.equal(closureDeleteRes.success, false);
@@ -1395,7 +1406,7 @@ test('[Teste I] Textos explicativos em FamilyModal refletem papel colaborativo d
     });
 
     const text = container.textContent || '';
-    assert.match(text, /pode acompanhar e registrar refeições, medicamentos e bem-estar, mas não pode administrar/i);
+    assert.match(text, /pode acompanhar, registrar refeições, medicamentos, bem-estar e encerrar o dia, mas não pode administrar/i);
     assert.match(text, /configurar a rotina e gerenciar membros e convites/i);
     assert.match(text, /Cuidadores podem acompanhar e registrar os cuidados diários desde a entrada/i);
     assert.equal(text.includes('entra apenas para acompanhar a rotina'), false);
@@ -1414,4 +1425,14 @@ test('[Teste I] Textos explicativos em FamilyModal refletem papel colaborativo d
     mock.restore();
     dom.window.close();
   }
+});
+
+test('[Estático SQL] Migration 0018 permite INSERT em daily_closures para todos os membros ativos mantendo DELETE restrito a ADMIN', () => {
+  const sql0018 = fs.readFileSync(path.resolve('supabase/migrations/0018_member_daily_closure_access.sql'), 'utf8');
+  assert.match(sql0018, /CREATE POLICY "Family members can insert daily closures for their family"[\s\S]*ON public\.daily_closures[\s\S]*FOR INSERT/);
+  assert.match(sql0018, /public\.user_in_family\(family_id\)/);
+  assert.match(sql0018, /closed_by = auth\.uid\(\)/);
+  assert.match(sql0018, /CREATE POLICY "Admins can delete daily closures of their family"[\s\S]*FOR DELETE[\s\S]*public\.user_is_family_admin\(family_id\)/);
+  assert.equal(/DROP TABLE/i.test(sql0018), false);
+  assert.equal(/TRUNCATE/i.test(sql0018), false);
 });

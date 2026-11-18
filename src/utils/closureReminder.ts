@@ -75,7 +75,8 @@ export function dismissClosureReminder(
 }
 
 export interface ClosureReminderVisibilityParams {
-  isAdmin: boolean;
+  canCloseDay?: boolean;
+  isAdmin?: boolean;
   isViewingToday: boolean;
   isDayClosed: boolean;
   isAfterReminderTime: boolean;
@@ -83,14 +84,16 @@ export interface ClosureReminderVisibilityParams {
 }
 
 export function shouldShowClosureReminderBanner({
+  canCloseDay,
   isAdmin,
   isViewingToday,
   isDayClosed,
   isAfterReminderTime,
   isDismissed,
 }: ClosureReminderVisibilityParams): boolean {
+  const hasPermission = canCloseDay ?? Boolean(isAdmin);
   return Boolean(
-    isAdmin &&
+    hasPermission &&
       isViewingToday &&
       !isDayClosed &&
       isAfterReminderTime &&

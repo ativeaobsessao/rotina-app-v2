@@ -453,6 +453,16 @@ export interface Database {
           member_type: FamilyMemberType;
         };
       };
+      resend_family_invite: {
+        Args: { p_invite_id: string };
+        Returns: {
+          invite_id: string;
+          token: string;
+          expires_at: string;
+          invited_name: string | null;
+          member_type: FamilyMemberType;
+        };
+      };
       accept_family_invite: {
         Args: { p_token: string };
         Returns: {

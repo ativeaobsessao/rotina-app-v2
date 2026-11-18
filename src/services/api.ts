@@ -396,7 +396,7 @@ export async function createDailyClosure(
       if (isRlsPermissionError(error)) {
         return {
           success: false,
-          error: 'Apenas administradores podem encerrar o dia.',
+          error: 'Sua conta não possui vínculo ativo com esta família para encerrar o dia.',
         };
       }
 
@@ -409,7 +409,7 @@ export async function createDailyClosure(
     if (isRlsPermissionError(err)) {
       return {
         success: false,
-        error: 'Apenas administradores podem encerrar o dia.',
+        error: 'Sua conta não possui vínculo ativo com esta família para encerrar o dia.',
       };
     }
     if (isTransientNetworkError(err)) {
@@ -1565,6 +1565,12 @@ export async function createFamilyInvite(input?: CreateFamilyInviteInput): Promi
   const { data, error } = await (supabase as any).rpc('create_family_invite', rpcArgs);
   if (error) throw error;
   return data || [];
+}
+
+export async function resendFamilyInvite(inviteId: string): Promise<any> {
+  const { data, error } = await (supabase as any).rpc('resend_family_invite', { p_invite_id: inviteId });
+  if (error) throw error;
+  return data;
 }
 
 export async function acceptFamilyInvite(token: string): Promise<any> {

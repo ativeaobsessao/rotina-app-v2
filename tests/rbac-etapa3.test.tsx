@@ -477,7 +477,7 @@ test('[React/JSDOM] HistoryDayGroup separa edição de registros (MEMBER em dia 
     assert.equal(editMealCalled, 0);
     assert.equal(editMedCalled, 0);
 
-    // 2. MEMBER ativo em dia aberto: edita registros, mas NÃO vê "Encerrar Dia"
+    // 2. MEMBER ativo em dia aberto: edita registros E pode encerrar o dia em aberto
     await act(async () => {
       root.render(
         React.createElement(HistoryDayGroup, {
@@ -485,6 +485,7 @@ test('[React/JSDOM] HistoryDayGroup separa edição de registros (MEMBER em dia 
           profileId: 'member-1',
           canEdit: false,
           canEditRecords: true,
+          canCloseDay: true,
           canManageClosures: false,
           onViewPhoto: (url) => {
             viewedPhotoUrl = url;
@@ -502,7 +503,7 @@ test('[React/JSDOM] HistoryDayGroup separa edição de registros (MEMBER em dia 
     });
 
     const memberOpenText = container.textContent || '';
-    assert.equal(memberOpenText.includes('Encerrar Dia'), false);
+    assert.match(memberOpenText, /Encerrar Dia/);
     assert.match(memberOpenText, /Editar registros deste dia/);
 
     const memberButtons = Array.from(container.querySelectorAll('button')) as HTMLButtonElement[];

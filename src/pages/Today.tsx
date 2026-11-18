@@ -55,7 +55,7 @@ import type {
   MedicationEventData,
   EventSyncStatus,
 } from '../types/timeline';
-import { Unlock, MessageCircle, AlertCircle, RefreshCw, X } from 'lucide-react';
+import { Unlock, MessageCircle, AlertCircle, RefreshCw, X, CheckCircle2 } from 'lucide-react';
 
 const DEFAULT_NOW_PROVIDER = () => new Date();
 
@@ -633,8 +633,8 @@ export function TodayScreen({
 
   const handleCloseDay = async () => {
     if (!patient || !profile || closingRef.current || closingDay) return;
-    if (!isAdmin) {
-      setActionError('Apenas administradores podem encerrar o dia.');
+    if (!canRecordDailyActivities) {
+      setActionError('Sua conta não possui vínculo ativo com esta família para encerrar o dia.');
       return;
     }
     closingRef.current = true;
@@ -720,6 +720,7 @@ export function TodayScreen({
     isClosureReminderDismissed(profile?.id, patient?.id, localDate) && dismissSyncTick >= 0;
 
   const showClosureReminderBanner = shouldShowClosureReminderBanner({
+    canCloseDay: canRecordDailyActivities,
     isAdmin,
     isViewingToday,
     isDayClosed: Boolean(dailyClosure),
@@ -1017,7 +1018,7 @@ export function TodayScreen({
             <div>
               <p className="text-sm font-medium text-emerald-800 dark:text-emerald-200">Tudo pronto!</p>
               <p className="text-xs text-emerald-700/80 dark:text-emerald-300/80 mt-0.5">
-                {isAdmin
+                {canRecordDailyActivities
                   ? 'Todas as atividades foram registradas. Você já pode encerrar o dia.'
                   : 'Todas as atividades de hoje já foram registradas.'}
               </p>
@@ -1028,7 +1029,7 @@ export function TodayScreen({
         {/* Timeline */}
         <div
           className={`px-3.5 sm:px-5 pt-3.5 space-y-5 ${
-            showClosureReminderBanner ? 'pb-24' : 'pb-6'
+            showClosureReminderBanner ? 'pb-28' : 'pb-8'
           }`}
         >
           {morning.length > 0 && (
@@ -1097,54 +1098,95 @@ export function TodayScreen({
             </div>
           )}
 
-          {/* Closure Area */}
-          <div className="px-0 pb-2">
-            {dailyClosure ? (
-              <div className="bg-gray-50 dark:bg-[#121216] border border-gray-200 dark:border-white/[0.08] rounded-xl p-4 flex flex-col items-center text-center">
-                <div className="w-10 h-10 bg-green-100 dark:bg-emerald-950/60 text-green-600 dark:text-emerald-300 rounded-full flex items-center justify-center mb-2">
-                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M5 13l4 4L19 7"
-                    />
-                  </svg>
-                </div>
-                <h3 className="font-semibold text-gray-900 dark:text-zinc-100">Dia encerrado</h3>
-                <p className="text-sm text-gray-500 dark:text-zinc-400 mt-1">
-                  Encerrado por {dailyClosure.closed_by_profile?.name || profile?.name || 'Familiar'} às{' '}
-                  {formatDateToTime(dailyClosure.closed_at)}
-                </p>
-                {dailyClosure._syncPending && (
-                  <span className="mt-1.5 text-[11px] font-medium text-amber-700 dark:text-amber-300">
-                    Salvo no aparelho • Aguardando envio
-                  </span>
-                )}
-
-                {isAdmin && (
-                  <button
-                    type="button"
-                    onClick={handleReopenDay}
-                    disabled={reopeningDay}
-                    className="mt-6 inline-flex items-center justify-center text-sm font-medium text-gray-500 dark:text-zinc-300 hover:text-gray-700 dark:hover:text-white bg-gray-50 dark:bg-[#1c1c22] hover:bg-gray-100 dark:hover:bg-[#26262f] px-5 py-2.5 rounded-2xl transition-all active:scale-95 border border-gray-200 dark:border-white/[0.1] disabled:opacity-50 w-full sm:w-auto"
-                  >
-                    {reopeningDay ? (
-                      <Spinner className="w-4 h-4 mr-2" />
-                    ) : (
-                      <Unlock className="w-4 h-4 mr-2" />
-                    )}
-                    {reopeningDay ? 'Reabrindo...' : 'Desfazer e reabrir dia'}
-                  </button>
-                )}
-              </div>
-            ) : null}
-          </div>
-
           {events.length === 0 && (
-            <div className="text-center py-12">
+            <div className="text-center py-8">
               <p className="text-gray-500 dark:text-zinc-400">Nenhum evento configurado para hoje.</p>
             </div>
+          )}
+
+          {/* Sessão Final: Encerramento do Dia (disponível a qualquer horário para todas as contas ativas) */}
+          {(dailyClosure || canRecordDailyActivities) && (
+            <section aria-label="Encerramento do dia" className="space-y-2.5 pt-1 pb-2">
+              <h3 className="text-xs font-bold uppercase tracking-wider text-gray-400 dark:text-zinc-500">
+                Encerramento do dia
+              </h3>
+
+              {dailyClosure ? (
+                <div className="bg-gray-50 dark:bg-[#121216] border border-gray-200 dark:border-white/[0.08] rounded-2xl p-4 flex flex-col items-center text-center shadow-sm">
+                  <div className="w-10 h-10 bg-green-100 dark:bg-emerald-950/60 text-green-600 dark:text-emerald-300 rounded-full flex items-center justify-center mb-2">
+                    <CheckCircle2 className="w-5 h-5" />
+                  </div>
+                  <h4 className="font-semibold text-gray-900 dark:text-zinc-100">Dia encerrado</h4>
+                  <p className="text-sm text-gray-500 dark:text-zinc-400 mt-1">
+                    Encerrado por {dailyClosure.closed_by_profile?.name || profile?.name || 'Familiar'} às{' '}
+                    {formatDateToTime(dailyClosure.closed_at)}
+                  </p>
+                  {dailyClosure._syncPending && (
+                    <span className="mt-1.5 text-[11px] font-medium text-amber-700 dark:text-amber-300">
+                      Salvo no aparelho • Aguardando envio
+                    </span>
+                  )}
+
+                  {isAdmin && (
+                    <button
+                      type="button"
+                      onClick={handleReopenDay}
+                      disabled={reopeningDay}
+                      className="mt-5 inline-flex items-center justify-center text-sm font-medium text-gray-500 dark:text-zinc-300 hover:text-gray-700 dark:hover:text-white bg-white dark:bg-[#1c1c22] hover:bg-gray-100 dark:hover:bg-[#26262f] px-5 py-2.5 rounded-2xl transition-all active:scale-95 border border-gray-200 dark:border-white/[0.1] disabled:opacity-50 w-full sm:w-auto"
+                    >
+                      {reopeningDay ? (
+                        <Spinner className="w-4 h-4 mr-2" />
+                      ) : (
+                        <Unlock className="w-4 h-4 mr-2" />
+                      )}
+                      {reopeningDay ? 'Reabrindo...' : 'Desfazer e reabrir dia'}
+                    </button>
+                  )}
+                </div>
+              ) : (
+                <div className="bg-white dark:bg-[#121216] border border-gray-200/90 dark:border-white/[0.08] rounded-2xl p-4 shadow-sm">
+                  <div className="flex items-start gap-3">
+                    <div
+                      className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${
+                        isAllEventsCompleted
+                          ? 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-300'
+                          : 'bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-300'
+                      }`}
+                    >
+                      <CheckCircle2 className="w-5 h-5" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <h4 className="text-sm font-semibold text-gray-900 dark:text-zinc-100">
+                        {isAllEventsCompleted ? 'Rotina do dia concluída' : 'Encerrar rotina do dia'}
+                      </h4>
+                      <p className="text-xs text-gray-500 dark:text-zinc-400 mt-1 leading-relaxed">
+                        {isAllEventsCompleted
+                          ? 'Todas as atividades foram registradas. Toque abaixo para finalizar o dia.'
+                          : events.length > 0
+                          ? `${resolvedEventsCount} de ${events.length} atividades registradas. Você pode encerrar o dia a qualquer momento.`
+                          : 'Você pode encerrar o dia a qualquer momento.'}
+                      </p>
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActionError(null);
+                      setShowClosureModal(true);
+                    }}
+                    className={`mt-4 w-full inline-flex items-center justify-center gap-2 px-5 py-3.5 rounded-xl text-sm font-semibold transition-all shadow-sm active:scale-[0.99] ${
+                      isAllEventsCompleted
+                        ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-600/20'
+                        : 'bg-gray-900 hover:bg-black dark:bg-indigo-600 dark:hover:bg-indigo-500 text-white'
+                    }`}
+                  >
+                    <CheckCircle2 className="w-4 h-4" />
+                    <span>Encerrar Dia</span>
+                  </button>
+                </div>
+              )}
+            </section>
           )}
         </div>
       </div>
@@ -1266,7 +1308,7 @@ export function TodayScreen({
         />
       )}
 
-      {/* Nightly Closure Reminder Banner: ADMIN only, today only, open day only, >= 21:00 America/Sao_Paulo, not dismissed */}
+      {/* Nightly Closure Reminder Banner: active members/caregivers/admins, today only, open day only, >= 21:00 America/Sao_Paulo, not dismissed */}
       {showClosureReminderBanner && (
         <ClosureReminderBanner
           eventsCount={events.length}

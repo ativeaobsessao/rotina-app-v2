@@ -296,6 +296,7 @@ export function HistoryDayGroup({
   onOpenDayEdit,
   canEdit = true,
   canEditRecords,
+  canCloseDay,
   canManageClosures,
 }: {
   day: DayData;
@@ -308,6 +309,7 @@ export function HistoryDayGroup({
   profileId?: string;
   canEdit?: boolean;
   canEditRecords?: boolean;
+  canCloseDay?: boolean;
   canManageClosures?: boolean;
   key?: React.Key;
 }) {
@@ -317,6 +319,7 @@ export function HistoryDayGroup({
 
   const effectiveCanEditRecords = canEditRecords ?? canEdit;
   const effectiveCanManageClosures = canManageClosures ?? canEdit;
+  const effectiveCanCloseDay = canCloseDay ?? effectiveCanEditRecords;
   const canOpenActivityForDay = closure ? effectiveCanManageClosures : effectiveCanEditRecords;
   const canOpenDayEditAction = closure ? effectiveCanManageClosures : effectiveCanEditRecords;
 
@@ -380,7 +383,7 @@ export function HistoryDayGroup({
                 <Circle className="w-3.5 h-3.5" />
                 DIA EM ABERTO
               </div>
-              {effectiveCanManageClosures && onRequestCloseDay && (
+              {effectiveCanCloseDay && onRequestCloseDay && (
                 <button
                   type="button"
                   onClick={(e) => {
@@ -740,8 +743,8 @@ export function HistoryScreen({
 
   async function handleConfirmCloseDay(dateStr: string) {
     if (!profile || !patient || closingRef.current) return;
-    if (!isAdmin) {
-      setActionError('Apenas administradores podem encerrar o dia.');
+    if (!canRecordDailyActivities) {
+      setActionError('Sua conta não possui vínculo ativo com esta família para encerrar o dia.');
       return;
     }
     closingRef.current = true;
@@ -953,6 +956,7 @@ export function HistoryScreen({
                   day={day}
                   canEdit={isAdmin}
                   canEditRecords={canRecordDailyActivities}
+                  canCloseDay={canRecordDailyActivities}
                   canManageClosures={isAdmin}
                   onViewPhoto={(url, title) => setPhotoLightbox({ url, title })}
                   onEditMeal={
@@ -976,7 +980,7 @@ export function HistoryScreen({
                       : undefined
                   }
                   onRequestCloseDay={
-                    isAdmin
+                    canRecordDailyActivities
                       ? (date) => {
                           setActionError(null);
                           setPendingClosureDate(date);

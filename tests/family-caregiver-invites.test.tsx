@@ -8,6 +8,7 @@ import { act } from 'react';
 import { supabase } from '../src/services/supabase.ts';
 import {
   createFamilyInvite,
+  resendFamilyInvite,
   acceptFamilyInvite,
   revokeFamilyInvite,
   deleteFamilyInvite,
@@ -219,6 +220,42 @@ function installFamilySupabaseMock(initialActorId = 'admin-1') {
         created_at: new Date().toISOString(),
       };
       invites.unshift(inv);
+      return {
+        data: {
+          invite_id: inv.id,
+          token: inv.token,
+          expires_at: inv.expires_at,
+          invited_name: inv.invited_name,
+          member_type: inv.member_type,
+        },
+        error: null,
+      };
+    }
+
+    if (fn === 'resend_family_invite') {
+      const inv = invites.find((i) => i.id === args?.p_invite_id);
+      if (!inv) return { data: null, error: { message: 'Convite não encontrado.' } };
+      const caller = members.find((m) => m.family_id === inv.family_id && m.user_id === currentActorId);
+      if (!caller || caller.role !== 'ADMIN') {
+        return { data: null, error: { code: '42501', message: 'Apenas administradores podem reenviar convites desta família.' } };
+      }
+      if (inv.status === 'accepted') {
+        return { data: null, error: { message: 'Este convite já foi aceito e não pode ser reenviado.' } };
+      }
+      if (inv.status === 'revoked') {
+        return { data: null, error: { message: 'Este convite foi revogado. Crie um novo convite se precisar convidar novamente.' } };
+      }
+      if (inv.status !== 'pending' && inv.status !== 'expired') {
+        return { data: null, error: { message: 'Este convite não está disponível para reenvio.' } };
+      }
+
+      inviteSeq += 1;
+      const newToken = `tok-resend-${inviteSeq}-${inv.member_type.toLowerCase()}`;
+      inv.token = newToken;
+      inv.token_hash = `hash-${newToken}`;
+      inv.status = 'pending';
+      inv.expires_at = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+
       return {
         data: {
           invite_id: inv.id,
@@ -861,6 +898,187 @@ test('[Estático SQL + React/JSDOM] Migration 0016 e UI permitem ADM apagar conv
     assert.equal(
       mock.getMembers().some((m) => m.user_id === 'caregiver-user-1' && m.member_type === 'CAREGIVER'),
       true
+    );
+  } finally {
+    await act(async () => root.unmount());
+    mock.restore();
+    dom.window.close();
+  }
+});
+
+// ============================================================================
+// TESTE ESTÁTICO DA MIGRATION 0017 + FLUXO COMPLETO DE REENVIO DE CONVITE PELO ADM
+// ============================================================================
+
+test('[Estático SQL + React/JSDOM] Migration 0017 e UI permitem ADM reenviar convite (pendente ou expirado) rotacionando token e renovando 24h', async () => {
+  const sql0017 = fs.readFileSync(path.resolve('supabase/migrations/0017_resend_family_invite.sql'), 'utf8');
+  assert.match(sql0017, /CREATE OR REPLACE FUNCTION public\.resend_family_invite\(p_invite_id UUID\)/);
+  assert.match(sql0017, /FROM public\.family_invites\s+WHERE id = p_invite_id\s+FOR UPDATE/);
+  assert.ok(sql0017.includes('user_is_family_admin'));
+  assert.ok(sql0017.includes("v_invite.status = 'accepted'"));
+  assert.ok(sql0017.includes("v_invite.status = 'revoked'"));
+  assert.match(sql0017, /v_raw_token := encode\(gen_random_bytes\(32\), 'hex'\)/);
+  assert.match(sql0017, /v_hashed_token := encode\(digest\(v_raw_token, 'sha256'\), 'hex'\)/);
+  assert.match(sql0017, /v_expires_at := now\(\) \+ interval '24 hours'/);
+  assert.ok(sql0017.includes('pg_extension'));
+  assert.ok(sql0017.includes('REVOKE INSERT, UPDATE, DELETE ON public.family_invites FROM anon, authenticated;'));
+  assert.ok(sql0017.includes('REVOKE ALL ON FUNCTION public.resend_family_invite(uuid) FROM PUBLIC, anon;'));
+  assert.ok(sql0017.includes('GRANT EXECUTE ON FUNCTION public.resend_family_invite(uuid) TO authenticated, service_role;'));
+  assert.ok(sql0017.includes("NOTIFY pgrst, 'reload schema';"));
+  assert.equal(/DROP TABLE/i.test(sql0017), false);
+  assert.equal(/TRUNCATE/i.test(sql0017), false);
+
+  const { dom, createRoot } = await setupDom();
+  const container = dom.window.document.getElementById('root')!;
+  const root = createRoot(container);
+  const mock = installFamilySupabaseMock('admin-1');
+
+  try {
+    // 1. ADM cria convite pendente para Tia Helena (FAMILY)
+    const initialInvite = await createFamilyInvite({ invitedName: 'Tia Helena', memberType: 'FAMILY' });
+
+    // 2. Convite expirado no banco (status = 'expired' em Acompanhamento recente) para Enf. Carla (CAREGIVER)
+    mock.addInviteDirect({
+      id: 'inv-expired-caregiver',
+      family_id: mock.familyId,
+      created_by: 'admin-1',
+      token: 'tok-expired-old',
+      token_hash: 'hash-expired-old',
+      status: 'expired',
+      invited_name: 'Enf. Carla',
+      member_type: 'CAREGIVER',
+      expires_at: '2026-11-10T10:00:00.000Z',
+      accepted_by: null,
+      accepted_at: null,
+      created_at: '2026-11-09T10:00:00.000Z',
+    });
+
+    // 3. Convite revogado no histórico (NÃO deve permitir reenvio)
+    mock.addInviteDirect({
+      id: 'inv-revoked-no-resend',
+      family_id: mock.familyId,
+      created_by: 'admin-1',
+      token: 'tok-revoked-no-resend',
+      token_hash: 'hash-revoked-no-resend',
+      status: 'revoked',
+      invited_name: 'Tio Marcos',
+      member_type: 'FAMILY',
+      expires_at: '2026-11-18T10:00:00.000Z',
+      accepted_by: null,
+      accepted_at: null,
+      created_at: '2026-11-16T10:00:00.000Z',
+    });
+
+    await act(async () => {
+      root.render(
+        React.createElement(FamilyModal, {
+          familyId: mock.familyId,
+          currentUserId: 'admin-1',
+          lovedOneName: 'Vovó Dude',
+          onClose: () => {},
+        })
+      );
+    });
+
+    // Convite revogado não deve exibir botão de Reenviar
+    assert.equal(container.querySelector('button[aria-label="Reenviar convite de Tio Marcos"]'), null);
+
+    // 4. ADM clica em Reenviar no convite pendente de Tia Helena
+    const resendPendingBtn = container.querySelector(
+      'button[aria-label="Reenviar convite de Tia Helena"]'
+    ) as HTMLButtonElement;
+    assert.ok(resendPendingBtn);
+    await act(async () => {
+      resendPendingBtn.click();
+    });
+
+    // Verifica abertura do fluxo padrão de compartilhamento com novo token e aviso de reenvio
+    const modalText = container.textContent || '';
+    assert.match(modalText, /Reenviar Convite/);
+    assert.match(modalText, /Convite Pronto!/);
+    assert.match(modalText, /Tia Helena/);
+    assert.match(modalText, /Novo link gerado com validade de 24h/);
+    assert.match(modalText, /Enviar Convite no WhatsApp/);
+
+    const helenaRow = mock.getInvites().find((i) => i.id === initialInvite.invite_id)!;
+    assert.notEqual(helenaRow.token, initialInvite.token);
+    assert.ok(modalText.includes(`?invite=${encodeURIComponent(helenaRow.token)}`));
+
+    // Voltar para lista principal
+    const backBtn = (Array.from(container.querySelectorAll('button')) as HTMLButtonElement[]).find((b) =>
+      b.textContent?.trim() === 'Voltar'
+    );
+    assert.ok(backBtn);
+    await act(async () => {
+      backBtn.click();
+    });
+
+    // 5. Link antigo de Tia Helena é rejeitado; novo link é aceito como FAMILY + MEMBER
+    mock.setActor('fam-invitee-1');
+    await assert.rejects(
+      () => acceptFamilyInvite(initialInvite.token),
+      { message: /inválido ou não encontrado/i }
+    );
+    const acceptNewHelena = await acceptFamilyInvite(helenaRow.token);
+    assert.equal(acceptNewHelena.success, true);
+    assert.equal(acceptNewHelena.member_type, 'FAMILY');
+    assert.equal(acceptNewHelena.role, 'MEMBER');
+
+    // 6. ADM reenvia convite expirado de Enf. Carla direto da seção Acompanhamento recente
+    mock.setActor('admin-1');
+    // Força recarregamento da lista no modal via remount com nova key
+    await act(async () => {
+      root.render(
+        React.createElement(FamilyModal, {
+          key: 'reloaded',
+          familyId: mock.familyId,
+          currentUserId: 'admin-1',
+          lovedOneName: 'Vovó Dude',
+          onClose: () => {},
+        })
+      );
+    });
+
+    // Agora Tia Helena está aceito (não deve exibir Reenviar); Enf. Carla está expirado (deve exibir Reenviar)
+    assert.equal(container.querySelector('button[aria-label="Reenviar convite de Tia Helena"]'), null);
+    const resendExpiredBtn = container.querySelector(
+      'button[aria-label="Reenviar convite de Enf. Carla"]'
+    ) as HTMLButtonElement;
+    assert.ok(resendExpiredBtn);
+    await act(async () => {
+      resendExpiredBtn.click();
+    });
+
+    const carlaRow = mock.getInvites().find((i) => i.id === 'inv-expired-caregiver')!;
+    assert.equal(carlaRow.status, 'pending');
+    assert.equal(carlaRow.member_type, 'CAREGIVER');
+    assert.notEqual(carlaRow.token, 'tok-expired-old');
+    assert.ok(new Date(carlaRow.expires_at).getTime() > Date.now());
+    assert.match(container.textContent || '', /Cuidador/);
+
+    // Cuidadora aceita novo link reenviado e entra como CAREGIVER + MEMBER
+    mock.setActor('caregiver-user-1');
+    const acceptCarla = await acceptFamilyInvite(carlaRow.token);
+    assert.equal(acceptCarla.success, true);
+    assert.equal(acceptCarla.member_type, 'CAREGIVER');
+    assert.equal(acceptCarla.role, 'MEMBER');
+
+    // 7. Bloqueios RBAC e de status finais: aceito, revogado e MEMBER
+    mock.setActor('admin-1');
+    await assert.rejects(
+      () => resendFamilyInvite(initialInvite.invite_id),
+      { message: /já foi aceito/i }
+    );
+    await assert.rejects(
+      () => resendFamilyInvite('inv-revoked-no-resend'),
+      { message: /revogado/i }
+    );
+
+    const freshPending = await createFamilyInvite({ invitedName: 'Neto Pedro', memberType: 'FAMILY' });
+    mock.setActor('fam-member-1');
+    await assert.rejects(
+      () => resendFamilyInvite(freshPending.invite_id),
+      { message: /Apenas administradores/i }
     );
   } finally {
     await act(async () => root.unmount());

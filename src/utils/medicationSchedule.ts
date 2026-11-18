@@ -211,6 +211,11 @@ export function getTimelineProgressMetrics(events: TimelineEvent[]): TimelinePro
           completedItems += 1;
         }
       }
+    } else if (event.type === 'activity') {
+      totalItems += 1;
+      if (event.log) {
+        completedItems += 1;
+      }
     }
   }
 

@@ -6,6 +6,7 @@ import {
   getMyFamilyPermissions,
   getHistoricalMealLogs,
   getHistoricalMedicationLogs,
+  getHistoricalActivityLogs,
   getMealPhotoUrl,
   getHistoricalDailyClosures,
   createDailyClosure,
@@ -20,6 +21,7 @@ import {
   formatTime,
 } from '../utils/date';
 import { getMedicationDosageForDate } from '../utils/medicationSchedule';
+import { getActivityCategoryLabel } from '../utils/activitySchedule';
 import { Spinner } from '../components/ui/Spinner';
 import { UserProfile } from '../components/ui/UserProfile';
 import {
@@ -27,6 +29,7 @@ import {
   ChevronUp,
   Coffee,
   Pill,
+  CalendarCheck2,
   CheckCircle2,
   Circle,
   FileText,
@@ -36,9 +39,10 @@ import {
 } from 'lucide-react';
 import { MealModal } from '../components/meals/MealModal';
 import { MedicationModal } from '../components/medications/MedicationModal';
+import { ActivityModal } from '../components/activities/ActivityModal';
 import { ReportModal } from '../components/history/ReportModal';
 import { readActiveMealRecovery, getMealDraft } from '../services/mealDrafts';
-import type { MealEventData, MedicationEventData } from '../types/timeline';
+import type { MealEventData, MedicationEventData, ActivityEventData } from '../types/timeline';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -77,10 +81,27 @@ interface HistoryMedEntry {
   periodId: string;
 }
 
+interface HistoryActivityEntry {
+  id: string;
+  logId: string;
+  activityId: string;
+  title: string;
+  category: string;
+  status: 'completed' | 'not_completed';
+  reason: string | null;
+  notes: string | null;
+  time: string;
+  creatorName: string;
+  created_at: string;
+  log: any;
+  activity: any;
+}
+
 interface DayData {
   dateStr: string;
   meals: HistoryMealEntry[];
   meds: HistoryMedEntry[];
+  activities: HistoryActivityEntry[];
   closure: any | null;
 }
 
@@ -284,6 +305,91 @@ export function MedRow({
   );
 }
 
+// ─── Sub-component: individual activity row ───────────────────────────────────
+
+export function ActivityRow({
+  activity,
+  onEdit,
+  profileId,
+  canEdit = true,
+}: {
+  activity: HistoryActivityEntry;
+  onEdit?: () => void;
+  profileId?: string;
+  canEdit?: boolean;
+  key?: React.Key;
+}) {
+  const isCompleted = activity.status === 'completed';
+  const hideCreator = profileId && activity.log?.created_by === profileId;
+
+  const content = (
+    <>
+      <div className="flex items-start justify-between gap-2 mb-1">
+        <div className="flex items-center gap-2 min-w-0">
+          <CalendarCheck2 className="w-4 h-4 text-gray-400 dark:text-zinc-500 shrink-0 mt-0.5" />
+          <span className="font-semibold text-gray-900 dark:text-zinc-100 text-sm truncate">
+            {activity.title}
+          </span>
+        </div>
+        <span
+          className={`text-xs font-medium shrink-0 ${
+            isCompleted ? 'text-green-700 dark:text-emerald-400' : 'text-red-600 dark:text-rose-400'
+          }`}
+        >
+          {isCompleted ? '✓ Realizada' : '✗ Não realizada'}
+        </span>
+      </div>
+
+      <p className="text-xs text-gray-400 dark:text-zinc-500 ml-6 mb-2 tabular-nums">
+        {getActivityCategoryLabel(activity.category)} · {formatTime(activity.time)}
+      </p>
+
+      {!isCompleted && activity.reason && (
+        <p className="text-xs text-red-600 dark:text-rose-400 ml-6 mb-1.5">
+          Motivo: {activity.reason}
+        </p>
+      )}
+
+      {activity.notes && (
+        <p className="text-xs text-gray-500 dark:text-zinc-400 ml-6 mb-2">
+          📝 {activity.notes}
+        </p>
+      )}
+
+      {!hideCreator && (
+        <div className="ml-6 pt-2 border-t border-gray-50 dark:border-white/[0.06] flex items-center gap-1.5 mt-2">
+          <span className="text-[11px] text-gray-400 dark:text-zinc-500">👤</span>
+          <span className="text-[11px] text-gray-500 dark:text-zinc-400">
+            Registrado por{' '}
+            <span className="font-medium text-gray-700 dark:text-zinc-300">
+              {activity.creatorName}
+            </span>{' '}
+            às {formatDateToTime(activity.created_at)}
+          </span>
+        </div>
+      )}
+    </>
+  );
+
+  if (!canEdit) {
+    return (
+      <div className="w-full text-left bg-white dark:bg-[#121216] rounded-2xl border border-gray-100 dark:border-white/[0.08] shadow-sm overflow-hidden p-4">
+        {content}
+      </div>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={onEdit}
+      className="w-full text-left bg-white dark:bg-[#121216] rounded-2xl border border-gray-100 dark:border-white/[0.08] shadow-sm overflow-hidden hover:border-gray-200 dark:hover:bg-[#18181d] active:scale-[0.99] transition-all p-4"
+    >
+      {content}
+    </button>
+  );
+}
+
 // ─── Sub-component: Day Accordion ─────────────────────────────────────────────
 
 export function HistoryDayGroup({
@@ -291,6 +397,7 @@ export function HistoryDayGroup({
   day,
   onEditMeal,
   onEditMed,
+  onEditActivity,
   onViewPhoto,
   onRequestCloseDay,
   isClosingDay,
@@ -304,6 +411,7 @@ export function HistoryDayGroup({
   onOpenDayEdit?: () => void;
   onEditMeal?: (meal: HistoryMealEntry) => void;
   onEditMed?: (med: HistoryMedEntry) => void;
+  onEditActivity?: (act: HistoryActivityEntry) => void;
   onViewPhoto?: (photoUrl: string, title: string) => void;
   onRequestCloseDay?: (date: string) => void;
   isClosingDay?: boolean;
@@ -316,7 +424,7 @@ export function HistoryDayGroup({
 }) {
   const [expanded, setExpanded] = useState(false);
   const friendly = formatFriendlyDate(day.dateStr);
-  const { closure, meals, meds } = day;
+  const { closure, meals, meds, activities = [] } = day;
 
   const effectiveCanEditRecords = canEditRecords ?? canEdit;
   const effectiveCanManageClosures = canManageClosures ?? canEdit;
@@ -326,6 +434,7 @@ export function HistoryDayGroup({
 
   const totalMeals = meals.length;
   const totalMeds = meds.length;
+  const totalActivities = activities.length;
 
   return (
     <div className="mb-3">
@@ -462,7 +571,31 @@ export function HistoryDayGroup({
             </div>
           )}
 
-          {meals.length === 0 && meds.length === 0 && (
+          {/* Activities section */}
+          {activities.length > 0 && (
+            <div className="space-y-3">
+              <h4 className="text-[10px] font-bold uppercase tracking-widest text-gray-400 dark:text-zinc-500">
+                🩺 Atividades
+              </h4>
+              <div className="space-y-3">
+                {activities.map((activity) => (
+                  <ActivityRow
+                    profileId={profileId}
+                    key={activity.logId}
+                    activity={activity}
+                    canEdit={canOpenActivityForDay}
+                    onEdit={
+                      canOpenActivityForDay && onEditActivity
+                        ? () => onEditActivity(activity)
+                        : undefined
+                    }
+                  />
+                ))}
+              </div>
+            </div>
+          )}
+
+          {meals.length === 0 && meds.length === 0 && activities.length === 0 && (
             <p className="text-sm text-gray-400 dark:text-zinc-500 text-center py-4">
               Nenhum registro neste dia.
             </p>
@@ -481,6 +614,10 @@ export function HistoryDayGroup({
               <div className="flex justify-between">
                 <span>Medicamentos registrados</span>
                 <span className="font-semibold text-gray-900 dark:text-zinc-100">{totalMeds}</span>
+              </div>
+              <div className="flex justify-between">
+                <span>Atividades registradas</span>
+                <span className="font-semibold text-gray-900 dark:text-zinc-100">{totalActivities}</span>
               </div>
               <div className="flex justify-between mt-2 pt-2 border-t border-gray-100 dark:border-white/[0.08]">
                 <span>Status</span>
@@ -533,6 +670,11 @@ export function HistoryScreen({
     dateStr: string;
     isDayClosed: boolean;
   } | null>(null);
+  const [selectedActivity, setSelectedActivity] = useState<{
+    activity: HistoryActivityEntry;
+    dateStr: string;
+    isDayClosed: boolean;
+  } | null>(null);
   const [photoLightbox, setPhotoLightbox] = useState<{ url: string; title: string } | null>(null);
 
   const [pendingClosureDate, setPendingClosureDate] = useState<string | null>(null);
@@ -540,7 +682,7 @@ export function HistoryScreen({
   const [showReportModal, setShowReportModal] = useState(false);
 
   const [daysLimit, setDaysLimit] = useState(14);
-  const [filterCategory, setFilterCategory] = useState<'all' | 'meals' | 'meds'>('all');
+  const [filterCategory, setFilterCategory] = useState<'all' | 'meals' | 'meds' | 'activities'>('all');
   const [filterStartDate, setFilterStartDate] = useState('');
   const [filterEndDate, setFilterEndDate] = useState('');
 
@@ -588,13 +730,16 @@ export function HistoryScreen({
         ? filterStartDate
         : shiftDateString(todayStr, -daysLimit);
 
-      const [rawMealLogs, rawMedLogs, rawClosures] = await Promise.all([
-        filterCategory === 'meds'
+      const [rawMealLogs, rawMedLogs, rawActivityLogs, rawClosures] = await Promise.all([
+        filterCategory === 'meds' || filterCategory === 'activities'
           ? Promise.resolve([])
           : getHistoricalMealLogs(pat.id, upperLimit, lowerLimit),
-        filterCategory === 'meals'
+        filterCategory === 'meals' || filterCategory === 'activities'
           ? Promise.resolve([])
           : getHistoricalMedicationLogs(pat.id, upperLimit, lowerLimit),
+        filterCategory === 'meals' || filterCategory === 'meds'
+          ? Promise.resolve([])
+          : getHistoricalActivityLogs(pat.id, upperLimit, lowerLimit),
         getHistoricalDailyClosures(pat.id, upperLimit, lowerLimit),
       ]);
 
@@ -610,6 +755,9 @@ export function HistoryScreen({
         if (log.event_date) dateSet.add(log.event_date);
       }
       for (const log of rawMedLogs) {
+        if (log.event_date) dateSet.add(log.event_date);
+      }
+      for (const log of rawActivityLogs) {
         if (log.event_date) dateSet.add(log.event_date);
       }
       if (filterCategory === 'all') {
@@ -698,10 +846,45 @@ export function HistoryScreen({
         medsByDate[d].sort((a, b) => a.time.localeCompare(b.time));
       }
 
+      const activitiesByDate: Record<string, HistoryActivityEntry[]> = {};
+      for (const log of rawActivityLogs) {
+        const d = log.event_date;
+        if (!d) continue;
+        if (!activitiesByDate[d]) activitiesByDate[d] = [];
+
+        const act = log.activity || {
+          id: log.activity_id,
+          title: 'Atividade',
+          category: 'medical',
+          scheduled_time: '09:00:00',
+        };
+
+        activitiesByDate[d].push({
+          id: log.activity_id,
+          logId: log.id,
+          activityId: log.activity_id,
+          title: act.title || 'Atividade',
+          category: act.category || 'medical',
+          status: log.status,
+          reason: log.reason ?? null,
+          notes: log.notes ?? null,
+          time: act.scheduled_time || '09:00:00',
+          creatorName: log.creator?.name || 'Familiar',
+          created_at: log.created_at,
+          log,
+          activity: act,
+        });
+      }
+
+      for (const d of Object.keys(activitiesByDate)) {
+        activitiesByDate[d].sort((a, b) => a.time.localeCompare(b.time));
+      }
+
       const assembled: DayData[] = sortedDates.map((dateStr) => ({
         dateStr,
         meals: mealsByDate[dateStr] ?? [],
         meds: medsByDate[dateStr] ?? [],
+        activities: activitiesByDate[dateStr] ?? [],
         closure: closuresMap[dateStr] ?? null,
       }));
 
@@ -815,7 +998,7 @@ export function HistoryScreen({
     return (
       <MainLayout activeTab="history" onTabChange={onTabChange}>
         <div className="flex h-[80vh] items-center justify-center flex-col text-center px-6">
-          <p className="text-gray-500 dark:text-zinc-400">Paciente não encontrado.</p>
+          <p className="text-gray-500 dark:text-zinc-400">Familiar não encontrado.</p>
         </div>
       </MainLayout>
     );
@@ -848,6 +1031,18 @@ export function HistoryScreen({
       },
       medications: med.medication ? [med.medication] : [],
       logs: [med.log],
+    };
+  }
+
+  function toActivityEvent(activity: HistoryActivityEntry): ActivityEventData {
+    return {
+      id: activity.activityId || activity.id,
+      type: 'activity',
+      time: activity.time,
+      title: activity.title,
+      status: activity.status === 'completed' ? 'confirmed' : 'attention',
+      activity: activity.activity,
+      log: activity.log,
     };
   }
 
@@ -905,6 +1100,7 @@ export function HistoryScreen({
               <option value="all">Todas as categorias</option>
               <option value="meals">Apenas Alimentação</option>
               <option value="meds">Apenas Medicamentos</option>
+              <option value="activities">Apenas Atividades</option>
             </select>
 
             <div className="flex items-center gap-2">
@@ -980,6 +1176,16 @@ export function HistoryScreen({
                       ? (med) =>
                           setSelectedMed({
                             med,
+                            dateStr: day.dateStr,
+                            isDayClosed: Boolean(day.closure),
+                          })
+                      : undefined
+                  }
+                  onEditActivity={
+                    canEditThisDayActivities
+                      ? (activity) =>
+                          setSelectedActivity({
+                            activity,
                             dateStr: day.dateStr,
                             isDayClosed: Boolean(day.closure),
                           })
@@ -1093,6 +1299,24 @@ export function HistoryScreen({
           }}
           onPartialSuccess={() => {
             loadData();
+          }}
+        />
+      )}
+
+      {/* Activity edit modal (any active family member on open days; view-only protected on closed days) */}
+      {canRecordDailyActivities && selectedActivity && patient && profile && (
+        <ActivityModal
+          isOpen={!!selectedActivity}
+          onClose={() => setSelectedActivity(null)}
+          event={toActivityEvent(selectedActivity.activity)}
+          patientId={patient.id}
+          profileId={profile.id}
+          eventDate={selectedActivity.dateStr}
+          isDayClosed={selectedActivity.isDayClosed}
+          canEdit={canRecordDailyActivities}
+          onSuccess={() => {
+            loadData();
+            setSelectedActivity(null);
           }}
         />
       )}

@@ -3,19 +3,28 @@ import { X } from 'lucide-react';
 import { TimelineItem } from '../timeline/TimelineItem';
 import { MealModal } from '../meals/MealModal';
 import { MedicationModal } from '../medications/MedicationModal';
+import { ActivityModal } from '../activities/ActivityModal';
 import {
   getMealConfigs,
   getMedicationPeriods,
   getMedications,
+  getActivities,
   getMealLogs,
   getMedicationLogs,
+  getActivityLogs,
   getDailyClosure,
   getMealPhotoUrl,
   mapWithConcurrency,
 } from '../../services/api';
 import { isMedicationScheduledForDate } from '../../utils/medicationSchedule';
+import { isActivityScheduledForDate } from '../../utils/activitySchedule';
 import { Spinner } from '../ui/Spinner';
-import type { TimelineEvent, MealEventData, MedicationEventData } from '../../types/timeline';
+import type {
+  TimelineEvent,
+  MealEventData,
+  MedicationEventData,
+  ActivityEventData,
+} from '../../types/timeline';
 
 interface DayEditModalProps {
   isOpen: boolean;
@@ -47,6 +56,7 @@ export function DayEditModal({
 
   const [selectedMealEvent, setSelectedMealEvent] = useState<MealEventData | null>(null);
   const [selectedMedEvent, setSelectedMedEvent] = useState<MedicationEventData | null>(null);
+  const [selectedActivityEvent, setSelectedActivityEvent] = useState<ActivityEventData | null>(null);
 
   const reqSeqRef = useRef(0);
   const isMountedRef = useRef(true);
@@ -63,14 +73,17 @@ export function DayEditModal({
     setLoading(true);
     setError(null);
     try {
-      const [meals, medPeriods, allMeds, mealLogs, medLogs, closure] = await Promise.all([
-        getMealConfigs(patientId),
-        getMedicationPeriods(patientId),
-        getMedications(patientId),
-        getMealLogs(patientId, dateStr),
-        getMedicationLogs(patientId, dateStr),
-        getDailyClosure(patientId, dateStr),
-      ]);
+      const [meals, medPeriods, allMeds, loadedActivities, mealLogs, medLogs, activityLogs, closure] =
+        await Promise.all([
+          getMealConfigs(patientId),
+          getMedicationPeriods(patientId),
+          getMedications(patientId),
+          getActivities(patientId),
+          getMealLogs(patientId, dateStr),
+          getMedicationLogs(patientId, dateStr),
+          getActivityLogs(patientId, dateStr),
+          getDailyClosure(patientId, dateStr),
+        ]);
 
       if (!isMountedRef.current || seq !== reqSeqRef.current) return;
       setIsDayClosed(Boolean(closure));
@@ -127,6 +140,27 @@ export function DayEditModal({
           period,
           medications: periodMeds,
           logs: periodLogs,
+        });
+      }
+
+      const loggedActivityIds = new Set(activityLogs.map((l) => l.activity_id));
+      for (const act of loadedActivities) {
+        if (!isActivityScheduledForDate(act, dateStr) && !loggedActivityIds.has(act.id)) {
+          continue;
+        }
+        const log = activityLogs.find((l) => l.activity_id === act.id);
+        let status: 'waiting' | 'pending' | 'confirmed' | 'attention' = 'pending';
+        if (log) {
+          status = log.status === 'not_completed' ? 'attention' : 'confirmed';
+        }
+        timeline.push({
+          id: act.id,
+          type: 'activity',
+          time: act.scheduled_time,
+          title: act.title,
+          status,
+          activity: act,
+          log,
         });
       }
 
@@ -198,11 +232,13 @@ export function DayEditModal({
                   {events.map((event) => (
                     <TimelineItem
                       profileId={profileId}
-                      key={event.id}
+                      key={`${event.type}-${event.id}`}
                       event={event}
                       onClick={() => {
                         if (event.type === 'meal') setSelectedMealEvent(event as MealEventData);
-                        else setSelectedMedEvent(event as MedicationEventData);
+                        else if (event.type === 'activity') {
+                          setSelectedActivityEvent(event as ActivityEventData);
+                        } else setSelectedMedEvent(event as MedicationEventData);
                       }}
                     />
                   ))}
@@ -257,6 +293,24 @@ export function DayEditModal({
           onPartialSuccess={() => {
             loadTimeline();
             onSuccess();
+          }}
+        />
+      )}
+
+      {selectedActivityEvent && (
+        <ActivityModal
+          isOpen={!!selectedActivityEvent}
+          onClose={() => setSelectedActivityEvent(null)}
+          event={selectedActivityEvent}
+          patientId={patientId}
+          profileId={profileId}
+          eventDate={dateStr}
+          isDayClosed={isDayClosed}
+          canEdit={canEdit}
+          onSuccess={() => {
+            loadTimeline();
+            onSuccess();
+            setSelectedActivityEvent(null);
           }}
         />
       )}

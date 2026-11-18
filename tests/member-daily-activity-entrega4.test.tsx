@@ -981,7 +981,10 @@ test('[Testes C & D] ADMIN mantém ações administrativas enquanto MEMBER fica 
     const routineMemberText = container.textContent || '';
     assert.match(routineMemberText, /Almoço/);
     assert.equal(routineMemberText.includes('Editar perfil'), false);
-    assert.equal(routineMemberText.includes('Adicionar'), false);
+    assert.equal(routineMemberText.includes('Adicionar Período'), false);
+    assert.equal(routineMemberText.includes('Adicionar medicamento'), false);
+    assert.equal(routineMemberText.includes('Editar horário'), false);
+    assert.match(routineMemberText, /Atividades/);
 
     await act(async () => {
       root.render(

@@ -1,7 +1,13 @@
 import React, { useState } from 'react';
 import { X, CalendarDays, FileDown, CheckCircle2, AlertCircle } from 'lucide-react';
-import { getHistoricalMealLogs, getHistoricalMedicationLogs, getHistoricalMoodLogs } from '../../services/api';
+import {
+  getHistoricalMealLogs,
+  getHistoricalMedicationLogs,
+  getHistoricalActivityLogs,
+  getHistoricalMoodLogs,
+} from '../../services/api';
 import { getLocalDateString, formatFriendlyDate, shiftDateString } from '../../utils/date';
+import { getActivityCategoryLabel } from '../../utils/activitySchedule';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { cn } from '../../utils/cn';
@@ -36,13 +42,19 @@ export function ReportModal({ isOpen, onClose, patientId, patientName }: ReportM
       const beforeDate = shiftDateString(endDate, 1);
 
       // Fetch data
-      const [mealLogs, medLogs, moodLogs] = await Promise.all([
+      const [mealLogs, medLogs, activityLogs, moodLogs] = await Promise.all([
         getHistoricalMealLogs(patientId, beforeDate, startDate),
         getHistoricalMedicationLogs(patientId, beforeDate, startDate),
+        getHistoricalActivityLogs(patientId, beforeDate, startDate),
         getHistoricalMoodLogs(patientId, beforeDate, startDate),
       ]);
 
-      if (mealLogs.length === 0 && medLogs.length === 0 && moodLogs.length === 0) {
+      if (
+        mealLogs.length === 0 &&
+        medLogs.length === 0 &&
+        activityLogs.length === 0 &&
+        moodLogs.length === 0
+      ) {
         throw new Error('Nenhum registro encontrado para o período selecionado.');
       }
 
@@ -76,7 +88,7 @@ export function ReportModal({ isOpen, onClose, patientId, patientName }: ReportM
       doc.setFontSize(9);
       doc.setFont('helvetica', 'bold');
       doc.setTextColor(71, 85, 105);
-      doc.text('Paciente:', margin + 3, 25);
+      doc.text('Familiar:', margin + 3, 25);
       doc.setFont('helvetica', 'normal');
       doc.setTextColor(15, 23, 42);
       doc.text(patientName, margin + 20, 25);
@@ -105,6 +117,7 @@ export function ReportModal({ isOpen, onClose, patientId, patientName }: ReportM
       const summaryParts = [
         medLogs.length > 0 ? `${medLogs.length} Meds` : null,
         mealLogs.length > 0 ? `${mealLogs.length} Refeições` : null,
+        activityLogs.length > 0 ? `${activityLogs.length} Ativ.` : null,
         moodLogs.length > 0 ? `${moodLogs.length} Bem-Estar` : null,
       ].filter(Boolean).join(' • ');
       doc.text(summaryParts || 'Sem registros', rightColX + 16, 31);
@@ -426,6 +439,79 @@ export function ReportModal({ isOpen, onClose, patientId, patientName }: ReportM
                 data.cell.styles.textColor = [161, 98, 7]; // Yellow 700
               } else {
                 data.cell.styles.textColor = [185, 28, 28]; // Red 700
+                data.cell.styles.fontStyle = 'bold';
+              }
+            }
+          },
+        });
+
+        currentY = (doc as any).lastAutoTable.finalY + 7;
+      }
+
+      // ─── Tabela 4: Atividades, Consultas e Exercícios ────────────────
+      if (activityLogs.length > 0) {
+        if (currentY > pageHeight - 35) {
+          doc.addPage();
+          currentY = 16;
+        }
+
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(10.5);
+        doc.setTextColor(67, 56, 202); // Indigo 700
+        doc.text('4. Atividades, Consultas e Exercícios', margin, currentY);
+        currentY += 2;
+
+        const activityTableData = activityLogs.map((log: any) => {
+          const dateFormatted = log.event_date ? log.event_date.split('-').reverse().join('/') : '-';
+          const timeFormatted = log.activity?.scheduled_time?.substring(0, 5) || '--:--';
+          const title = log.activity?.title || 'Atividade';
+          const cat = getActivityCategoryLabel(log.activity?.category);
+          const status = log.status === 'completed' ? 'Realizada' : 'NÃO Realizada';
+          const caregiver = log.creator?.name || 'Familiar';
+          const obs = log.reason ? `Motivo: ${log.reason}${log.notes ? ` • ${log.notes}` : ''}` : (log.notes || '-');
+
+          return [dateFormatted, timeFormatted, title, cat, status, caregiver, obs];
+        });
+
+        autoTable(doc, {
+          startY: currentY,
+          margin: { left: margin, right: margin, bottom: 15 },
+          head: [['Data', 'Hora', 'Atividade', 'Categoria', 'Status', 'Cuidador', 'Observações / Motivo']],
+          body: activityTableData,
+          theme: 'grid',
+          headStyles: {
+            fillColor: [79, 70, 229], // Indigo 600
+            textColor: [255, 255, 255],
+            fontSize: 7.8,
+            fontStyle: 'bold',
+            halign: 'left',
+            cellPadding: 1.6,
+          },
+          bodyStyles: {
+            fontSize: 7.3,
+            textColor: [30, 41, 59],
+            cellPadding: 1.5,
+            lineColor: [226, 232, 240],
+            lineWidth: 0.1,
+          },
+          alternateRowStyles: {
+            fillColor: [238, 242, 255], // Indigo 50 suave
+          },
+          columnStyles: {
+            0: { cellWidth: 16, halign: 'center' },
+            1: { cellWidth: 11, halign: 'center' },
+            2: { cellWidth: 34, fontStyle: 'bold' },
+            3: { cellWidth: 26 },
+            4: { cellWidth: 24, fontStyle: 'bold' },
+            5: { cellWidth: 22 },
+            6: { cellWidth: 'auto' },
+          },
+          didParseCell: (data) => {
+            if (data.section === 'body' && data.column.index === 4) {
+              if (data.cell.raw === 'Realizada') {
+                data.cell.styles.textColor = [22, 101, 52];
+              } else {
+                data.cell.styles.textColor = [185, 28, 28];
                 data.cell.styles.fontStyle = 'bold';
               }
             }

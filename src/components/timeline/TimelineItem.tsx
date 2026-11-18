@@ -1,7 +1,8 @@
 import React from 'react';
-import { Coffee, Pill, CloudOff, AlertCircle } from 'lucide-react';
+import { Coffee, Pill, Stethoscope, Activity as ActivityIcon, CloudOff, AlertCircle } from 'lucide-react';
 import { cn } from '../../utils/cn';
 import { formatTime, formatDateToTime } from '../../utils/date';
+import { getActivityCategoryLabel } from '../../utils/activitySchedule';
 import { Badge } from '../ui/Badge';
 import type { TimelineEvent } from '../../types/timeline';
 
@@ -14,7 +15,14 @@ export interface TimelineItemProps {
 
 export function TimelineItem({ event, onClick, profileId }: TimelineItemProps) {
   const isMeal = event.type === 'meal';
-  const Icon = isMeal ? Coffee : Pill;
+  const isActivity = event.type === 'activity';
+  const Icon = isMeal
+    ? Coffee
+    : isActivity
+    ? event.activity?.category === 'medical'
+      ? Stethoscope
+      : ActivityIcon
+    : Pill;
 
   let badgeLabel = 'Aguardando';
   let badgeVariant: 'waiting' | 'pending' | 'confirmed' | 'attention' = 'waiting';
@@ -81,11 +89,27 @@ export function TimelineItem({ event, onClick, profileId }: TimelineItemProps) {
         subLabel = 'Registrado';
       }
     }
+  } else if (event.type === 'activity') {
+    const categoryText = getActivityCategoryLabel(event.activity?.category);
+    const notesText = event.activity?.notes?.trim();
+    subLabel = notesText ? `${categoryText} · ${notesText}` : categoryText;
+
+    if (event.log?.status === 'completed') {
+      badgeLabel = 'Realizada';
+      badgeVariant = 'confirmed';
+    } else if (event.log?.status === 'not_completed') {
+      badgeLabel = 'Não realizada';
+      badgeVariant = 'attention';
+      if (event.log.reason) {
+        subLabel = `Motivo: ${event.log.reason}`;
+      }
+    }
   }
 
   const isPendingSync =
     event._syncStatus === 'pending' ||
     (event.type === 'meal' && Boolean(event.log?._syncPending)) ||
+    (event.type === 'activity' && Boolean(event.log?._syncPending)) ||
     (event.type === 'medication_period' && event.logs.some((l) => Boolean(l?._syncPending)));
 
   const isFailedSync = event._syncStatus === 'failed';
@@ -141,7 +165,7 @@ export function TimelineItem({ event, onClick, profileId }: TimelineItemProps) {
         )}
         <div className="p-3.5">
           <div className="flex justify-between items-start gap-2 mb-1">
-            <div>
+            <div className="min-w-0">
               {event.type === 'meal' && event.status === 'confirmed' && event.log ? (
                 <span className="text-xs font-semibold text-gray-400 dark:text-zinc-500 uppercase tracking-wider mb-1 block">
                   {event.log.meal_time
@@ -161,6 +185,12 @@ export function TimelineItem({ event, onClick, profileId }: TimelineItemProps) {
           </div>
 
           {subLabel && <p className="text-sm text-gray-600 dark:text-zinc-300 mt-1">{subLabel}</p>}
+
+          {event.type === 'activity' && event.log?.notes && (
+            <p className="text-xs text-gray-500 dark:text-zinc-400 mt-1.5 truncate">
+              📝 {event.log.notes}
+            </p>
+          )}
 
           {event.type === 'meal' && (event.log?.description || event.log?.drink_description) && (
             <div className="mt-2 space-y-0.5">
@@ -191,7 +221,9 @@ export function TimelineItem({ event, onClick, profileId }: TimelineItemProps) {
             </div>
           )}
 
-          {((event.type === 'meal' && Boolean(event.log)) || hasMedicationLogs) &&
+          {((event.type === 'meal' && Boolean(event.log)) ||
+            (event.type === 'activity' && Boolean(event.log)) ||
+            hasMedicationLogs) &&
             (() => {
               const latestMedLog =
                 event.type === 'medication_period'
@@ -200,13 +232,23 @@ export function TimelineItem({ event, onClick, profileId }: TimelineItemProps) {
                     )[0]
                   : null;
               const logCreatorId =
-                event.type === 'meal' ? event.log?.created_by : latestMedLog?.created_by;
+                event.type === 'meal'
+                  ? event.log?.created_by
+                  : event.type === 'activity'
+                  ? event.log?.created_by
+                  : latestMedLog?.created_by;
               const logCreatorName =
                 event.type === 'meal'
                   ? event.log?.creator?.name || 'Familiar'
+                  : event.type === 'activity'
+                  ? event.log?.creator?.name || 'Familiar'
                   : latestMedLog?.creator?.name || 'Familiar';
               const logCreatedAt =
-                event.type === 'meal' ? event.log?.created_at : latestMedLog?.created_at;
+                event.type === 'meal'
+                  ? event.log?.created_at
+                  : event.type === 'activity'
+                  ? event.log?.created_at
+                  : latestMedLog?.created_at;
 
               const hasOtherCreators =
                 event.type === 'medication_period' &&

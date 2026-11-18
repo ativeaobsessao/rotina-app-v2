@@ -1,21 +1,27 @@
-import { formatTime } from '../utils/date';
+import { DEFAULT_TIMEZONE, formatTime, getLocalDateString } from '../utils/date';
 import {
   formatMedicationScheduleSummary,
   hasCustomDailyDosages,
   getMedicationWeekdays,
   WEEKDAY_OPTIONS,
 } from '../utils/medicationSchedule';
+import {
+  formatActivityScheduleSummary,
+  getActivityCategoryLabel,
+  isExpiredOneTimeActivity,
+} from '../utils/activitySchedule';
 import React, { useEffect, useRef, useState } from 'react';
-import { Plus, Edit2, Camera, AlertCircle, RotateCcw } from 'lucide-react';
+import { Plus, Edit2, Camera, AlertCircle, RotateCcw, CalendarClock, Repeat } from 'lucide-react';
 import { MainLayout } from '../layouts/MainLayout';
 import { 
   getCurrentProfile, 
   getPatient, 
-  getMyFamilyRole,
+  getMyFamilyPermissions,
   getPatientPhotoUrl,
   getMealConfigs, 
   getMedicationPeriods, 
-  getMedications 
+  getMedications,
+  getActivities,
 } from '../services/api';
 import { Spinner } from '../components/ui/Spinner';
 import { Button } from '../components/ui/Button';
@@ -23,6 +29,7 @@ import { UserProfile } from '../components/ui/UserProfile';
 import { PatientEditModal } from '../components/routine/PatientEditModal';
 import { TimeEditModal } from '../components/routine/TimeEditModal';
 import { MedicationFormModal } from '../components/routine/MedicationFormModal';
+import { ActivityFormModal } from '../components/routine/ActivityFormModal';
 
 interface RoutineScreenProps {
   onTabChange?: (tab: 'today' | 'history' | 'routine') => void;
@@ -32,11 +39,14 @@ export function RoutineScreen({ onTabChange }: RoutineScreenProps) {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [canManageActivities, setCanManageActivities] = useState(false);
+  const [profile, setProfile] = useState<any>(null);
   const [patient, setPatient] = useState<any>(null);
   const [patientPhoto, setPatientPhoto] = useState<string | null>(null);
   const [meals, setMeals] = useState<any[]>([]);
   const [periods, setPeriods] = useState<any[]>([]);
   const [medications, setMedications] = useState<any[]>([]);
+  const [activities, setActivities] = useState<any[]>([]);
 
   // Modals state
   const [isPatientModalOpen, setIsPatientModalOpen] = useState(false);
@@ -47,6 +57,11 @@ export function RoutineScreen({ onTabChange }: RoutineScreenProps) {
   const [editingMedication, setEditingMedication] = useState<any | null>(null);
   const [defaultPeriodForMed, setDefaultPeriodForMed] = useState<string>('');
   const [isMedicationModalOpen, setIsMedicationModalOpen] = useState(false);
+
+  const [editingActivity, setEditingActivity] = useState<any | null>(null);
+  const [defaultActivityScheduleType, setDefaultActivityScheduleType] = useState<'one_time' | 'weekly'>('one_time');
+  const [isActivityModalOpen, setIsActivityModalOpen] = useState(false);
+
   const [toastMessage, setToastMessage] = useState('');
 
   const isMountedRef = useRef(true);
@@ -84,24 +99,27 @@ export function RoutineScreen({ onTabChange }: RoutineScreenProps) {
         setLoadError('Não foi possível identificar sua conta no momento.');
         return;
       }
+      setProfile(prof);
 
-      const [pat, role] = await Promise.all([
+      const [pat, perms] = await Promise.all([
         getPatient(prof.family_id),
-        getMyFamilyRole(prof.family_id),
+        getMyFamilyPermissions(prof.family_id),
       ]);
       if (!isMountedRef.current || seq !== loadSeqRef.current) return;
-      setIsAdmin(role === 'ADMIN');
+      setIsAdmin(perms.isAdmin);
+      setCanManageActivities(perms.isMember);
       if (!pat) {
         setLoadError('Não foi possível carregar os dados do familiar.');
         return;
       }
       setPatient(pat);
 
-      const [photoUrl, loadedMeals, loadedPeriods, loadedMeds] = await Promise.all([
+      const [photoUrl, loadedMeals, loadedPeriods, loadedMeds, loadedActivities] = await Promise.all([
         pat.photo_url ? getPatientPhotoUrl(pat.id, pat.photo_url) : Promise.resolve(null),
         getMealConfigs(pat.id),
         getMedicationPeriods(pat.id),
-        getMedications(pat.id)
+        getMedications(pat.id),
+        getActivities(pat.id),
       ]);
       if (!isMountedRef.current || seq !== loadSeqRef.current) return;
 
@@ -109,6 +127,7 @@ export function RoutineScreen({ onTabChange }: RoutineScreenProps) {
       setMeals(loadedMeals.sort((a, b) => a.scheduled_time.localeCompare(b.scheduled_time)));
       setPeriods(loadedPeriods.sort((a, b) => a.scheduled_time.localeCompare(b.scheduled_time)));
       setMedications(loadedMeds);
+      setActivities(loadedActivities);
 
     } catch (err: any) {
       console.error('[Routine] Erro ao carregar rotina:', err);
@@ -146,6 +165,13 @@ export function RoutineScreen({ onTabChange }: RoutineScreenProps) {
     loadData();
   };
 
+  const handleActivitySuccess = () => {
+    setIsActivityModalOpen(false);
+    setEditingActivity(null);
+    showToast('Atividade salva.');
+    loadData();
+  };
+
   if (loadError && !patient) {
     return (
       <MainLayout activeTab="routine" onTabChange={onTabChange}>
@@ -177,6 +203,19 @@ export function RoutineScreen({ onTabChange }: RoutineScreenProps) {
     );
   }
 
+
+  const todayStr = getLocalDateString(DEFAULT_TIMEZONE);
+  const scheduledActivities = activities
+    .filter((a) => a.schedule_type === 'one_time' && !isExpiredOneTimeActivity(a, todayStr))
+    .sort((a, b) => {
+      const dateCmp = String(a.scheduled_date || '').localeCompare(String(b.scheduled_date || ''));
+      if (dateCmp !== 0) return dateCmp;
+      return String(a.scheduled_time || '').localeCompare(String(b.scheduled_time || ''));
+    });
+
+  const weeklyActivities = activities
+    .filter((a) => a.schedule_type === 'weekly')
+    .sort((a, b) => String(a.scheduled_time || '').localeCompare(String(b.scheduled_time || '')));
 
   return (
     <MainLayout activeTab="routine" onTabChange={onTabChange}>
@@ -383,6 +422,232 @@ export function RoutineScreen({ onTabChange }: RoutineScreenProps) {
           </div>
         </section>
 
+        {/* Activities Section (Available for all active family accounts) */}
+        <section className="space-y-4">
+          <div className="flex items-center justify-between gap-2 ml-1">
+            <div>
+              <h3 className="text-xs font-bold uppercase tracking-wider text-gray-400 dark:text-zinc-500">
+                Atividades
+              </h3>
+              <p className="text-[11px] text-gray-500 dark:text-zinc-400 mt-0.5">
+                Consultas médicas, exames e atividades físicas
+              </p>
+            </div>
+            {canManageActivities && (
+              <button
+                type="button"
+                onClick={() => {
+                  setEditingActivity(null);
+                  setDefaultActivityScheduleType('one_time');
+                  setIsActivityModalOpen(true);
+                }}
+                className="min-h-[44px] text-xs font-medium text-gray-600 dark:text-zinc-200 bg-gray-100 dark:bg-[#1c1c22] hover:bg-gray-200 dark:hover:bg-[#222229] dark:border dark:border-white/[0.08] px-3.5 py-2 rounded-xl transition-colors flex items-center whitespace-nowrap shrink-0"
+              >
+                <Plus className="w-3.5 h-3.5 mr-1" /> Adicionar
+              </button>
+            )}
+          </div>
+
+          {scheduledActivities.length === 0 && weeklyActivities.length === 0 ? (
+            <div className="bg-white dark:bg-[#121216] rounded-3xl p-5 border border-gray-100 dark:border-white/[0.08] shadow-sm text-center space-y-3">
+              <p className="text-sm text-gray-500 dark:text-zinc-400 leading-relaxed">
+                Nenhuma atividade configurada. Adicione consultas médicas com data marcada ou práticas semanais como fisioterapia e yoga.
+              </p>
+              {canManageActivities && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditingActivity(null);
+                    setDefaultActivityScheduleType('one_time');
+                    setIsActivityModalOpen(true);
+                  }}
+                  className="w-full min-h-[44px] flex items-center justify-center p-3 text-sm font-medium text-gray-600 dark:text-zinc-300 border border-dashed border-gray-300 dark:border-white/[0.14] rounded-xl hover:bg-gray-50 dark:hover:bg-white/[0.04] transition-all active:scale-[0.98]"
+                >
+                  <Plus className="w-4 h-4 mr-2" /> Adicionar atividade
+                </button>
+              )}
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {scheduledActivities.length > 0 && (
+                <div className="bg-white dark:bg-[#121216] rounded-3xl p-5 border border-gray-100 dark:border-white/[0.08] shadow-sm space-y-3">
+                  <div className="flex items-center justify-between gap-2 pb-2 border-b border-gray-50 dark:border-white/[0.06]">
+                    <div className="flex items-center gap-2">
+                      <CalendarClock className="w-4 h-4 text-indigo-500 dark:text-indigo-400 shrink-0" />
+                      <h4 className="font-bold text-sm text-gray-900 dark:text-zinc-100">
+                        Agendadas (data marcada)
+                      </h4>
+                    </div>
+                    <span className="text-xs font-medium text-gray-400 dark:text-zinc-500 tabular-nums">
+                      {scheduledActivities.length}
+                    </span>
+                  </div>
+
+                  <div className="space-y-2">
+                    {scheduledActivities.map((act) => {
+                      const summaryText = formatActivityScheduleSummary(act, todayStr);
+                      const catLabel = getActivityCategoryLabel(act.category);
+                      return canManageActivities ? (
+                        <button
+                          key={act.id}
+                          type="button"
+                          onClick={() => {
+                            setEditingActivity(act);
+                            setIsActivityModalOpen(true);
+                          }}
+                          className={`w-full min-h-[44px] flex items-center justify-between p-3 rounded-xl border transition-colors text-left ${
+                            !act.active
+                              ? 'bg-gray-50 dark:bg-[#16161b] border-gray-100 dark:border-white/[0.05] opacity-70'
+                              : 'bg-white dark:bg-[#1c1c22] border-gray-100 dark:border-white/[0.08] hover:border-gray-200 dark:hover:bg-[#222229]'
+                          }`}
+                        >
+                          <div className="min-w-0 pr-2">
+                            <p
+                              className={`font-medium ${
+                                !act.active
+                                  ? 'text-gray-400 dark:text-zinc-500 line-through'
+                                  : 'text-gray-900 dark:text-zinc-100'
+                              }`}
+                            >
+                              {act.title}
+                            </p>
+                            <p className="text-xs text-gray-500 dark:text-zinc-400 tabular-nums">
+                              {catLabel} · {summaryText}
+                            </p>
+                            {act.notes && (
+                              <p className="text-[11px] text-indigo-600 dark:text-indigo-400 mt-0.5 truncate">
+                                {act.notes}
+                              </p>
+                            )}
+                          </div>
+                          <Edit2 className="w-4 h-4 text-gray-300 dark:text-zinc-600 shrink-0" />
+                        </button>
+                      ) : (
+                        <div
+                          key={act.id}
+                          className={`w-full flex items-center justify-between p-3 rounded-xl border text-left ${
+                            !act.active
+                              ? 'bg-gray-50 dark:bg-[#16161b] border-gray-100 dark:border-white/[0.05] opacity-70'
+                              : 'bg-white dark:bg-[#1c1c22] border-gray-100 dark:border-white/[0.08]'
+                          }`}
+                        >
+                          <div className="min-w-0">
+                            <p
+                              className={`font-medium ${
+                                !act.active
+                                  ? 'text-gray-400 dark:text-zinc-500 line-through'
+                                  : 'text-gray-900 dark:text-zinc-100'
+                              }`}
+                            >
+                              {act.title}
+                            </p>
+                            <p className="text-xs text-gray-500 dark:text-zinc-400 tabular-nums">
+                              {catLabel} · {summaryText}
+                            </p>
+                            {act.notes && (
+                              <p className="text-[11px] text-indigo-600 dark:text-indigo-400 mt-0.5 truncate">
+                                {act.notes}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {weeklyActivities.length > 0 && (
+                <div className="bg-white dark:bg-[#121216] rounded-3xl p-5 border border-gray-100 dark:border-white/[0.08] shadow-sm space-y-3">
+                  <div className="flex items-center justify-between gap-2 pb-2 border-b border-gray-50 dark:border-white/[0.06]">
+                    <div className="flex items-center gap-2">
+                      <Repeat className="w-4 h-4 text-teal-600 dark:text-teal-400 shrink-0" />
+                      <h4 className="font-bold text-sm text-gray-900 dark:text-zinc-100">
+                        Recorrentes (toda semana)
+                      </h4>
+                    </div>
+                    <span className="text-xs font-medium text-gray-400 dark:text-zinc-500 tabular-nums">
+                      {weeklyActivities.length}
+                    </span>
+                  </div>
+
+                  <div className="space-y-2">
+                    {weeklyActivities.map((act) => {
+                      const summaryText = formatActivityScheduleSummary(act, todayStr);
+                      const catLabel = getActivityCategoryLabel(act.category);
+                      return canManageActivities ? (
+                        <button
+                          key={act.id}
+                          type="button"
+                          onClick={() => {
+                            setEditingActivity(act);
+                            setIsActivityModalOpen(true);
+                          }}
+                          className={`w-full min-h-[44px] flex items-center justify-between p-3 rounded-xl border transition-colors text-left ${
+                            !act.active
+                              ? 'bg-gray-50 dark:bg-[#16161b] border-gray-100 dark:border-white/[0.05] opacity-70'
+                              : 'bg-white dark:bg-[#1c1c22] border-gray-100 dark:border-white/[0.08] hover:border-gray-200 dark:hover:bg-[#222229]'
+                          }`}
+                        >
+                          <div className="min-w-0 pr-2">
+                            <p
+                              className={`font-medium ${
+                                !act.active
+                                  ? 'text-gray-400 dark:text-zinc-500 line-through'
+                                  : 'text-gray-900 dark:text-zinc-100'
+                              }`}
+                            >
+                              {act.title}
+                            </p>
+                            <p className="text-xs text-gray-500 dark:text-zinc-400 tabular-nums">
+                              {catLabel} · {summaryText}
+                            </p>
+                            {act.notes && (
+                              <p className="text-[11px] text-indigo-600 dark:text-indigo-400 mt-0.5 truncate">
+                                {act.notes}
+                              </p>
+                            )}
+                          </div>
+                          <Edit2 className="w-4 h-4 text-gray-300 dark:text-zinc-600 shrink-0" />
+                        </button>
+                      ) : (
+                        <div
+                          key={act.id}
+                          className={`w-full flex items-center justify-between p-3 rounded-xl border text-left ${
+                            !act.active
+                              ? 'bg-gray-50 dark:bg-[#16161b] border-gray-100 dark:border-white/[0.05] opacity-70'
+                              : 'bg-white dark:bg-[#1c1c22] border-gray-100 dark:border-white/[0.08]'
+                          }`}
+                        >
+                          <div className="min-w-0">
+                            <p
+                              className={`font-medium ${
+                                !act.active
+                                  ? 'text-gray-400 dark:text-zinc-500 line-through'
+                                  : 'text-gray-900 dark:text-zinc-100'
+                              }`}
+                            >
+                              {act.title}
+                            </p>
+                            <p className="text-xs text-gray-500 dark:text-zinc-400 tabular-nums">
+                              {catLabel} · {summaryText}
+                            </p>
+                            {act.notes && (
+                              <p className="text-[11px] text-indigo-600 dark:text-indigo-400 mt-0.5 truncate">
+                                {act.notes}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </section>
+
       </div>
 
       {/* Modals (ADMIN only) */}
@@ -418,6 +683,22 @@ export function RoutineScreen({ onTabChange }: RoutineScreenProps) {
             onSuccess={handleMedicationSuccess}
           />
         </>
+      )}
+
+      {/* Activity Modal (all active family accounts) */}
+      {canManageActivities && patient && profile && (
+        <ActivityFormModal
+          isOpen={isActivityModalOpen}
+          onClose={() => {
+            setIsActivityModalOpen(false);
+            setEditingActivity(null);
+          }}
+          patientId={patient.id}
+          profileId={profile.id}
+          activity={editingActivity}
+          defaultScheduleType={defaultActivityScheduleType}
+          onSuccess={handleActivitySuccess}
+        />
       )}
 
     </MainLayout>

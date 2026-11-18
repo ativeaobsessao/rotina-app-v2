@@ -54,14 +54,16 @@ export function isTransientNetworkError(err: any): boolean {
   const name = String(err?.name || '').toLowerCase();
   const code = String(err?.code || '');
 
-  // Never treat RLS, permission, closed-day trigger or Postgres constraint errors as transient network issues
+  // Never treat RLS, permission, closed-day trigger or Postgres constraint/schema errors as transient network issues
   if (
     isRlsPermissionError(err) ||
     code === '23503' ||
     code === '23505' ||
     code === '23514' ||
     code === '42703' ||
+    code === '42P01' ||
     code === 'PGRST204' ||
+    code === 'PGRST205' ||
     msg.includes('permission') ||
     msg.includes('já foi encerrado') ||
     msg.includes('administrador')
@@ -264,6 +266,43 @@ export async function getMedications(patientId: string): Promise<any[]> {
         .eq('active', true);
 
       if (error) throw error;
+      return data || [];
+    },
+    [],
+    { throwIfNoCacheWhenOnline: true }
+  );
+}
+
+function isMissingActivitySchemaError(err: any): boolean {
+  if (!err) return false;
+  const code = String(err?.code || '');
+  const msg = String(err?.message || err || '').toLowerCase();
+  if (code === '42P01' || code === 'PGRST205') return true;
+  return (
+    (msg.includes('activities') || msg.includes('activity_logs')) &&
+    (msg.includes('does not exist') ||
+      msg.includes('could not find the table') ||
+      msg.includes('schema cache'))
+  );
+}
+
+export async function getActivities(patientId: string): Promise<any[]> {
+  return fetchWithCache(
+    `activities_${patientId}`,
+    async () => {
+      const { data, error } = await (supabase as any)
+        .from('activities')
+        .select('*')
+        .eq('patient_id', patientId)
+        .eq('active', true)
+        .order('scheduled_time', { ascending: true });
+
+      if (error) {
+        if (isMissingActivitySchemaError(error)) {
+          return [];
+        }
+        throw error;
+      }
       return data || [];
     },
     [],
@@ -742,6 +781,57 @@ export async function getMedicationLogs(patientId: string, eventDate: string): P
   );
 }
 
+export async function getActivityLogs(patientId: string, eventDate: string): Promise<any[]> {
+  return fetchWithCache(
+    `activityLogs_${patientId}_${eventDate}`,
+    async () => {
+      const { data, error } = await (supabase as any)
+        .from('activity_logs')
+        .select('*, creator:profiles!activity_logs_created_by_fkey(name), updater:profiles!activity_logs_updated_by_fkey(name)')
+        .eq('patient_id', patientId)
+        .eq('event_date', eventDate);
+      if (error) {
+        if (isMissingActivitySchemaError(error)) {
+          return [];
+        }
+        throw error;
+      }
+      return data || [];
+    },
+    [],
+    { throwIfNoCacheWhenOnline: true }
+  );
+}
+
+export async function getHistoricalActivityLogs(
+  patientId: string,
+  beforeDate: string,
+  startDate?: string
+): Promise<any[]> {
+  let query = (supabase as any)
+    .from('activity_logs')
+    .select('*, activity:activities(*), creator:profiles!activity_logs_created_by_fkey(name), updater:profiles!activity_logs_updated_by_fkey(name)')
+    .eq('patient_id', patientId)
+    .lt('event_date', beforeDate)
+    .order('event_date', { ascending: false })
+    .order('created_at', { ascending: true });
+
+  if (startDate) {
+    query = query.gte('event_date', startDate);
+  }
+
+  const { data, error } = await query;
+
+  if (error) {
+    if (isMissingActivitySchemaError(error)) {
+      return [];
+    }
+    console.error('[getHistoricalActivityLogs] error:', error);
+    throw error;
+  }
+  return data ?? [];
+}
+
 async function upsertMealLogInCache(patientId: string, eventDate: string, savedLog: any) {
   try {
     const key = `mealLogs_${patientId}_${eventDate}`;
@@ -760,6 +850,18 @@ async function upsertMedLogInCache(patientId: string, eventDate: string, savedLo
     const current = (await get<any[]>(key)) || [];
     const filtered = current.filter(
       (item) => item.id !== savedLog.id && item.medication_id !== savedLog.medication_id
+    );
+    filtered.push(savedLog);
+    await set(key, filtered);
+  } catch {}
+}
+
+async function upsertActivityLogInCache(patientId: string, eventDate: string, savedLog: any) {
+  try {
+    const key = `activityLogs_${patientId}_${eventDate}`;
+    const current = (await get<any[]>(key)) || [];
+    const filtered = current.filter(
+      (item) => item.id !== savedLog.id && item.activity_id !== savedLog.activity_id
     );
     filtered.push(savedLog);
     await set(key, filtered);
@@ -1210,6 +1312,213 @@ export async function updateMedicationLog(
   }
 }
 
+export async function createActivityLog(
+  log: Database['public']['Tables']['activity_logs']['Insert']
+) {
+  const buildOptimistic = (tempId: string) => ({
+    ...log,
+    id: tempId,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+    _syncPending: true,
+  });
+
+  if (typeof navigator !== 'undefined' && !navigator.onLine) {
+    const tempId = `offline_activity_${log.activity_id}_${log.event_date}_${Date.now()}`;
+    const userId = await getCurrentSessionUserId();
+    await addToSyncQueue('createActivityLog', log, {
+      patientId: log.patient_id,
+      eventDate: log.event_date,
+      userId: userId || log.created_by,
+      localTempId: tempId,
+    });
+    const optimistic = buildOptimistic(tempId);
+    await upsertActivityLogInCache(log.patient_id, log.event_date, optimistic);
+    return optimistic;
+  }
+
+  try {
+    const { data, error } = await (supabase as any)
+      .from('activity_logs')
+      .insert(log)
+      .select('*, creator:profiles!activity_logs_created_by_fkey(name), updater:profiles!activity_logs_updated_by_fkey(name)')
+      .single();
+
+    if (error) {
+      if (isMissingActivitySchemaError(error)) {
+        throw new Error(
+          'Atualize o banco de dados no Supabase (migration 0021) para registrar atividades.'
+        );
+      }
+      if (String(error.code || '') === '23505') {
+        const { data: existing, error: fetchErr } = await (supabase as any)
+          .from('activity_logs')
+          .select('*, creator:profiles!activity_logs_created_by_fkey(name), updater:profiles!activity_logs_updated_by_fkey(name)')
+          .eq('activity_id', log.activity_id)
+          .eq('event_date', log.event_date)
+          .maybeSingle();
+        if (!fetchErr && existing) {
+          const existingRow = existing as any;
+          if (existingRow.created_by && log.created_by && existingRow.created_by !== log.created_by) {
+            const creatorName = existingRow.creator?.name || 'outro cuidador';
+            throw new Error(
+              `Esta atividade já foi registrada agora há pouco por ${creatorName}. Atualize para visualizar.`
+            );
+          }
+          await upsertActivityLogInCache(log.patient_id, log.event_date, existingRow);
+          return existingRow;
+        }
+      }
+      if (isRlsPermissionError(error)) {
+        throw new Error('Sua conta não possui vínculo ativo com esta família para registrar atividades.');
+      }
+      throw error;
+    }
+
+    if (data) {
+      await upsertActivityLogInCache(log.patient_id, log.event_date, data);
+    }
+    return data;
+  } catch (err: any) {
+    if (isRlsPermissionError(err)) {
+      throw new Error('Sua conta não possui vínculo ativo com esta família para registrar atividades.');
+    }
+    if (isTransientNetworkError(err)) {
+      const tempId = `offline_activity_${log.activity_id}_${log.event_date}_${Date.now()}`;
+      const userId = await getCurrentSessionUserId();
+      await addToSyncQueue('createActivityLog', log, {
+        patientId: log.patient_id,
+        eventDate: log.event_date,
+        userId: userId || log.created_by,
+        localTempId: tempId,
+      });
+      const optimistic = buildOptimistic(tempId);
+      await upsertActivityLogInCache(log.patient_id, log.event_date, optimistic);
+      return optimistic;
+    }
+    throw err;
+  }
+}
+
+export async function updateActivityLog(
+  id: string,
+  log: Database['public']['Tables']['activity_logs']['Update'] & {
+    patient_id?: string;
+    event_date?: string;
+  },
+  options: { expectedUpdatedAt?: string | null } = {}
+) {
+  const patientId = log.patient_id;
+  const eventDate = log.event_date;
+
+  if ((typeof navigator !== 'undefined' && !navigator.onLine) || id.startsWith('offline_')) {
+    const userId = await getCurrentSessionUserId();
+    await addToSyncQueue(
+      'updateActivityLog',
+      { id, ...log },
+      {
+        patientId,
+        eventDate,
+        userId: userId || log.updated_by,
+        expectedUpdatedAt: options.expectedUpdatedAt ?? null,
+      }
+    );
+    if (patientId && eventDate) {
+      const key = `activityLogs_${patientId}_${eventDate}`;
+      const current = (await get<any[]>(key)) || [];
+      const existing = current.find((item) => item.id === id) || {};
+      await upsertActivityLogInCache(patientId, eventDate, {
+        ...existing,
+        ...log,
+        id,
+        updated_at: new Date().toISOString(),
+        _syncPending: true,
+      });
+    }
+    return { id, ...log, _syncPending: true };
+  }
+
+  try {
+    if (options.expectedUpdatedAt) {
+      const { data: currentServer, error: checkErr } = await (supabase as any)
+        .from('activity_logs')
+        .select('id, updated_at, updated_by, updater:profiles!activity_logs_updated_by_fkey(name)')
+        .eq('id', id)
+        .maybeSingle();
+
+      if (checkErr) throw checkErr;
+      if (!currentServer) {
+        throw new Error('Este registro de atividade não existe mais no servidor.');
+      }
+      if (
+        currentServer.updated_at &&
+        currentServer.updated_at !== options.expectedUpdatedAt &&
+        currentServer.updated_by &&
+        currentServer.updated_by !== log.updated_by
+      ) {
+        const updaterName = currentServer.updater?.name || 'outro cuidador';
+        throw new Error(
+          `Esta atividade foi atualizada por ${updaterName} após sua abertura. Atualize os dados antes de editar.`
+        );
+      }
+    }
+
+    const { data, error } = await (supabase as any)
+      .from('activity_logs')
+      .update(log)
+      .eq('id', id)
+      .select('*, creator:profiles!activity_logs_created_by_fkey(name), updater:profiles!activity_logs_updated_by_fkey(name)')
+      .single();
+
+    if (error) {
+      if (isMissingActivitySchemaError(error)) {
+        throw new Error(
+          'Atualize o banco de dados no Supabase (migration 0021) para editar registros de atividades.'
+        );
+      }
+      if (isRlsPermissionError(error)) {
+        throw new Error('Sua conta não possui vínculo ativo com esta família para editar atividades.');
+      }
+      throw error;
+    }
+    if (data && data.patient_id && data.event_date) {
+      await upsertActivityLogInCache(data.patient_id, data.event_date, data);
+    }
+    return data;
+  } catch (err: any) {
+    if (isRlsPermissionError(err)) {
+      throw new Error('Sua conta não possui vínculo ativo com esta família para editar atividades.');
+    }
+    if (isTransientNetworkError(err)) {
+      const userId = await getCurrentSessionUserId();
+      await addToSyncQueue(
+        'updateActivityLog',
+        { id, ...log },
+        {
+          patientId,
+          eventDate,
+          userId: userId || log.updated_by,
+          expectedUpdatedAt: options.expectedUpdatedAt ?? null,
+        }
+      );
+      if (patientId && eventDate) {
+        const key = `activityLogs_${patientId}_${eventDate}`;
+        const current = (await get<any[]>(key)) || [];
+        const existing = current.find((item) => item.id === id) || {};
+        await upsertActivityLogInCache(patientId, eventDate, {
+          ...existing,
+          ...log,
+          id,
+          updated_at: new Date().toISOString(),
+          _syncPending: true,
+        });
+      }
+      return { id, ...log, _syncPending: true };
+    }
+    throw err;
+  }
+}
+
 // --- STORAGE WITH EXPIRY-AWARE SIGNED URL CACHE ---
 
 interface CachedSignedUrl {
@@ -1497,6 +1806,60 @@ export async function updateMedication(id: string, med: Database['public']['Tabl
   if (error) throw error;
   if (data?.patient_id) {
     await del(`medications_${data.patient_id}`).catch(() => {});
+  }
+  return data;
+}
+
+export async function createActivity(
+  activity: Database['public']['Tables']['activities']['Insert']
+) {
+  const { data, error } = await (supabase as any)
+    .from('activities')
+    .insert(activity)
+    .select()
+    .single();
+
+  if (error) {
+    if (isMissingActivitySchemaError(error)) {
+      throw new Error(
+        'Atualize o banco de dados no Supabase (migration 0021) para salvar atividades.'
+      );
+    }
+    if (isRlsPermissionError(error)) {
+      throw new Error('Sua conta não possui vínculo ativo com esta família para criar atividades.');
+    }
+    throw error;
+  }
+
+  await del(`activities_${activity.patient_id}`).catch(() => {});
+  return data;
+}
+
+export async function updateActivity(
+  id: string,
+  activity: Database['public']['Tables']['activities']['Update']
+) {
+  const { data, error } = await (supabase as any)
+    .from('activities')
+    .update(activity)
+    .eq('id', id)
+    .select()
+    .single();
+
+  if (error) {
+    if (isMissingActivitySchemaError(error)) {
+      throw new Error(
+        'Atualize o banco de dados no Supabase (migration 0021) para atualizar atividades.'
+      );
+    }
+    if (isRlsPermissionError(error)) {
+      throw new Error('Sua conta não possui vínculo ativo com esta família para editar atividades.');
+    }
+    throw error;
+  }
+
+  if (data?.patient_id) {
+    await del(`activities_${data.patient_id}`).catch(() => {});
   }
   return data;
 }

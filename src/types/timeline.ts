@@ -2,8 +2,8 @@ export type EventStatus = 'waiting' | 'pending' | 'confirmed' | 'attention';
 export type EventSyncStatus = 'synced' | 'pending' | 'failed';
 
 export interface TimelineEventBase {
-  id: string; // The config or period ID
-  type: 'meal' | 'medication_period';
+  id: string; // The config, period or activity ID
+  type: 'meal' | 'medication_period' | 'activity';
   time: string; // '08:00:00'
   title: string;
   status: EventStatus;
@@ -25,4 +25,10 @@ export interface MedicationEventData extends TimelineEventBase {
   logs: any[]; // Array of MedicationLogs for these medications
 }
 
-export type TimelineEvent = MealEventData | MedicationEventData;
+export interface ActivityEventData extends TimelineEventBase {
+  type: 'activity';
+  activity: any; // Activity row
+  log?: any; // ActivityLog row
+}
+
+export type TimelineEvent = MealEventData | MedicationEventData | ActivityEventData;

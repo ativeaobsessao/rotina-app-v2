@@ -10,6 +10,8 @@ export type SyncAction =
   | 'updateMealLog'
   | 'createMedicationLog'
   | 'updateMedicationLog'
+  | 'createActivityLog'
+  | 'updateActivityLog'
   | 'createDailyClosure'
   | 'deleteDailyClosure'
   | 'upsertDailyMoodLog';
@@ -183,6 +185,22 @@ export async function addToSyncQueue(
     if (action === 'updateMedicationLog' && payload?.id && String(payload.id).startsWith('offline_')) {
       const idx = queue.findIndex(
         (q) => q.action === 'createMedicationLog' && q.localTempId === payload.id && q.status === 'pending'
+      );
+      if (idx >= 0) {
+        const { id: _ignored, ...updateFields } = payload;
+        queue[idx] = {
+          ...queue[idx],
+          payload: { ...queue[idx].payload, ...updateFields },
+          timestamp: Date.now(),
+        };
+        await adapter.saveQueue(queue);
+        return queue[idx].id;
+      }
+    }
+
+    if (action === 'updateActivityLog' && payload?.id && String(payload.id).startsWith('offline_')) {
+      const idx = queue.findIndex(
+        (q) => q.action === 'createActivityLog' && q.localTempId === payload.id && q.status === 'pending'
       );
       if (idx >= 0) {
         const { id: _ignored, ...updateFields } = payload;
@@ -370,6 +388,21 @@ async function verifyDuplicateSatisfied(
       return { status: 'match', existing: data };
     }
 
+    if (item.action === 'createActivityLog' && item.payload?.activity_id && item.payload?.event_date) {
+      const { data, error } = await client
+        .from('activity_logs')
+        .select('*')
+        .eq('activity_id', item.payload.activity_id)
+        .eq('event_date', item.payload.event_date)
+        .maybeSingle();
+      if (error || !data?.id) return { status: 'missing' };
+      const expectedOwner = item.payload?.created_by || item.userId;
+      if (data.created_by && expectedOwner && data.created_by !== expectedOwner) {
+        return { status: 'conflict', existing: data };
+      }
+      return { status: 'match', existing: data };
+    }
+
     if (item.action === 'createDailyClosure' && item.payload?.patient_id && item.payload?.date) {
       const { data, error } = await client
         .from('daily_closures')
@@ -407,6 +440,14 @@ async function syncLocalCacheAfterCommit(item: SyncItem, savedRow: any) {
       const current = (await get<any[]>(key)) || [];
       const filtered = current.filter(
         (x) => x.id !== savedRow.id && x.id !== item.localTempId && x.medication_id !== savedRow.medication_id
+      );
+      filtered.push(savedRow);
+      await set(key, filtered);
+    } else if ((item.action === 'createActivityLog' || item.action === 'updateActivityLog') && savedRow) {
+      const key = `activityLogs_${patientId}_${eventDate}`;
+      const current = (await get<any[]>(key)) || [];
+      const filtered = current.filter(
+        (x) => x.id !== savedRow.id && x.id !== item.localTempId && x.activity_id !== savedRow.activity_id
       );
       filtered.push(savedRow);
       await set(key, filtered);
@@ -721,6 +762,37 @@ async function runQueueCore(
           const { applied_dosage: _ignored, ...legacyData } = data;
           dbResult = await client.from('medication_logs').update(legacyData).eq('id', id).select().maybeSingle();
         }
+      } else if (item.action === 'createActivityLog') {
+        dbResult = await client.from('activity_logs').insert(currentPayload).select().maybeSingle();
+      } else if (item.action === 'updateActivityLog') {
+        const { id, ...data } = currentPayload;
+        if (String(id || '').startsWith('offline_')) {
+          throw {
+            code: 'ORPHAN_OFFLINE_ID',
+            message: 'Registro original de atividade não foi criado no servidor antes desta atualização.',
+          };
+        }
+        if (item.expectedUpdatedAt) {
+          const { data: currentServer, error: checkErr } = await client
+            .from('activity_logs')
+            .select('id, updated_at, updated_by')
+            .eq('id', id)
+            .maybeSingle();
+          if (checkErr) throw checkErr;
+          if (
+            currentServer?.updated_at &&
+            currentServer.updated_at !== item.expectedUpdatedAt &&
+            currentServer.updated_by &&
+            currentServer.updated_by !== data.updated_by
+          ) {
+            throw {
+              code: 'CONFLICT_STALE_UPDATE',
+              message:
+                'Outro cuidador atualizou esta atividade enquanto você estava offline.',
+            };
+          }
+        }
+        dbResult = await client.from('activity_logs').update(data).eq('id', id).select().maybeSingle();
       } else if (item.action === 'createDailyClosure') {
         dbResult = await client.from('daily_closures').insert(currentPayload).select().maybeSingle();
       } else if (item.action === 'deleteDailyClosure') {

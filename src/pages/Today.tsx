@@ -8,6 +8,8 @@ import {
   getMedications,
   getMealLogs,
   getMedicationLogs,
+  getActivities,
+  getActivityLogs,
   getDailyMoodLog,
   getMyFamilyPermissions,
   type DailyMoodLog,
@@ -29,6 +31,7 @@ import {
   getCurrentLocalTime,
   formatFriendlyDate,
   formatDateToTime,
+  formatTime,
   isAfterClosureReminderTime,
   getMsUntilNextClosureBoundary,
 } from '../utils/date';
@@ -36,6 +39,17 @@ import {
   isMedicationScheduledForDate,
   getTimelineProgressMetrics,
 } from '../utils/medicationSchedule';
+import {
+  isActivityScheduledForDate,
+  getUpcomingScheduledActivities,
+  formatShortDateBR,
+  formatDaysUntilLabel,
+} from '../utils/activitySchedule';
+import {
+  isUpcomingActivityBannerDismissed,
+  dismissUpcomingActivityBanner,
+  shouldShowUpcomingActivityBanner,
+} from '../utils/activityReminder';
 import {
   isClosureReminderDismissed,
   dismissClosureReminder,
@@ -51,14 +65,17 @@ import {
 } from '../services/mealDrafts';
 import { UserProfile } from '../components/ui/UserProfile';
 import { MedicationModal } from '../components/medications/MedicationModal';
+import { ActivityModal } from '../components/activities/ActivityModal';
+import { ActivityFormModal } from '../components/routine/ActivityFormModal';
 import { MoodAndPainModal } from '../components/mood/MoodAndPainModal';
 import type {
   TimelineEvent,
   MealEventData,
   MedicationEventData,
+  ActivityEventData,
   EventSyncStatus,
 } from '../types/timeline';
-import { Unlock, MessageCircle, AlertCircle, RefreshCw, X, CheckCircle2 } from 'lucide-react';
+import { Unlock, MessageCircle, AlertCircle, RefreshCw, X, CheckCircle2, CalendarClock, Plus } from 'lucide-react';
 
 const DEFAULT_NOW_PROVIDER = () => new Date();
 
@@ -139,6 +156,7 @@ export function TodayScreen({
     isAfterClosureReminderTime(nowProvider(), DEFAULT_TIMEZONE, 21)
   );
   const [dismissSyncTick, setDismissSyncTick] = useState(0);
+  const [dismissActivityTick, setDismissActivityTick] = useState(0);
   const [isRecadoExpanded, setIsRecadoExpanded] = useState(false);
 
   const localDate = editingDateStr || clockDate;
@@ -159,6 +177,7 @@ export function TodayScreen({
   const [patient, setPatient] = useState<any>(null);
   const [patientPhoto, setPatientPhoto] = useState<string | null>(null);
   const [events, setEvents] = useState<TimelineEvent[]>([]);
+  const [allActivities, setAllActivities] = useState<any[]>([]);
   const [loadedDate, setLoadedDate] = useState<string | null>(null);
   const [isTransitioning, setIsTransitioning] = useState(false);
 
@@ -172,6 +191,8 @@ export function TodayScreen({
   // Modals state
   const [selectedMealEvent, setSelectedMealEvent] = useState<MealEventData | null>(null);
   const [selectedMedEvent, setSelectedMedEvent] = useState<MedicationEventData | null>(null);
+  const [selectedActivityEvent, setSelectedActivityEvent] = useState<ActivityEventData | null>(null);
+  const [showActivityFormModal, setShowActivityFormModal] = useState(false);
 
   // Concurrency, debouncing and memory guards
   const isMountedRef = useRef(true);
@@ -240,17 +261,29 @@ export function TodayScreen({
     async (patientId: string, dateStr: string, explicitUserId?: string) => {
       const reqSeq = ++timelineReqSeqRef.current;
       try {
-        const [meals, medPeriods, allMeds, mealLogs, medLogs, moodLog, closure, syncQueue] =
-          await Promise.all([
-            getMealConfigs(patientId),
-            getMedicationPeriods(patientId),
-            getMedications(patientId),
-            getMealLogs(patientId, dateStr),
-            getMedicationLogs(patientId, dateStr),
-            getDailyMoodLog(patientId, dateStr),
-            getDailyClosure(patientId, dateStr),
-            getSyncQueue(),
-          ]);
+        const [
+          meals,
+          medPeriods,
+          allMeds,
+          loadedActivities,
+          mealLogs,
+          medLogs,
+          activityLogs,
+          moodLog,
+          closure,
+          syncQueue,
+        ] = await Promise.all([
+          getMealConfigs(patientId),
+          getMedicationPeriods(patientId),
+          getMedications(patientId),
+          getActivities(patientId),
+          getMealLogs(patientId, dateStr),
+          getMedicationLogs(patientId, dateStr),
+          getActivityLogs(patientId, dateStr),
+          getDailyMoodLog(patientId, dateStr),
+          getDailyClosure(patientId, dateStr),
+          getSyncQueue(),
+        ]);
 
         if (!isMountedRef.current || reqSeq !== timelineReqSeqRef.current) {
           return;
@@ -400,10 +433,57 @@ export function TodayScreen({
           });
         }
 
+        // 3. Process Activities scheduled for dateStr (or already logged on dateStr)
+        const loggedActivityIds = new Set(activityLogs.map((l) => l.activity_id));
+        const scheduledActivitiesForDate = loadedActivities.filter(
+          (act) => isActivityScheduledForDate(act, dateStr) || loggedActivityIds.has(act.id)
+        );
+
+        for (const act of scheduledActivitiesForDate) {
+          const log = activityLogs.find((l) => l.activity_id === act.id);
+          const matchingQueueItems = scopedQueue.filter(
+            (q) =>
+              (q.action === 'createActivityLog' && q.payload?.activity_id === act.id) ||
+              (q.action === 'updateActivityLog' &&
+                ((log && q.payload?.id === log.id) || q.payload?.activity_id === act.id))
+          );
+          const failedItem = matchingQueueItems.find((q) => q.status === 'failed');
+          const pendingItem = matchingQueueItems.find((q) => q.status === 'pending');
+
+          let syncStatus: EventSyncStatus = 'synced';
+          let syncError: string | null = null;
+          if (failedItem) {
+            syncStatus = 'failed';
+            syncError = failedItem.lastError || null;
+          } else if (pendingItem || log?._syncPending) {
+            syncStatus = 'pending';
+          }
+
+          let status: 'waiting' | 'pending' | 'confirmed' | 'attention' = 'waiting';
+          if (log) {
+            status = log.status === 'not_completed' ? 'attention' : 'confirmed';
+          } else if (act.scheduled_time <= currentTime) {
+            status = 'pending';
+          }
+
+          timeline.push({
+            id: act.id,
+            type: 'activity',
+            time: act.scheduled_time,
+            title: act.title,
+            status,
+            _syncStatus: syncStatus,
+            _syncError: syncError,
+            activity: act,
+            log,
+          });
+        }
+
         timeline.sort((a, b) => a.time.localeCompare(b.time));
 
         setTodayMood(moodLog);
         setDailyClosure(closure);
+        setAllActivities(loadedActivities);
         setEvents(timeline);
         setLoadedDate(dateStr);
         setLoadError(null);
@@ -565,6 +645,24 @@ export function TodayScreen({
       )
       .subscribe();
 
+    const activitiesSub = supabase
+      .channel(`patient:${pid}:activities`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'activities', filter: `patient_id=eq.${pid}` },
+        () => scheduleRefresh(pid, localDate, 250)
+      )
+      .subscribe();
+
+    const activityLogsSub = supabase
+      .channel(`patient:${pid}:activity_logs`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'activity_logs', filter: `patient_id=eq.${pid}` },
+        () => scheduleRefresh(pid, localDate, 250)
+      )
+      .subscribe();
+
     const triggerFocusRefresh = () => {
       syncTimeState();
       const now = Date.now();
@@ -587,6 +685,8 @@ export function TodayScreen({
       supabase.removeChannel(medSub);
       supabase.removeChannel(moodSub);
       supabase.removeChannel(closureSub);
+      supabase.removeChannel(activitiesSub);
+      supabase.removeChannel(activityLogsSub);
       window.removeEventListener('focus', triggerFocusRefresh);
       window.removeEventListener('visibilitychange', handleVisibilityChange);
     };
@@ -604,6 +704,16 @@ export function TodayScreen({
   const handleMedRefresh = () => {
     if (patient) refreshTimeline(patient.id, localDate);
     setSelectedMedEvent(null);
+  };
+
+  const handleActivityRefresh = () => {
+    if (patient) refreshTimeline(patient.id, localDate);
+    setSelectedActivityEvent(null);
+  };
+
+  const handleActivityFormSuccess = () => {
+    setShowActivityFormModal(false);
+    if (patient) refreshTimeline(patient.id, localDate);
   };
 
   const handleReopenDay = async () => {
@@ -736,6 +846,39 @@ export function TodayScreen({
   const handleDismissClosureBanner = () => {
     dismissClosureReminder(profile?.id, patient?.id, localDate);
     setDismissSyncTick((tick) => tick + 1);
+  };
+
+  const upcomingActivities = getUpcomingScheduledActivities(allActivities, clockDate, 1, 7);
+  const upcomingBannerRawActivities = upcomingActivities.map((item) => item.activity);
+  const isUpcomingBannerDismissed =
+    isUpcomingActivityBannerDismissed(
+      profile?.id,
+      patient?.id,
+      clockDate,
+      upcomingBannerRawActivities
+    ) && dismissActivityTick >= 0;
+
+  const showUpcomingActivityBanner = shouldShowUpcomingActivityBanner({
+    isViewingToday,
+    isDayClosed: Boolean(dailyClosure),
+    upcomingCount: upcomingActivities.length,
+    isDismissed: isUpcomingBannerDismissed,
+  });
+
+  const handleDismissUpcomingBanner = () => {
+    dismissUpcomingActivityBanner(
+      profile?.id,
+      patient?.id,
+      clockDate,
+      upcomingBannerRawActivities
+    );
+    setDismissActivityTick((tick) => tick + 1);
+  };
+
+  const handleSelectEvent = (event: TimelineEvent) => {
+    if (event.type === 'meal') setSelectedMealEvent(event as MealEventData);
+    else if (event.type === 'activity') setSelectedActivityEvent(event as ActivityEventData);
+    else setSelectedMedEvent(event as MedicationEventData);
   };
 
   const morning = events.filter((e) => e.time < '12:00:00');
@@ -979,6 +1122,57 @@ export function TodayScreen({
           </div>
         )}
 
+        {/* Dismissible Upcoming Activity Banner (1 to 7 days ahead) */}
+        {showUpcomingActivityBanner && (
+          <div
+            role="region"
+            aria-label="Aviso de atividade agendada"
+            className="mx-3.5 sm:mx-5 mt-3 bg-indigo-50/90 dark:bg-indigo-950/40 border border-indigo-200/80 dark:border-indigo-800/50 rounded-2xl p-3.5 flex items-start gap-3 shadow-sm animate-in fade-in slide-in-from-top-2"
+          >
+            <div className="w-8 h-8 rounded-full bg-indigo-100 dark:bg-indigo-900/60 flex items-center justify-center shrink-0 mt-0.5">
+              <CalendarClock className="w-4 h-4 text-indigo-600 dark:text-indigo-300" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-[11px] font-bold uppercase tracking-wider text-indigo-700 dark:text-indigo-300">
+                {upcomingActivities.length === 1
+                  ? 'Atividade agendada próxima'
+                  : `${upcomingActivities.length} atividades agendadas nos próximos dias`}
+              </p>
+              <div className="mt-1 space-y-1">
+                {upcomingActivities.slice(0, 2).map(({ activity, daysUntil }) => (
+                  <div key={activity.id} className="text-xs text-indigo-950 dark:text-indigo-100 leading-snug">
+                    <span className="font-semibold">{activity.title}</span>
+                    <span className="text-indigo-700/90 dark:text-indigo-300 tabular-nums">
+                      {' '}
+                      · {formatDaysUntilLabel(daysUntil)} ({formatShortDateBR(activity.scheduled_date)} às{' '}
+                      {formatTime(activity.scheduled_time || '09:00')})
+                    </span>
+                    {activity.notes && (
+                      <span className="block text-[11px] text-indigo-700/80 dark:text-indigo-300/80 truncate">
+                        {activity.notes}
+                      </span>
+                    )}
+                  </div>
+                ))}
+                {upcomingActivities.length > 2 && (
+                  <p className="text-[11px] font-medium text-indigo-700/85 dark:text-indigo-300/85">
+                    + {upcomingActivities.length - 2} outra(s) nos próximos 7 dias em Rotina
+                  </p>
+                )}
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={handleDismissUpcomingBanner}
+              aria-label="Fechar aviso de atividade agendada"
+              title="Fechar aviso"
+              className="min-w-[44px] min-h-[44px] -mr-2 -mt-2 flex items-center justify-center rounded-xl text-indigo-500 hover:text-indigo-700 dark:text-indigo-300 dark:hover:text-white hover:bg-indigo-100/70 dark:hover:bg-white/[0.08] transition-colors shrink-0"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        )}
+
         {/* Banners */}
         {!dailyClosure && hasReopened && (
           <div className="mx-3.5 sm:mx-5 mt-3 bg-amber-50 dark:bg-amber-950/40 border border-amber-100 dark:border-amber-900/50 rounded-2xl p-3.5 flex items-start gap-3 shadow-sm animate-in fade-in slide-in-from-top-2">
@@ -1031,6 +1225,23 @@ export function TodayScreen({
           </div>
         )}
 
+        {/* Quick Create Same-Day or Scheduled Activity directly from Home */}
+        {!dailyClosure && canRecordDailyActivities && (
+          <div className="px-3.5 sm:px-5 pt-3 flex items-center justify-between gap-2">
+            <span className="text-[11px] font-medium text-gray-400 dark:text-zinc-500">
+              Linha do tempo
+            </span>
+            <button
+              type="button"
+              onClick={() => setShowActivityFormModal(true)}
+              className="min-h-[44px] inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold text-indigo-700 dark:text-indigo-300 bg-indigo-50/90 dark:bg-indigo-950/45 border border-indigo-200/70 dark:border-indigo-800/50 hover:bg-indigo-100/80 dark:hover:bg-indigo-900/50 transition-all active:scale-95 whitespace-nowrap shrink-0"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>Atividade</span>
+            </button>
+          </div>
+        )}
+
         {/* Timeline */}
         <div
           className={`px-3.5 sm:px-5 pt-3.5 space-y-5 ${
@@ -1046,13 +1257,9 @@ export function TodayScreen({
                 {morning.map((event) => (
                   <TimelineItem
                     profileId={profile?.id}
-                    key={event.id}
+                    key={`${event.type}-${event.id}`}
                     event={event}
-                    onClick={() =>
-                      event.type === 'meal'
-                        ? setSelectedMealEvent(event as MealEventData)
-                        : setSelectedMedEvent(event as MedicationEventData)
-                    }
+                    onClick={() => handleSelectEvent(event)}
                   />
                 ))}
               </div>
@@ -1068,13 +1275,9 @@ export function TodayScreen({
                 {afternoon.map((event) => (
                   <TimelineItem
                     profileId={profile?.id}
-                    key={event.id}
+                    key={`${event.type}-${event.id}`}
                     event={event}
-                    onClick={() =>
-                      event.type === 'meal'
-                        ? setSelectedMealEvent(event as MealEventData)
-                        : setSelectedMedEvent(event as MedicationEventData)
-                    }
+                    onClick={() => handleSelectEvent(event)}
                   />
                 ))}
               </div>
@@ -1090,13 +1293,9 @@ export function TodayScreen({
                 {night.map((event) => (
                   <TimelineItem
                     profileId={profile?.id}
-                    key={event.id}
+                    key={`${event.type}-${event.id}`}
                     event={event}
-                    onClick={() =>
-                      event.type === 'meal'
-                        ? setSelectedMealEvent(event as MealEventData)
-                        : setSelectedMedEvent(event as MedicationEventData)
-                    }
+                    onClick={() => handleSelectEvent(event)}
                   />
                 ))}
               </div>
@@ -1291,6 +1490,32 @@ export function TodayScreen({
           onPartialSuccess={() => {
             if (patient) refreshTimeline(patient.id, localDate);
           }}
+        />
+      )}
+
+      {selectedActivityEvent && patient && profile && (
+        <ActivityModal
+          isOpen={!!selectedActivityEvent}
+          onClose={() => setSelectedActivityEvent(null)}
+          event={selectedActivityEvent}
+          patientId={patient.id}
+          profileId={profile.id}
+          eventDate={localDate}
+          isDayClosed={!!dailyClosure}
+          canEdit={canRecordDailyActivities}
+          onSuccess={handleActivityRefresh}
+        />
+      )}
+
+      {showActivityFormModal && patient && profile && canRecordDailyActivities && (
+        <ActivityFormModal
+          isOpen={showActivityFormModal}
+          onClose={() => setShowActivityFormModal(false)}
+          patientId={patient.id}
+          profileId={profile.id}
+          defaultScheduleType="one_time"
+          defaultDate={localDate}
+          onSuccess={handleActivityFormSuccess}
         />
       )}
 

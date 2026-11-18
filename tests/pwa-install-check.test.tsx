@@ -243,6 +243,7 @@ test('PWA Checagem: Android sem prompt nativo exibe guia Android (nunca Computad
 
     const installedToast = container.querySelector('[data-testid="pwa-installed-notification"]');
     assert.ok(installedToast);
+    assert.equal(container.querySelector('[data-testid="pwa-install-guide-modal"]'), null);
     assert.match(installedToast.textContent || '', /Aplicativo DUCA baixado!/);
   } finally {
     await act(async () => root.unmount());
@@ -289,6 +290,7 @@ test('PWA Checagem: iOS Safari exibe guia de 3 passos + notificação após conf
 
     const installedToast = container.querySelector('[data-testid="pwa-installed-notification"]');
     assert.ok(installedToast);
+    assert.equal(container.querySelector('[data-testid="pwa-install-guide-modal"]'), null);
     assert.match(installedToast.textContent || '', /Procure o ícone DUCA na Tela de Início do iPhone/);
   } finally {
     await act(async () => root.unmount());

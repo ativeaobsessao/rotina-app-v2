@@ -429,9 +429,14 @@ export function PWAInstallBanner() {
               ) : env.os === 'ios' ? (
                 /* Cenário B: iOS (iPhone / iPad) */
                 <div className="space-y-3">
-                  {env.browser !== 'safari' && (
+                  {env.browser !== 'safari' ? (
                     <div className="rounded-2xl bg-indigo-50/70 dark:bg-indigo-950/35 border border-indigo-100 dark:border-indigo-800/40 p-3 text-xs text-indigo-950 dark:text-indigo-100 leading-relaxed">
-                      Dica: no iPhone, o jeito mais rápido funciona pelo navegador <strong>Safari</strong>.
+                      Você está usando outro navegador no iPhone. Se não encontrar{' '}
+                      <strong>Adicionar à Tela de Início</strong> no ícone Compartilhar do topo direito, copie o link abaixo e abra no <strong>Safari</strong>.
+                    </div>
+                  ) : (
+                    <div className="rounded-2xl bg-indigo-50/70 dark:bg-indigo-950/35 border border-indigo-100 dark:border-indigo-800/40 p-3 text-xs text-indigo-950 dark:text-indigo-100 leading-relaxed">
+                      Se você abriu pelo <strong>WhatsApp</strong>, toque antes no ícone da <strong>bússola (Safari)</strong> no canto inferior direito para sair do WhatsApp.
                     </div>
                   )}
                   <div className="flex items-start gap-3 p-3.5 rounded-2xl bg-gray-50 dark:bg-[#1c1c22]">
@@ -443,7 +448,9 @@ export function PWAInstallBanner() {
                       <strong className="text-gray-900 dark:text-zinc-100 inline-flex items-center gap-1">
                         Compartilhar <Share2 className="w-3.5 h-3.5 text-indigo-600 inline" />
                       </strong>{' '}
-                      na barra do Safari.
+                      {env.browser === 'safari'
+                        ? 'na barra inferior do Safari.'
+                        : 'no canto superior direito da barra de endereço.'}
                     </p>
                   </div>
                   <div className="flex items-start gap-3 p-3.5 rounded-2xl bg-gray-50 dark:bg-[#1c1c22]">
@@ -451,7 +458,7 @@ export function PWAInstallBanner() {
                       2
                     </div>
                     <p className="text-xs text-gray-700 dark:text-zinc-300 leading-relaxed">
-                      Role as opções e toque em{' '}
+                      Role as opções até encontrar e tocar em{' '}
                       <strong className="text-gray-900 dark:text-zinc-100 inline-flex items-center gap-1">
                         Adicionar à Tela de Início <PlusSquare className="w-3.5 h-3.5 text-indigo-600 inline" />
                       </strong>
@@ -463,7 +470,7 @@ export function PWAInstallBanner() {
                       3
                     </div>
                     <p className="text-xs text-gray-700 dark:text-zinc-300 leading-relaxed">
-                      Toque em <strong className="text-gray-900 dark:text-zinc-100">Adicionar</strong> no canto superior direito. Depois, abra pelo ícone DUCA na Tela de Início.
+                      Toque em <strong className="text-gray-900 dark:text-zinc-100">Adicionar</strong> no canto superior direito. Depois, feche o navegador e abra pelo ícone DUCA na Tela de Início.
                     </p>
                   </div>
 
@@ -474,6 +481,15 @@ export function PWAInstallBanner() {
                   >
                     <CheckCircle2 className="w-4 h-4" />
                     <span>Já adicionei à Tela de Início</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleCopyUrl}
+                    className="w-full min-h-[44px] py-2.5 px-4 rounded-2xl border border-gray-200 dark:border-white/[0.1] bg-white dark:bg-[#1c1c22] hover:bg-gray-50 dark:hover:bg-[#24242c] text-gray-700 dark:text-zinc-200 text-xs font-semibold flex items-center justify-center gap-2 transition-colors"
+                  >
+                    {linkCopied ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
+                    <span>{linkCopied ? 'Link copiado! Cole no Safari' : 'Copiar link para abrir no Safari'}</span>
                   </button>
                 </div>
               ) : env.os === 'android' ? (

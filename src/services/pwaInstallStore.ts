@@ -424,6 +424,7 @@ function applyAppInstalledState(sourceMessage?: string) {
       isInstalled: true,
       isRunningStandalone: env.isStandalone,
       justInstalled,
+      isModalOpen: false,
       installStatus: 'installed',
       installMessage:
         sourceMessage ||

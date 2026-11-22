@@ -304,9 +304,24 @@ export function ShoppingListModal({
                             </h4>
 
                             {(item.quantity || item.notes) && (
-                              <p className="text-xs text-gray-600 dark:text-zinc-300 mt-1 leading-relaxed">
-                                {[item.quantity, item.notes].filter(Boolean).join(' · ')}
-                              </p>
+                              <div className="mt-1.5 space-y-0.5 text-xs text-gray-600 dark:text-zinc-300 leading-relaxed">
+                                {item.quantity && (
+                                  <p className="break-words">
+                                    <span className="font-semibold text-gray-700 dark:text-zinc-200">
+                                      Quantidade:{' '}
+                                    </span>
+                                    <span>{item.quantity}</span>
+                                  </p>
+                                )}
+                                {item.notes && (
+                                  <p className="break-words">
+                                    <span className="font-semibold text-gray-700 dark:text-zinc-200">
+                                      Marca / Observação:{' '}
+                                    </span>
+                                    <span>{item.notes}</span>
+                                  </p>
+                                )}
+                              </div>
                             )}
 
                             <p className="text-[11px] text-gray-500 dark:text-zinc-400 mt-1.5">
@@ -521,9 +536,24 @@ export function ShoppingListModal({
                   {purchasingItem.name}
                 </h4>
                 {(purchasingItem.quantity || purchasingItem.notes) && (
-                  <p className="text-xs text-gray-500 dark:text-zinc-400 mt-0.5">
-                    {[purchasingItem.quantity, purchasingItem.notes].filter(Boolean).join(' · ')}
-                  </p>
+                  <div className="mt-1.5 space-y-0.5 text-xs text-gray-500 dark:text-zinc-400 leading-relaxed">
+                    {purchasingItem.quantity && (
+                      <p className="break-words">
+                        <span className="font-semibold text-gray-700 dark:text-zinc-300">
+                          Quantidade:{' '}
+                        </span>
+                        <span>{purchasingItem.quantity}</span>
+                      </p>
+                    )}
+                    {purchasingItem.notes && (
+                      <p className="break-words">
+                        <span className="font-semibold text-gray-700 dark:text-zinc-300">
+                          Marca / Observação:{' '}
+                        </span>
+                        <span>{purchasingItem.notes}</span>
+                      </p>
+                    )}
+                  </div>
                 )}
               </div>
 

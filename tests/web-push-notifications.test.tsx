@@ -571,3 +571,174 @@ test('[Integração React] TodayScreen destaca marcos exatos de 7, 3 e 1 dia no 
     dom.window.close();
   }
 });
+
+test('[Regressão UI - Portal nas 3 abas] Sininho abre fora do header sticky (sem cortar ou ocultar logo/menu) em Hoje, Histórico e Rotina com passo a passo e botão Fechar', async () => {
+  const dom = setupDom();
+  const container = document.getElementById('root')!;
+  const root = createRoot(container);
+
+  const origAuthGetUser = supabase.auth.getUser.bind(supabase.auth);
+  const origAuthGetSession = supabase.auth.getSession.bind(supabase.auth);
+  const origFrom = supabase.from.bind(supabase);
+  const origRpc = (supabase as any).rpc?.bind(supabase);
+  const origChannel = supabase.channel.bind(supabase);
+  const origRemoveChannel = supabase.removeChannel.bind(supabase);
+
+  (supabase.auth as any).getUser = async () => ({
+    data: { user: { id: 'member-1', email: 'ana@duca.local' } },
+    error: null,
+  });
+  (supabase.auth as any).getSession = async () => ({
+    data: { session: { user: { id: 'member-1', email: 'ana@duca.local' } } },
+    error: null,
+  });
+  (supabase as any).rpc = async () => ({ data: 0, error: null });
+  (supabase as any).channel = () => ({
+    on() {
+      return this;
+    },
+    subscribe() {
+      return this;
+    },
+  });
+  (supabase as any).removeChannel = () => {};
+
+  (supabase as any).from = (table: string) => {
+    switch (table) {
+      case 'profiles':
+        return makeQueryChain({
+          id: 'member-1',
+          name: 'Ana',
+          email: 'ana@duca.local',
+          family_id: 'fam-1',
+        });
+      case 'patients':
+        return makeQueryChain([
+          { id: 'pat-1', name: 'Dona Maria', family_id: 'fam-1', photo_url: null, gender: 'F' },
+        ]);
+      case 'family_members':
+        return makeQueryChain([
+          { id: 'fm-1', user_id: 'member-1', family_id: 'fam-1', role: 'ADMIN', member_type: 'FAMILY' },
+        ]);
+      case 'daily_mood_logs':
+      case 'daily_closures':
+        return makeQueryChain(null);
+      default:
+        return makeQueryChain([]);
+    }
+  };
+
+  try {
+    const { HistoryScreen } = await import('../src/pages/History.tsx');
+    const { RoutineScreen } = await import('../src/pages/Routine.tsx');
+
+    const screens = [
+      {
+        name: 'Hoje',
+        element: React.createElement(ThemeProvider, null, React.createElement(TodayScreen)),
+        assertHeaderIntact: () => {
+          const header = container.querySelector('header');
+          assert.ok(header, 'Header de Hoje deve existir');
+          assert.match(header.textContent || '', /DUCA/);
+          assert.ok(
+            header.querySelector('button[aria-label="Menu do usuário"]'),
+            'Menu do usuário deve permanecer intacto no topo em Hoje'
+          );
+        },
+      },
+      {
+        name: 'Histórico',
+        element: React.createElement(ThemeProvider, null, React.createElement(HistoryScreen)),
+        assertHeaderIntact: () => {
+          assert.match(container.textContent || '', /Histórico/);
+          assert.ok(
+            container.querySelector('button[aria-label="Menu do usuário"]'),
+            'Menu do usuário deve permanecer intacto em Histórico'
+          );
+        },
+      },
+      {
+        name: 'Rotina',
+        element: React.createElement(ThemeProvider, null, React.createElement(RoutineScreen)),
+        assertHeaderIntact: () => {
+          assert.match(container.textContent || '', /Rotina/);
+          assert.ok(
+            container.querySelector('button[aria-label="Menu do usuário"]'),
+            'Menu do usuário deve permanecer intacto em Rotina'
+          );
+        },
+      },
+    ];
+
+    for (const screen of screens) {
+      await act(async () => {
+        root.render(screen.element);
+        for (let i = 0; i < 20; i += 1) {
+          await new Promise((r) => setTimeout(r, 35));
+          if (container.querySelector('button[aria-label="Notificações e alertas"]')) break;
+        }
+      });
+
+      const bellBtn = container.querySelector(
+        'button[aria-label="Notificações e alertas"]'
+      ) as HTMLButtonElement | null;
+      assert.ok(bellBtn, `Botão do sininho deve existir em ${screen.name}`);
+
+      await act(async () => {
+        bellBtn.click();
+        await new Promise((r) => setTimeout(r, 40));
+      });
+
+      // Modal precisa estar portado para document.body (nunca preso dentro de #root ou <header>)
+      const dialog = document.body.querySelector(
+        '[role="dialog"][aria-label="Notificações e Alertas"]'
+      ) as HTMLElement | null;
+      assert.ok(dialog, `Modal de notificações deve abrir em ${screen.name}`);
+      assert.equal(
+        container.contains(dialog),
+        false,
+        `Modal em ${screen.name} deve estar fora do header/container via portal`
+      );
+      assert.equal(
+        dialog.parentElement?.parentElement,
+        document.body,
+        `Backdrop do modal em ${screen.name} deve estar direto em document.body`
+      );
+
+      // Header da página permanece intacto (logo + menu do usuário visíveis)
+      screen.assertHeaderIntact();
+
+      // Texto empático e passos claros visíveis
+      const dialogText = dialog.textContent || '';
+      assert.match(dialogText, /Lembretes para cuidar com mais leveza/);
+      assert.match(dialogText, /Passo 1/);
+      assert.match(dialogText, /Passo 2/);
+      assert.match(dialogText, /Passo 3/);
+
+      // Fechamento fácil pelo botão Fechar do rodapé
+      const footerCloseBtn = (
+        Array.from(dialog.querySelectorAll('button')) as HTMLButtonElement[]
+      ).find((b) => b.textContent?.trim() === 'Fechar');
+      assert.ok(footerCloseBtn, `Botão Fechar deve existir em ${screen.name}`);
+
+      await act(async () => {
+        footerCloseBtn.click();
+      });
+
+      assert.equal(
+        document.body.querySelector('[role="dialog"][aria-label="Notificações e Alertas"]'),
+        null,
+        `Modal deve fechar ao clicar em Fechar em ${screen.name}`
+      );
+    }
+  } finally {
+    await act(async () => root.unmount());
+    (supabase.auth as any).getUser = origAuthGetUser;
+    (supabase.auth as any).getSession = origAuthGetSession;
+    (supabase as any).from = origFrom;
+    (supabase as any).rpc = origRpc;
+    (supabase as any).channel = origChannel;
+    (supabase as any).removeChannel = origRemoveChannel;
+    dom.window.close();
+  }
+});

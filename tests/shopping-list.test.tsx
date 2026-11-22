@@ -574,6 +574,8 @@ test('[React/JSDOM - Home] TodayScreen posiciona Lista de Compras abaixo do Reca
         div.querySelector('button[aria-label="Editar Fralda geriátrica"]')
     );
     assert.ok(fraldaCard);
+    assert.match(fraldaCard.textContent || '', /Quantidade:\s*2 pacotes/);
+    assert.match(fraldaCard.textContent || '', /Marca \/ Observação:\s*Integral/);
     const fraldaPurchaseBtn = (
       Array.from(fraldaCard.querySelectorAll('button')) as HTMLButtonElement[]
     ).find((b) => b.textContent?.trim() === 'Comprado');

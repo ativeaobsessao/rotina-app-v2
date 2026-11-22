@@ -3,6 +3,11 @@ import { addToSyncQueue, QUEUE_KEY, type OfflinePhotoAttachment } from './syncQu
 import { supabase } from './supabase';
 import type { Database } from '../types/database.types';
 import { getLocalDateString } from '../utils/date';
+import {
+  isExpiredShoppingPurchase,
+  sortPendingShoppingItems,
+  type ShoppingItemRecord,
+} from '../utils/shopping';
 
 const SIGNED_URL_TTL_MS = 6 * 24 * 60 * 60 * 1000; // 6 dias (margem segura sobre 7 dias)
 const SIGNED_URL_REFRESH_BUFFER_MS = 60 * 60 * 1000; // renova se faltar menos de 1h
@@ -1950,6 +1955,327 @@ export async function seedInitialRoutine(patientId: string) {
     del(`mealConfigs_${patientId}`).catch(() => {}),
     del(`medPeriods_${patientId}`).catch(() => {}),
   ]);
+}
+
+// --- SHOPPING LIST & SHOPPING HISTORY ---
+
+const SHOPPING_SELECT =
+  '*, requester:profiles!shopping_items_requested_by_fkey(name), purchaser:profiles!shopping_items_purchased_by_fkey(name), updater:profiles!shopping_items_updated_by_fkey(name)';
+
+const lastShoppingPurgeByFamily = new Map<string, number>();
+
+export function isMissingShoppingSchemaError(err: any): boolean {
+  if (!err) return false;
+  const code = String(err?.code || '');
+  const msg = String(err?.message || '').toLowerCase();
+  if (code === '42P01' || code === 'PGRST205') return true;
+  return (
+    msg.includes('shopping_items') &&
+    (msg.includes('does not exist') ||
+      msg.includes('could not find the table') ||
+      msg.includes('schema cache'))
+  );
+}
+
+async function invalidateShoppingCaches(patientId: string) {
+  await Promise.all([
+    del(`shoppingPending_${patientId}`).catch(() => {}),
+    del(`shoppingHistory_${patientId}`).catch(() => {}),
+  ]);
+}
+
+export async function purgeExpiredShoppingItems(familyId: string): Promise<number> {
+  if (!familyId || typeof (supabase as any).rpc !== 'function') return 0;
+  const now = Date.now();
+  const lastRun = lastShoppingPurgeByFamily.get(familyId) || 0;
+  if (now - lastRun < 60 * 60 * 1000) return 0;
+
+  lastShoppingPurgeByFamily.set(familyId, now);
+  try {
+    const { data, error } = await (supabase as any).rpc('purge_expired_shopping_items', {
+      p_family_id: familyId,
+    });
+    if (error) return 0;
+    return typeof data === 'number' ? data : 0;
+  } catch {
+    return 0;
+  }
+}
+
+export async function getPendingShoppingItems(patientId: string): Promise<ShoppingItemRecord[]> {
+  return fetchWithCache(
+    `shoppingPending_${patientId}`,
+    async () => {
+      const { data, error } = await (supabase as any)
+        .from('shopping_items')
+        .select(SHOPPING_SELECT)
+        .eq('patient_id', patientId)
+        .eq('status', 'pending')
+        .order('is_urgent', { ascending: false })
+        .order('created_at', { ascending: true });
+
+      if (error) {
+        if (isMissingShoppingSchemaError(error)) return [];
+        throw error;
+      }
+
+      return sortPendingShoppingItems((data || []) as ShoppingItemRecord[]);
+    },
+    [],
+    { throwIfNoCacheWhenOnline: true }
+  );
+}
+
+export async function getPurchasedShoppingItems(
+  patientId: string,
+  options?: { familyId?: string; startDate?: string; endDate?: string }
+): Promise<ShoppingItemRecord[]> {
+  const { familyId, startDate, endDate } = options || {};
+  const isDefaultRange = !startDate && !endDate;
+  const fetcher = async () => {
+    if (familyId) {
+      void purgeExpiredShoppingItems(familyId);
+    }
+
+    let query = (supabase as any)
+      .from('shopping_items')
+      .select(SHOPPING_SELECT)
+      .eq('patient_id', patientId)
+      .eq('status', 'purchased')
+      .order('purchased_date', { ascending: false })
+      .order('purchased_at', { ascending: false });
+
+    if (startDate) {
+      query = query.gte('purchased_date', startDate);
+    }
+    if (endDate) {
+      query = query.lte('purchased_date', endDate);
+    }
+
+    const { data, error } = await query;
+    if (error) {
+      if (isMissingShoppingSchemaError(error)) return [];
+      throw error;
+    }
+
+    return ((data || []) as ShoppingItemRecord[]).filter(
+      (item) => !isExpiredShoppingPurchase(item.purchased_at)
+    );
+  };
+
+  if (isDefaultRange) {
+    return fetchWithCache(`shoppingHistory_${patientId}`, fetcher, [], {
+      throwIfNoCacheWhenOnline: true,
+    });
+  }
+
+  return fetcher();
+}
+
+export async function createShoppingItem(input: {
+  family_id: string;
+  patient_id: string;
+  name: string;
+  quantity?: string | null;
+  notes?: string | null;
+  is_urgent?: boolean;
+  requested_by: string;
+}): Promise<ShoppingItemRecord> {
+  const cleanName = input.name.trim();
+  if (!cleanName) {
+    throw new Error('Informe o nome do alimento ou item que acabou.');
+  }
+
+  const payload: Database['public']['Tables']['shopping_items']['Insert'] = {
+    family_id: input.family_id,
+    patient_id: input.patient_id,
+    name: cleanName,
+    quantity: input.quantity?.trim() || null,
+    notes: input.notes?.trim() || null,
+    is_urgent: Boolean(input.is_urgent),
+    status: 'pending',
+    price_cents: null,
+    requested_by: input.requested_by,
+    purchased_by: null,
+    purchased_at: null,
+    purchased_date: null,
+    updated_by: input.requested_by,
+  };
+
+  const { data, error } = await (supabase as any)
+    .from('shopping_items')
+    .insert(payload)
+    .select(SHOPPING_SELECT)
+    .single();
+
+  if (error) {
+    if (isMissingShoppingSchemaError(error)) {
+      throw new Error(
+        'Atualize o banco de dados no Supabase (migration 0023) para usar a Lista de Compras.'
+      );
+    }
+    if (isRlsPermissionError(error)) {
+      throw new Error('Sua conta não possui vínculo ativo com esta família para adicionar itens.');
+    }
+    throw error;
+  }
+
+  await invalidateShoppingCaches(input.patient_id);
+  return data as ShoppingItemRecord;
+}
+
+export async function updateShoppingItem(
+  itemId: string,
+  patientId: string,
+  patch: {
+    name?: string;
+    quantity?: string | null;
+    notes?: string | null;
+    is_urgent?: boolean;
+    price_cents?: number | null;
+    purchased_date?: string | null;
+    updated_by: string;
+  }
+): Promise<ShoppingItemRecord> {
+  const payload: Database['public']['Tables']['shopping_items']['Update'] = {
+    updated_by: patch.updated_by,
+    updated_at: new Date().toISOString(),
+  };
+
+  if (patch.name !== undefined) {
+    const cleanName = patch.name.trim();
+    if (!cleanName) throw new Error('O nome do item não pode ficar vazio.');
+    payload.name = cleanName;
+  }
+  if (patch.quantity !== undefined) payload.quantity = patch.quantity?.trim() || null;
+  if (patch.notes !== undefined) payload.notes = patch.notes?.trim() || null;
+  if (patch.is_urgent !== undefined) payload.is_urgent = patch.is_urgent;
+  if (patch.price_cents !== undefined) payload.price_cents = patch.price_cents;
+  if (patch.purchased_date !== undefined && patch.purchased_date) {
+    payload.purchased_date = patch.purchased_date;
+  }
+
+  const { data, error } = await (supabase as any)
+    .from('shopping_items')
+    .update(payload)
+    .eq('id', itemId)
+    .select(SHOPPING_SELECT)
+    .single();
+
+  if (error) {
+    if (isMissingShoppingSchemaError(error)) {
+      throw new Error(
+        'Atualize o banco de dados no Supabase (migration 0023) para editar itens da Lista de Compras.'
+      );
+    }
+    if (isRlsPermissionError(error)) {
+      throw new Error('Sua conta não possui vínculo ativo com esta família para editar itens.');
+    }
+    throw error;
+  }
+
+  await invalidateShoppingCaches(patientId);
+  return data as ShoppingItemRecord;
+}
+
+export async function markShoppingItemPurchased(input: {
+  itemId: string;
+  patientId: string;
+  profileId: string;
+  priceCents?: number | null;
+  purchasedDate?: string;
+}): Promise<ShoppingItemRecord> {
+  const purchasedDate = input.purchasedDate || getLocalDateString();
+  const nowIso = new Date().toISOString();
+
+  const { data, error } = await (supabase as any)
+    .from('shopping_items')
+    .update({
+      status: 'purchased',
+      price_cents: input.priceCents ?? null,
+      purchased_by: input.profileId,
+      purchased_at: nowIso,
+      purchased_date: purchasedDate,
+      updated_by: input.profileId,
+      updated_at: nowIso,
+    })
+    .eq('id', input.itemId)
+    .select(SHOPPING_SELECT)
+    .single();
+
+  if (error) {
+    if (isMissingShoppingSchemaError(error)) {
+      throw new Error(
+        'Atualize o banco de dados no Supabase (migration 0023) para concluir compras.'
+      );
+    }
+    if (isRlsPermissionError(error)) {
+      throw new Error('Sua conta não possui vínculo ativo com esta família para confirmar compras.');
+    }
+    throw error;
+  }
+
+  await invalidateShoppingCaches(input.patientId);
+  return data as ShoppingItemRecord;
+}
+
+export async function revertShoppingItemToPending(
+  itemId: string,
+  patientId: string,
+  profileId: string
+): Promise<ShoppingItemRecord> {
+  const nowIso = new Date().toISOString();
+
+  const { data, error } = await (supabase as any)
+    .from('shopping_items')
+    .update({
+      status: 'pending',
+      purchased_by: null,
+      purchased_at: null,
+      purchased_date: null,
+      price_cents: null,
+      updated_by: profileId,
+      updated_at: nowIso,
+    })
+    .eq('id', itemId)
+    .select(SHOPPING_SELECT)
+    .single();
+
+  if (error) {
+    if (isMissingShoppingSchemaError(error)) {
+      throw new Error(
+        'Atualize o banco de dados no Supabase (migration 0023) para voltar o item à lista.'
+      );
+    }
+    if (isRlsPermissionError(error)) {
+      throw new Error('Sua conta não possui vínculo ativo com esta família para alterar compras.');
+    }
+    throw error;
+  }
+
+  await invalidateShoppingCaches(patientId);
+  return data as ShoppingItemRecord;
+}
+
+export async function deleteShoppingItem(itemId: string, patientId: string): Promise<void> {
+  const { error } = await (supabase as any)
+    .from('shopping_items')
+    .delete()
+    .eq('id', itemId);
+
+  if (error) {
+    if (isMissingShoppingSchemaError(error)) {
+      throw new Error(
+        'Atualize o banco de dados no Supabase (migration 0023) para apagar itens.'
+      );
+    }
+    if (isRlsPermissionError(error)) {
+      throw new Error('Sua conta não possui vínculo ativo com esta família para apagar itens.');
+    }
+    throw error;
+  }
+
+  await invalidateShoppingCaches(patientId);
 }
 
 // --- FAMILY MEMBERSHIPS & INVITES ---

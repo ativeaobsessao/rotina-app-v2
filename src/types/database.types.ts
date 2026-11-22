@@ -17,6 +17,7 @@ export type ActivityLogStatus = 'completed' | 'not_completed';
 export type DailyMoodType = 'happy' | 'calm' | 'tired' | 'sad' | 'agitated';
 export type DailyPainLevel = 'none' | 'mild' | 'moderate' | 'severe';
 export type InviteStatus = 'pending' | 'accepted' | 'expired' | 'revoked';
+export type ShoppingItemStatus = 'pending' | 'purchased';
 
 export interface Database {
   public: {
@@ -550,6 +551,62 @@ export interface Database {
           created_at?: string;
         };
       };
+      shopping_items: {
+        Row: {
+          id: string;
+          family_id: string;
+          patient_id: string;
+          name: string;
+          quantity: string | null;
+          notes: string | null;
+          is_urgent: boolean;
+          status: ShoppingItemStatus;
+          price_cents: number | null;
+          requested_by: string;
+          purchased_by: string | null;
+          purchased_at: string | null;
+          purchased_date: string | null;
+          updated_by: string;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          family_id: string;
+          patient_id: string;
+          name: string;
+          quantity?: string | null;
+          notes?: string | null;
+          is_urgent?: boolean;
+          status?: ShoppingItemStatus;
+          price_cents?: number | null;
+          requested_by: string;
+          purchased_by?: string | null;
+          purchased_at?: string | null;
+          purchased_date?: string | null;
+          updated_by: string;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          family_id?: string;
+          patient_id?: string;
+          name?: string;
+          quantity?: string | null;
+          notes?: string | null;
+          is_urgent?: boolean;
+          status?: ShoppingItemStatus;
+          price_cents?: number | null;
+          requested_by?: string;
+          purchased_by?: string | null;
+          purchased_at?: string | null;
+          purchased_date?: string | null;
+          updated_by?: string;
+          created_at?: string;
+          updated_at?: string;
+        };
+      };
     };
     Views: {
       [_ in never]: never;
@@ -618,6 +675,10 @@ export interface Database {
           role: FamilyRole;
           member_type?: FamilyMemberType;
         };
+      };
+      purge_expired_shopping_items: {
+        Args: { p_family_id?: string | null };
+        Returns: number;
       };
     };
     Enums: {

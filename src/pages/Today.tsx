@@ -18,6 +18,7 @@ import {
   getDailyClosure,
   createDailyClosure,
   deleteDailyClosure,
+  getPendingShoppingItems,
   mapWithConcurrency,
   subscribeStaleCache,
   isUsingStaleCache,
@@ -68,6 +69,9 @@ import { MedicationModal } from '../components/medications/MedicationModal';
 import { ActivityModal } from '../components/activities/ActivityModal';
 import { ActivityFormModal } from '../components/routine/ActivityFormModal';
 import { MoodAndPainModal } from '../components/mood/MoodAndPainModal';
+import { ShoppingHomeCard } from '../components/shopping/ShoppingHomeCard';
+import { ShoppingListModal } from '../components/shopping/ShoppingListModal';
+import type { ShoppingItemRecord } from '../utils/shopping';
 import type {
   TimelineEvent,
   MealEventData,
@@ -194,6 +198,11 @@ export function TodayScreen({
   const [selectedActivityEvent, setSelectedActivityEvent] = useState<ActivityEventData | null>(null);
   const [showActivityFormModal, setShowActivityFormModal] = useState(false);
 
+  // Shopping list state
+  const [shoppingItems, setShoppingItems] = useState<ShoppingItemRecord[]>([]);
+  const [showShoppingModal, setShowShoppingModal] = useState(false);
+  const [shoppingModalMode, setShoppingModalMode] = useState<'list' | 'add'>('list');
+
   // Concurrency, debouncing and memory guards
   const isMountedRef = useRef(true);
   const timelineReqSeqRef = useRef(0);
@@ -272,6 +281,7 @@ export function TodayScreen({
           moodLog,
           closure,
           syncQueue,
+          pendingShopping,
         ] = await Promise.all([
           getMealConfigs(patientId),
           getMedicationPeriods(patientId),
@@ -283,6 +293,7 @@ export function TodayScreen({
           getDailyMoodLog(patientId, dateStr),
           getDailyClosure(patientId, dateStr),
           getSyncQueue(),
+          getPendingShoppingItems(patientId).catch(() => []),
         ]);
 
         if (!isMountedRef.current || reqSeq !== timelineReqSeqRef.current) {
@@ -484,6 +495,7 @@ export function TodayScreen({
         setTodayMood(moodLog);
         setDailyClosure(closure);
         setAllActivities(loadedActivities);
+        setShoppingItems(pendingShopping);
         setEvents(timeline);
         setLoadedDate(dateStr);
         setLoadError(null);
@@ -663,6 +675,15 @@ export function TodayScreen({
       )
       .subscribe();
 
+    const shoppingSub = supabase
+      .channel(`patient:${pid}:shopping_items`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'shopping_items', filter: `patient_id=eq.${pid}` },
+        () => scheduleRefresh(pid, localDate, 250)
+      )
+      .subscribe();
+
     const triggerFocusRefresh = () => {
       syncTimeState();
       const now = Date.now();
@@ -687,6 +708,7 @@ export function TodayScreen({
       supabase.removeChannel(closureSub);
       supabase.removeChannel(activitiesSub);
       supabase.removeChannel(activityLogsSub);
+      supabase.removeChannel(shoppingSub);
       window.removeEventListener('focus', triggerFocusRefresh);
       window.removeEventListener('visibilitychange', handleVisibilityChange);
     };
@@ -1086,6 +1108,19 @@ export function TodayScreen({
               )}
             </div>
           )}
+
+          <ShoppingHomeCard
+            items={shoppingItems}
+            canEdit={canRecordDailyActivities}
+            onOpenList={() => {
+              setShoppingModalMode('list');
+              setShowShoppingModal(true);
+            }}
+            onQuickAdd={() => {
+              setShoppingModalMode('add');
+              setShowShoppingModal(true);
+            }}
+          />
 
           <DailyProgressBar total={totalItems} completed={completedItems} />
         </section>
@@ -1548,6 +1583,22 @@ export function TodayScreen({
             setShowClosureModal(true);
           }}
           onDismiss={handleDismissClosureBanner}
+        />
+      )}
+      {showShoppingModal && patient && profile && (
+        <ShoppingListModal
+          isOpen={showShoppingModal}
+          initialMode={shoppingModalMode}
+          onClose={() => setShowShoppingModal(false)}
+          patientId={patient.id}
+          familyId={profile.family_id}
+          profileId={profile.id}
+          eventDate={clockDate}
+          canEdit={canRecordDailyActivities}
+          items={shoppingItems}
+          onChanged={() => {
+            if (patient) return refreshTimeline(patient.id, localDate);
+          }}
         />
       )}
     </MainLayout>

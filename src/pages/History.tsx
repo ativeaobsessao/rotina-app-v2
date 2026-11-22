@@ -10,6 +10,9 @@ import {
   getMealPhotoUrl,
   getHistoricalDailyClosures,
   createDailyClosure,
+  getPurchasedShoppingItems,
+  revertShoppingItemToPending,
+  deleteShoppingItem,
   mapWithConcurrency,
 } from '../services/api';
 import { useNetwork } from '../contexts/NetworkContext';
@@ -41,6 +44,16 @@ import { MealModal } from '../components/meals/MealModal';
 import { MedicationModal } from '../components/medications/MedicationModal';
 import { ActivityModal } from '../components/activities/ActivityModal';
 import { ReportModal } from '../components/history/ReportModal';
+import { ShoppingHistoryCard } from '../components/history/ShoppingHistoryCard';
+import { ShoppingHistoryPanel } from '../components/history/ShoppingHistoryPanel';
+import { ShoppingReportModal } from '../components/history/ShoppingReportModal';
+import { ShoppingItemEditModal } from '../components/shopping/ShoppingItemEditModal';
+import { ConfirmDialog } from '../components/ui/ConfirmDialog';
+import {
+  filterShoppingHistoryItems,
+  summarizeShoppingExpenses,
+  type ShoppingItemRecord,
+} from '../utils/shopping';
 import { readActiveMealRecovery, getMealDraft } from '../services/mealDrafts';
 import type { MealEventData, MedicationEventData, ActivityEventData } from '../types/timeline';
 
@@ -682,9 +695,27 @@ export function HistoryScreen({
   const [showReportModal, setShowReportModal] = useState(false);
 
   const [daysLimit, setDaysLimit] = useState(14);
-  const [filterCategory, setFilterCategory] = useState<'all' | 'meals' | 'meds' | 'activities'>('all');
+  const [filterCategory, setFilterCategory] = useState<
+    'all' | 'meals' | 'meds' | 'activities' | 'shopping'
+  >('all');
   const [filterStartDate, setFilterStartDate] = useState('');
   const [filterEndDate, setFilterEndDate] = useState('');
+
+  // Shopping history state
+  const [allPurchasedShopping, setAllPurchasedShopping] = useState<ShoppingItemRecord[]>([]);
+  const [shoppingPanelExpanded, setShoppingPanelExpanded] = useState(false);
+  const [shoppingSearchQuery, setShoppingSearchQuery] = useState('');
+  const [shoppingStartDate, setShoppingStartDate] = useState('');
+  const [shoppingEndDate, setShoppingEndDate] = useState('');
+  const [shoppingUrgentOnly, setShoppingUrgentOnly] = useState(false);
+  const [selectedShoppingItem, setSelectedShoppingItem] = useState<ShoppingItemRecord | null>(null);
+  const [shoppingActionConfirm, setShoppingActionConfirm] = useState<{
+    action: 'revert' | 'delete';
+    item: ShoppingItemRecord;
+  } | null>(null);
+  const [shoppingActionLoading, setShoppingActionLoading] = useState(false);
+  const [shoppingActionError, setShoppingActionError] = useState<string | null>(null);
+  const [showShoppingReportModal, setShowShoppingReportModal] = useState(false);
 
   const isMountedRef = useRef(true);
   const loadSeqRef = useRef(0);
@@ -730,20 +761,30 @@ export function HistoryScreen({
         ? filterStartDate
         : shiftDateString(todayStr, -daysLimit);
 
-      const [rawMealLogs, rawMedLogs, rawActivityLogs, rawClosures] = await Promise.all([
-        filterCategory === 'meds' || filterCategory === 'activities'
-          ? Promise.resolve([])
-          : getHistoricalMealLogs(pat.id, upperLimit, lowerLimit),
-        filterCategory === 'meals' || filterCategory === 'activities'
-          ? Promise.resolve([])
-          : getHistoricalMedicationLogs(pat.id, upperLimit, lowerLimit),
-        filterCategory === 'meals' || filterCategory === 'meds'
-          ? Promise.resolve([])
-          : getHistoricalActivityLogs(pat.id, upperLimit, lowerLimit),
-        getHistoricalDailyClosures(pat.id, upperLimit, lowerLimit),
-      ]);
+      const isShoppingOnly = filterCategory === 'shopping';
+
+      const [rawMealLogs, rawMedLogs, rawActivityLogs, rawClosures, rawShoppingPurchased] =
+        await Promise.all([
+          isShoppingOnly || filterCategory === 'meds' || filterCategory === 'activities'
+            ? Promise.resolve([])
+            : getHistoricalMealLogs(pat.id, upperLimit, lowerLimit),
+          isShoppingOnly || filterCategory === 'meals' || filterCategory === 'activities'
+            ? Promise.resolve([])
+            : getHistoricalMedicationLogs(pat.id, upperLimit, lowerLimit),
+          isShoppingOnly || filterCategory === 'meals' || filterCategory === 'meds'
+            ? Promise.resolve([])
+            : getHistoricalActivityLogs(pat.id, upperLimit, lowerLimit),
+          isShoppingOnly
+            ? Promise.resolve([])
+            : getHistoricalDailyClosures(pat.id, upperLimit, lowerLimit),
+          filterCategory === 'meals' || filterCategory === 'meds' || filterCategory === 'activities'
+            ? Promise.resolve([])
+            : getPurchasedShoppingItems(pat.id, { familyId: prof.family_id }).catch(() => []),
+        ]);
 
       if (!isMountedRef.current || reqSeq !== loadSeqRef.current) return;
+
+      setAllPurchasedShopping(rawShoppingPurchased);
 
       const closuresMap: Record<string, any> = {};
       for (const c of rawClosures) {
@@ -958,6 +999,30 @@ export function HistoryScreen({
     }
   }
 
+  async function handleConfirmShoppingAction() {
+    if (!shoppingActionConfirm || !patient || !profile || shoppingActionLoading) return;
+    setShoppingActionLoading(true);
+    setShoppingActionError(null);
+    try {
+      if (shoppingActionConfirm.action === 'revert') {
+        await revertShoppingItemToPending(shoppingActionConfirm.item.id, patient.id, profile.id);
+      } else {
+        await deleteShoppingItem(shoppingActionConfirm.item.id, patient.id);
+      }
+      setShoppingActionConfirm(null);
+      await loadData();
+    } catch (err: any) {
+      setShoppingActionError(
+        err?.message ||
+          (shoppingActionConfirm.action === 'revert'
+            ? 'Não foi possível devolver o item para a Lista de Compras.'
+            : 'Não foi possível apagar o registro.')
+      );
+    } finally {
+      setShoppingActionLoading(false);
+    }
+  }
+
   if (loading) {
     return (
       <MainLayout activeTab="history" onTabChange={onTabChange}>
@@ -1094,32 +1159,41 @@ export function HistoryScreen({
           <div className="flex flex-wrap gap-2">
             <select
               value={filterCategory}
-              onChange={(e) => setFilterCategory(e.target.value as any)}
+              onChange={(e) => {
+                const nextCat = e.target.value as any;
+                setFilterCategory(nextCat);
+                if (nextCat === 'shopping') {
+                  setShoppingPanelExpanded(true);
+                }
+              }}
               className="bg-gray-50 dark:bg-[#1c1c22] border border-gray-200 dark:border-white/[0.1] text-gray-700 dark:text-zinc-200 text-sm rounded-xl px-3 py-2 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none"
             >
               <option value="all">Todas as categorias</option>
               <option value="meals">Apenas Alimentação</option>
               <option value="meds">Apenas Medicamentos</option>
               <option value="activities">Apenas Atividades</option>
+              <option value="shopping">Apenas Compras</option>
             </select>
 
-            <div className="flex items-center gap-2">
-              <input
-                type="date"
-                value={filterStartDate}
-                onChange={(e) => setFilterStartDate(e.target.value)}
-                className="bg-gray-50 dark:bg-[#1c1c22] border border-gray-200 dark:border-white/[0.1] text-gray-700 dark:text-zinc-200 text-sm rounded-xl px-3 py-2 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none"
-                title="Data inicial"
-              />
-              <span className="text-gray-400 dark:text-zinc-500 text-sm">até</span>
-              <input
-                type="date"
-                value={filterEndDate}
-                onChange={(e) => setFilterEndDate(e.target.value)}
-                className="bg-gray-50 dark:bg-[#1c1c22] border border-gray-200 dark:border-white/[0.1] text-gray-700 dark:text-zinc-200 text-sm rounded-xl px-3 py-2 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none"
-                title="Data final"
-              />
-            </div>
+            {filterCategory !== 'shopping' && (
+              <div className="flex items-center gap-2">
+                <input
+                  type="date"
+                  value={filterStartDate}
+                  onChange={(e) => setFilterStartDate(e.target.value)}
+                  className="bg-gray-50 dark:bg-[#1c1c22] border border-gray-200 dark:border-white/[0.1] text-gray-700 dark:text-zinc-200 text-sm rounded-xl px-3 py-2 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none"
+                  title="Data inicial"
+                />
+                <span className="text-gray-400 dark:text-zinc-500 text-sm">até</span>
+                <input
+                  type="date"
+                  value={filterEndDate}
+                  onChange={(e) => setFilterEndDate(e.target.value)}
+                  className="bg-gray-50 dark:bg-[#1c1c22] border border-gray-200 dark:border-white/[0.1] text-gray-700 dark:text-zinc-200 text-sm rounded-xl px-3 py-2 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none"
+                  title="Data final"
+                />
+              </div>
+            )}
 
             {(filterStartDate || filterEndDate || filterCategory !== 'all') && (
               <button
@@ -1137,19 +1211,145 @@ export function HistoryScreen({
           </div>
         </div>
 
-        {/* List */}
+        {/* Dedicated Shopping Search & Monthly/6-Month Expense Summary Panel */}
+        {(filterCategory === 'all' || filterCategory === 'shopping') &&
+          (() => {
+            const effectiveShoppingStart =
+              shoppingStartDate || (filterCategory !== 'shopping' ? filterStartDate : '');
+            const effectiveShoppingEnd =
+              shoppingEndDate || (filterCategory !== 'shopping' ? filterEndDate : '');
+
+            const filteredShopping = filterShoppingHistoryItems(allPurchasedShopping, {
+              query: shoppingSearchQuery,
+              startDate: effectiveShoppingStart || undefined,
+              endDate: effectiveShoppingEnd || undefined,
+              urgentOnly: shoppingUrgentOnly,
+            });
+            const shoppingSummary = summarizeShoppingExpenses(
+              filteredShopping,
+              allPurchasedShopping
+            );
+
+            return (
+              <ShoppingHistoryPanel
+                expanded={filterCategory === 'shopping' ? true : shoppingPanelExpanded}
+                onToggleExpanded={() => setShoppingPanelExpanded((prev) => !prev)}
+                summary={shoppingSummary}
+                searchQuery={shoppingSearchQuery}
+                onSearchQueryChange={setShoppingSearchQuery}
+                startDate={shoppingStartDate}
+                endDate={shoppingEndDate}
+                onDateRangeChange={(s, e) => {
+                  setShoppingStartDate(s);
+                  setShoppingEndDate(e);
+                }}
+                urgentOnly={shoppingUrgentOnly}
+                onUrgentOnlyChange={setShoppingUrgentOnly}
+                onOpenPdfModal={() => setShowShoppingReportModal(true)}
+              />
+            );
+          })()}
+
+        {/* List: Interleaves clinical Day cards and characteristic ShoppingHistoryCard entries */}
         <div className="p-4">
-          {days.length === 0 ? (
-            <div className="text-center py-16">
-              <p className="text-gray-400 dark:text-zinc-500 text-sm">
-                Nenhum registro histórico encontrado nos últimos {daysLimit} dias.
-              </p>
-              <p className="text-gray-300 dark:text-zinc-600 text-xs mt-1">
-                Os registros dos dias anteriores aparecerão aqui.
-              </p>
-            </div>
-          ) : (
-            days.map((day) => {
+          {(() => {
+            const todayStr = getLocalDateString();
+            const showShoppingCards = filterCategory === 'all' || filterCategory === 'shopping';
+            const lowerTimelineLimit = filterStartDate
+              ? filterStartDate
+              : shiftDateString(todayStr, -daysLimit);
+
+            const hasShoppingSpecificFilter = Boolean(
+              shoppingSearchQuery.trim() ||
+                shoppingStartDate ||
+                shoppingEndDate ||
+                shoppingUrgentOnly
+            );
+
+            const visibleShopping = showShoppingCards
+              ? filterShoppingHistoryItems(allPurchasedShopping, {
+                  query: shoppingSearchQuery,
+                  startDate:
+                    shoppingStartDate ||
+                    filterStartDate ||
+                    (filterCategory === 'shopping' || hasShoppingSpecificFilter
+                      ? undefined
+                      : lowerTimelineLimit),
+                  endDate: shoppingEndDate || filterEndDate || undefined,
+                  urgentOnly: shoppingUrgentOnly,
+                })
+              : [];
+
+            const shoppingByDate: Record<string, ShoppingItemRecord[]> = {};
+            for (const item of visibleShopping) {
+              const d =
+                item.purchased_date ||
+                (item.purchased_at ? item.purchased_at.slice(0, 10) : todayStr);
+              if (!shoppingByDate[d]) shoppingByDate[d] = [];
+              shoppingByDate[d].push(item);
+            }
+
+            type FeedEntry =
+              | { kind: 'day'; dateStr: string; day: DayData }
+              | { kind: 'shopping'; dateStr: string; items: ShoppingItemRecord[] };
+
+            const feed: FeedEntry[] = [];
+            if (filterCategory !== 'shopping') {
+              for (const day of days) {
+                feed.push({ kind: 'day', dateStr: day.dateStr, day });
+              }
+            }
+            for (const [dateStr, items] of Object.entries(shoppingByDate)) {
+              feed.push({ kind: 'shopping', dateStr, items });
+            }
+
+            feed.sort((a, b) => {
+              const cmp = b.dateStr.localeCompare(a.dateStr);
+              if (cmp !== 0) return cmp;
+              if (a.kind === b.kind) return 0;
+              return a.kind === 'shopping' ? -1 : 1;
+            });
+
+            if (feed.length === 0) {
+              return (
+                <div className="text-center py-16">
+                  <p className="text-gray-400 dark:text-zinc-500 text-sm">
+                    {filterCategory === 'shopping'
+                      ? 'Nenhuma compra registrada para os filtros selecionados.'
+                      : `Nenhum registro histórico encontrado nos últimos ${daysLimit} dias.`}
+                  </p>
+                  <p className="text-gray-300 dark:text-zinc-600 text-xs mt-1">
+                    {filterCategory === 'shopping'
+                      ? 'Quando itens da Lista de Compras forem marcados como comprados, eles aparecerão aqui.'
+                      : 'Os registros dos dias anteriores aparecerão aqui.'}
+                  </p>
+                </div>
+              );
+            }
+
+            return feed.map((entry) => {
+              if (entry.kind === 'shopping') {
+                return (
+                  <ShoppingHistoryCard
+                    key={`shopping-${entry.dateStr}`}
+                    dateStr={entry.dateStr}
+                    items={entry.items}
+                    canEdit={canRecordDailyActivities}
+                    defaultExpanded={filterCategory === 'shopping' || hasShoppingSpecificFilter}
+                    onSelectItem={(item) => setSelectedShoppingItem(item)}
+                    onRequestRevert={(item) => {
+                      setShoppingActionError(null);
+                      setShoppingActionConfirm({ action: 'revert', item });
+                    }}
+                    onRequestDelete={(item) => {
+                      setShoppingActionError(null);
+                      setShoppingActionConfirm({ action: 'delete', item });
+                    }}
+                  />
+                );
+              }
+
+              const day = entry.day;
               const canEditThisDayActivities = day.closure ? isAdmin : canRecordDailyActivities;
               return (
                 <HistoryDayGroup
@@ -1205,10 +1405,10 @@ export function HistoryScreen({
                   }
                 />
               );
-            })
-          )}
+            });
+          })()}
 
-          {days.length > 0 && !filterStartDate && (
+          {filterCategory !== 'shopping' && days.length > 0 && !filterStartDate && (
             <div className="flex justify-center pt-8 pb-4">
               <button
                 type="button"
@@ -1353,6 +1553,76 @@ export function HistoryScreen({
           patientName={patient.name}
         />
       )}
+
+      {/* Shopping custom PDF report modal */}
+      {patient && profile && (
+        <ShoppingReportModal
+          isOpen={showShoppingReportModal}
+          onClose={() => setShowShoppingReportModal(false)}
+          patientId={patient.id}
+          familyId={profile.family_id}
+          patientName={patient.name}
+          initialStartDate={shoppingStartDate || filterStartDate || undefined}
+          initialEndDate={shoppingEndDate || filterEndDate || undefined}
+          initialUrgentOnly={shoppingUrgentOnly}
+        />
+      )}
+
+      {/* Shopping purchased item edit sheet */}
+      {patient && profile && (
+        <ShoppingItemEditModal
+          isOpen={Boolean(selectedShoppingItem)}
+          item={selectedShoppingItem}
+          onClose={() => setSelectedShoppingItem(null)}
+          patientId={patient.id}
+          profileId={profile.id}
+          canEdit={canRecordDailyActivities}
+          onChanged={() => loadData()}
+        />
+      )}
+
+      {/* Shopping inline delete / revert confirmation dialog */}
+      <ConfirmDialog
+        isOpen={Boolean(shoppingActionConfirm)}
+        title={
+          shoppingActionConfirm?.action === 'revert'
+            ? 'Voltar item para a Lista de Compras?'
+            : 'Apagar registro de compra?'
+        }
+        description={
+          shoppingActionConfirm?.action === 'revert' ? (
+            <>
+              <strong className="text-gray-700 dark:text-zinc-200">
+                {shoppingActionConfirm.item.name}
+              </strong>{' '}
+              sairá do Histórico de compras e voltará imediatamente como pendente na tela Inicial.
+            </>
+          ) : (
+            <>
+              Tem certeza que deseja excluir definitivamente{' '}
+              <strong className="text-gray-700 dark:text-zinc-200">
+                {shoppingActionConfirm?.item.name}
+              </strong>{' '}
+              do Histórico de compras? Esta ação não pode ser desfeita.
+            </>
+          )
+        }
+        confirmLabel={
+          shoppingActionConfirm?.action === 'revert'
+            ? 'Voltar para a lista'
+            : 'Apagar definitivamente'
+        }
+        cancelLabel="Cancelar"
+        tone={shoppingActionConfirm?.action === 'revert' ? 'neutral' : 'danger'}
+        icon={shoppingActionConfirm?.action === 'revert' ? 'revert' : 'trash'}
+        loading={shoppingActionLoading}
+        error={shoppingActionError}
+        onConfirm={handleConfirmShoppingAction}
+        onCancel={() => {
+          setShoppingActionError(null);
+          setShoppingActionConfirm(null);
+        }}
+      />
     </MainLayout>
   );
 }

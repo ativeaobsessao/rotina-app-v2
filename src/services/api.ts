@@ -2538,3 +2538,180 @@ export async function updateFamilyMemberRole(
   await clearFamilyAndProfileCaches();
   return data;
 }
+
+// --- WEB PUSH SUBSCRIPTIONS & NOTIFICATION LOGS ---
+
+export type PushSubscriptionRow = Database['public']['Tables']['push_subscriptions']['Row'];
+export type NotificationDispatchLogRow =
+  Database['public']['Tables']['notification_dispatch_logs']['Row'];
+
+export function isMissingNotificationSchemaError(err: any): boolean {
+  if (!err) return false;
+  const code = String(err?.code || '');
+  const msg = String(err?.message || '').toLowerCase();
+  if (code === '42P01' || code === 'PGRST205' || code === 'PGRST202') return true;
+  return (
+    (msg.includes('push_subscriptions') ||
+      msg.includes('notification_dispatch_logs') ||
+      msg.includes('upsert_my_push_subscription')) &&
+    (msg.includes('does not exist') ||
+      msg.includes('could not find the table') ||
+      msg.includes('could not find the function') ||
+      msg.includes('schema cache'))
+  );
+}
+
+export async function getMyPushSubscriptions(familyId?: string): Promise<PushSubscriptionRow[]> {
+  try {
+    const user = await getCurrentUser();
+    if (!user) return [];
+
+    let query = (supabase as any)
+      .from('push_subscriptions')
+      .select('*')
+      .eq('user_id', user.id)
+      .order('updated_at', { ascending: false });
+
+    if (familyId) {
+      query = query.eq('family_id', familyId);
+    }
+
+    const { data, error } = await query;
+    if (error) {
+      if (isMissingNotificationSchemaError(error)) return [];
+      throw error;
+    }
+    return (data || []) as PushSubscriptionRow[];
+  } catch (err) {
+    if (isMissingNotificationSchemaError(err)) return [];
+    throw err;
+  }
+}
+
+export async function upsertMyPushSubscription(input: {
+  familyId: string;
+  patientId: string | null;
+  endpoint: string;
+  keysP256dh: string;
+  keysAuth: string;
+  enabled?: boolean;
+  notifyMedications?: boolean;
+  notifyMeals?: boolean;
+  notifyActivities?: boolean;
+  leadMinutes?: number;
+  timezone?: string;
+  userAgent?: string | null;
+}): Promise<PushSubscriptionRow> {
+  const { data, error } = await (supabase as any).rpc('upsert_my_push_subscription', {
+    p_family_id: input.familyId,
+    p_patient_id: input.patientId,
+    p_endpoint: input.endpoint,
+    p_keys_p256dh: input.keysP256dh,
+    p_keys_auth: input.keysAuth,
+    p_enabled: input.enabled ?? true,
+    p_notify_medications: input.notifyMedications ?? true,
+    p_notify_meals: input.notifyMeals ?? true,
+    p_notify_activities: input.notifyActivities ?? true,
+    p_lead_minutes: input.leadMinutes ?? 0,
+    p_timezone: input.timezone || 'America/Sao_Paulo',
+    p_user_agent: input.userAgent ?? null,
+  });
+
+  if (error) {
+    if (isMissingNotificationSchemaError(error)) {
+      throw new Error(
+        'Atualize o banco de dados no Supabase (migration 0024) para ativar as notificações Web Push.'
+      );
+    }
+    if (isRlsPermissionError(error)) {
+      throw new Error('Sua conta não possui vínculo ativo com esta família para ativar notificações.');
+    }
+    throw error;
+  }
+
+  return data as PushSubscriptionRow;
+}
+
+export async function updateMyPushSubscriptionPreferences(
+  subscriptionId: string,
+  patch: {
+    patient_id?: string | null;
+    enabled?: boolean;
+    notify_medications?: boolean;
+    notify_meals?: boolean;
+    notify_activities?: boolean;
+    lead_minutes?: number;
+    timezone?: string;
+  }
+): Promise<PushSubscriptionRow> {
+  const { data, error } = await (supabase as any)
+    .from('push_subscriptions')
+    .update({
+      ...patch,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', subscriptionId)
+    .select('*')
+    .single();
+
+  if (error) {
+    if (isMissingNotificationSchemaError(error)) {
+      throw new Error(
+        'Atualize o banco de dados no Supabase (migration 0024) para salvar preferências de notificação.'
+      );
+    }
+    if (isRlsPermissionError(error)) {
+      throw new Error('Sem permissão para atualizar estas preferências de notificação.');
+    }
+    throw error;
+  }
+
+  return data as PushSubscriptionRow;
+}
+
+export async function deleteMyPushSubscriptionByEndpoint(endpoint: string): Promise<void> {
+  const user = await getCurrentUser();
+  if (!user || !endpoint) return;
+
+  const { error } = await (supabase as any)
+    .from('push_subscriptions')
+    .delete()
+    .eq('user_id', user.id)
+    .eq('endpoint', endpoint);
+
+  if (error && !isMissingNotificationSchemaError(error)) {
+    throw error;
+  }
+}
+
+export async function getMyNotificationDispatchLogs(
+  patientId?: string,
+  limit = 20
+): Promise<NotificationDispatchLogRow[]> {
+  try {
+    const user = await getCurrentUser();
+    if (!user) return [];
+
+    let query = (supabase as any)
+      .from('notification_dispatch_logs')
+      .select('*')
+      .eq('user_id', user.id)
+      .order('sent_at', { ascending: false })
+      .limit(limit);
+
+    if (patientId) {
+      query = query.eq('patient_id', patientId);
+    }
+
+    const { data, error } = await query;
+    if (error) {
+      if (isMissingNotificationSchemaError(error)) return [];
+      throw error;
+    }
+    return (data || []) as NotificationDispatchLogRow[];
+  } catch (err) {
+    if (isMissingNotificationSchemaError(err)) return [];
+    throw err;
+  }
+}
+

@@ -1,10 +1,11 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { supabase } from '../../services/supabase';
-import { LogOut, Camera, Lock, UserPen, Users, Moon, Sun, Download } from 'lucide-react';
+import { LogOut, Camera, Lock, UserPen, Users, Moon, Sun, Download, Bell } from 'lucide-react';
 import { useTheme } from '../../contexts/ThemeContext';
 import { usePWAInstall } from '../../hooks/usePWAInstall';
 import { FamilyModal } from './FamilyModal';
+import { OPEN_NOTIFICATIONS_EVENT } from '../notifications/NotificationBell';
 import { getCurrentProfile, getPatient, clearAllUserCaches } from '../../services/api';
 import { clearActiveMealRecovery } from '../../services/mealDrafts';
 import { compressImage } from '../../utils/image';
@@ -276,6 +277,18 @@ export function UserProfile() {
             >
               <Users className="w-4 h-4 mr-2 text-gray-400 dark:text-zinc-400" />
               Família e Convites
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setIsOpen(false);
+                window.dispatchEvent(new Event(OPEN_NOTIFICATIONS_EVENT));
+              }}
+              className="w-full text-left px-4 py-3 text-sm text-gray-700 dark:text-zinc-200 hover:bg-gray-50 dark:hover:bg-white/[0.06] flex items-center transition-colors border-b border-gray-100 dark:border-white/[0.06]"
+            >
+              <Bell className="w-4 h-4 mr-2 text-gray-400 dark:text-zinc-400" />
+              Notificações e Alertas
             </button>
 
             <button

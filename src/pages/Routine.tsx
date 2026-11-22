@@ -26,6 +26,7 @@ import {
 import { Spinner } from '../components/ui/Spinner';
 import { Button } from '../components/ui/Button';
 import { UserProfile } from '../components/ui/UserProfile';
+import { NotificationBell } from '../components/notifications/NotificationBell';
 import { PatientEditModal } from '../components/routine/PatientEditModal';
 import { TimeEditModal } from '../components/routine/TimeEditModal';
 import { MedicationFormModal } from '../components/routine/MedicationFormModal';
@@ -229,7 +230,17 @@ export function RoutineScreen({ onTabChange }: RoutineScreenProps) {
         {/* Header */}
         <div className="flex items-center justify-between mb-8">
           <h1 className="text-2xl font-bold tracking-tight text-gray-900 dark:text-zinc-100">Rotina</h1>
-          <UserProfile />
+          <div className="flex items-center gap-2 shrink-0">
+            <NotificationBell
+              familyId={profile?.family_id}
+              patientId={patient?.id}
+              patientName={patient?.name}
+              userId={profile?.id}
+              activities={activities}
+              todayDateStr={todayStr}
+            />
+            <UserProfile />
+          </div>
         </div>
         <div>
           

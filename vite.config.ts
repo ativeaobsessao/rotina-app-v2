@@ -10,29 +10,13 @@ export default defineConfig(() => {
       react(),
       tailwindcss(),
       VitePWA({
+        strategies: 'injectManifest',
+        srcDir: 'src',
+        filename: 'sw.ts',
         registerType: 'autoUpdate',
 
-        workbox: {
-          cleanupOutdatedCaches: true,
+        injectManifest: {
           globPatterns: ['**/*.{js,css,html,ico,png,svg,json}'],
-          navigateFallback: 'index.html',
-          navigateFallbackDenylist: [/^\/api\//, /\/[^/?]+\.[^/]+$/],
-          runtimeCaching: [
-            {
-              urlPattern: /^https:\/\/.*\.supabase\.co\/storage\/v1\/object\/sign\/.*/i,
-              handler: 'CacheFirst',
-              options: {
-                cacheName: 'supabase-images-cache',
-                expiration: {
-                  maxEntries: 50,
-                  maxAgeSeconds: 60 * 60 * 24 * 5 // 5 days (aligned with signed URL expiry & cleared on logout)
-                },
-                cacheableResponse: {
-                  statuses: [0, 200]
-                }
-              }
-            }
-          ]
         },
 
         includeAssets: ['favicon-96x96.png', 'apple-touch.png', 'web-app-manifest-192x192.png', 'web-app-manifest-512x512.png'],

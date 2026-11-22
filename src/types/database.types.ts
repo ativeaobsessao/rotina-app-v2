@@ -18,6 +18,13 @@ export type DailyMoodType = 'happy' | 'calm' | 'tired' | 'sad' | 'agitated';
 export type DailyPainLevel = 'none' | 'mild' | 'moderate' | 'severe';
 export type InviteStatus = 'pending' | 'accepted' | 'expired' | 'revoked';
 export type ShoppingItemStatus = 'pending' | 'purchased';
+export type NotificationType =
+  | 'medication'
+  | 'meal'
+  | 'activity_7d'
+  | 'activity_3d'
+  | 'activity_1d'
+  | 'activity_today';
 
 export interface Database {
   public: {
@@ -607,6 +614,112 @@ export interface Database {
           updated_at?: string;
         };
       };
+      push_subscriptions: {
+        Row: {
+          id: string;
+          user_id: string;
+          family_id: string;
+          patient_id: string | null;
+          endpoint: string;
+          keys_p256dh: string;
+          keys_auth: string;
+          enabled: boolean;
+          notify_medications: boolean;
+          notify_meals: boolean;
+          notify_activities: boolean;
+          lead_minutes: number;
+          timezone: string;
+          user_agent: string | null;
+          failure_count: number;
+          last_error: string | null;
+          last_notified_at: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          family_id: string;
+          patient_id?: string | null;
+          endpoint: string;
+          keys_p256dh: string;
+          keys_auth: string;
+          enabled?: boolean;
+          notify_medications?: boolean;
+          notify_meals?: boolean;
+          notify_activities?: boolean;
+          lead_minutes?: number;
+          timezone?: string;
+          user_agent?: string | null;
+          failure_count?: number;
+          last_error?: string | null;
+          last_notified_at?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          family_id?: string;
+          patient_id?: string | null;
+          endpoint?: string;
+          keys_p256dh?: string;
+          keys_auth?: string;
+          enabled?: boolean;
+          notify_medications?: boolean;
+          notify_meals?: boolean;
+          notify_activities?: boolean;
+          lead_minutes?: number;
+          timezone?: string;
+          user_agent?: string | null;
+          failure_count?: number;
+          last_error?: string | null;
+          last_notified_at?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+      };
+      notification_dispatch_logs: {
+        Row: {
+          id: string;
+          family_id: string;
+          patient_id: string;
+          user_id: string;
+          notification_type: NotificationType;
+          source_id: string;
+          event_date: string;
+          milestone_days: number | null;
+          title: string;
+          body: string;
+          sent_at: string;
+        };
+        Insert: {
+          id?: string;
+          family_id: string;
+          patient_id: string;
+          user_id: string;
+          notification_type: NotificationType;
+          source_id: string;
+          event_date: string;
+          milestone_days?: number | null;
+          title: string;
+          body: string;
+          sent_at?: string;
+        };
+        Update: {
+          id?: string;
+          family_id?: string;
+          patient_id?: string;
+          user_id?: string;
+          notification_type?: NotificationType;
+          source_id?: string;
+          event_date?: string;
+          milestone_days?: number | null;
+          title?: string;
+          body?: string;
+          sent_at?: string;
+        };
+      };
     };
     Views: {
       [_ in never]: never;
@@ -679,6 +792,23 @@ export interface Database {
       purge_expired_shopping_items: {
         Args: { p_family_id?: string | null };
         Returns: number;
+      };
+      upsert_my_push_subscription: {
+        Args: {
+          p_family_id: string;
+          p_patient_id: string | null;
+          p_endpoint: string;
+          p_keys_p256dh: string;
+          p_keys_auth: string;
+          p_enabled?: boolean;
+          p_notify_medications?: boolean;
+          p_notify_meals?: boolean;
+          p_notify_activities?: boolean;
+          p_lead_minutes?: number;
+          p_timezone?: string;
+          p_user_agent?: string | null;
+        };
+        Returns: Database['public']['Tables']['push_subscriptions']['Row'];
       };
     };
     Enums: {

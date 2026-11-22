@@ -65,6 +65,11 @@ import {
   cleanupExpiredMealDrafts,
 } from '../services/mealDrafts';
 import { UserProfile } from '../components/ui/UserProfile';
+import { NotificationBell } from '../components/notifications/NotificationBell';
+import {
+  getActivityMilestoneBadge,
+  isActivityMilestoneDays,
+} from '../utils/notifications';
 import { MedicationModal } from '../components/medications/MedicationModal';
 import { ActivityModal } from '../components/activities/ActivityModal';
 import { ActivityFormModal } from '../components/routine/ActivityFormModal';
@@ -959,7 +964,17 @@ export function TodayScreen({
             <h1 className="text-xl font-bold tracking-tight text-gray-900 dark:text-zinc-100 whitespace-nowrap shrink-0">
               DUCA
             </h1>
-            <UserProfile />
+            <div className="flex items-center gap-2 shrink-0">
+              <NotificationBell
+                familyId={profile?.family_id}
+                patientId={patient?.id}
+                patientName={patient?.name}
+                userId={profile?.id}
+                activities={allActivities}
+                todayDateStr={clockDate}
+              />
+              <UserProfile />
+            </div>
           </div>
         </header>
 
@@ -1174,21 +1189,37 @@ export function TodayScreen({
                   : `${upcomingActivities.length} atividades agendadas nos próximos dias`}
               </p>
               <div className="mt-1 space-y-1">
-                {upcomingActivities.slice(0, 2).map(({ activity, daysUntil }) => (
-                  <div key={activity.id} className="text-xs text-indigo-950 dark:text-indigo-100 leading-snug">
-                    <span className="font-semibold">{activity.title}</span>
-                    <span className="text-indigo-700/90 dark:text-indigo-300 tabular-nums">
-                      {' '}
-                      · {formatDaysUntilLabel(daysUntil)} ({formatShortDateBR(activity.scheduled_date)} às{' '}
-                      {formatTime(activity.scheduled_time || '09:00')})
-                    </span>
-                    {activity.notes && (
-                      <span className="block text-[11px] text-indigo-700/80 dark:text-indigo-300/80 truncate">
-                        {activity.notes}
+                {upcomingActivities.slice(0, 2).map(({ activity, daysUntil }) => {
+                  const isExactMilestone = isActivityMilestoneDays(daysUntil);
+                  return (
+                    <div key={activity.id} className="text-xs text-indigo-950 dark:text-indigo-100 leading-snug">
+                      {isExactMilestone && (
+                        <span
+                          className={`inline-block mr-1.5 px-1.5 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wide align-middle ${
+                            daysUntil === 1
+                              ? 'bg-rose-100 dark:bg-rose-900/60 text-rose-800 dark:text-rose-200'
+                              : daysUntil === 3
+                              ? 'bg-amber-100 dark:bg-amber-900/60 text-amber-800 dark:text-amber-200'
+                              : 'bg-indigo-100 dark:bg-indigo-900/70 text-indigo-800 dark:text-indigo-200'
+                          }`}
+                        >
+                          {getActivityMilestoneBadge(daysUntil)}
+                        </span>
+                      )}
+                      <span className="font-semibold">{activity.title}</span>
+                      <span className="text-indigo-700/90 dark:text-indigo-300 tabular-nums">
+                        {' '}
+                        · {formatDaysUntilLabel(daysUntil)} ({formatShortDateBR(activity.scheduled_date)} às{' '}
+                        {formatTime(activity.scheduled_time || '09:00')})
                       </span>
-                    )}
-                  </div>
-                ))}
+                      {activity.notes && (
+                        <span className="block text-[11px] text-indigo-700/80 dark:text-indigo-300/80 truncate">
+                          {activity.notes}
+                        </span>
+                      )}
+                    </div>
+                  );
+                })}
                 {upcomingActivities.length > 2 && (
                   <p className="text-[11px] font-medium text-indigo-700/85 dark:text-indigo-300/85">
                     + {upcomingActivities.length - 2} outra(s) nos próximos 7 dias em Rotina

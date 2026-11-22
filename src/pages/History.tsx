@@ -27,6 +27,7 @@ import { getMedicationDosageForDate } from '../utils/medicationSchedule';
 import { getActivityCategoryLabel } from '../utils/activitySchedule';
 import { Spinner } from '../components/ui/Spinner';
 import { UserProfile } from '../components/ui/UserProfile';
+import { NotificationBell } from '../components/notifications/NotificationBell';
 import {
   ChevronDown,
   ChevronUp,
@@ -1129,6 +1130,12 @@ export function HistoryScreen({
               >
                 <FileText className="w-5 h-5" />
               </button>
+              <NotificationBell
+                familyId={profile?.family_id}
+                patientId={patient?.id}
+                patientName={patient?.name}
+                userId={profile?.id}
+              />
               <UserProfile />
             </div>
           </div>

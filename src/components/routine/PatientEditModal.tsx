@@ -6,6 +6,7 @@ import { Input } from '../ui/Input';
 import { Spinner } from '../ui/Spinner';
 import { updatePatient, uploadPatientPhoto, deleteStorageFile } from '../../services/api';
 import { compressImage } from '../../utils/image';
+import { dismissMobileKeyboard, handleEnterKeySubmit } from '../../utils/keyboardSubmit';
 
 interface PatientEditModalProps {
   isOpen: boolean;
@@ -141,7 +142,14 @@ export function PatientEditModal({
       }}
       title="Editar Perfil"
     >
-      <div className="space-y-6">
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          dismissMobileKeyboard();
+          void handleSave();
+        }}
+        className="space-y-6"
+      >
         {error && (
           <div className="p-3 bg-red-50 dark:bg-rose-950/40 dark:border dark:border-rose-800/50 text-red-700 dark:text-rose-300 rounded-xl text-sm">
             {error}
@@ -150,7 +158,14 @@ export function PatientEditModal({
 
         <div className="space-y-3">
           <label className="text-sm font-semibold text-gray-900 dark:text-zinc-100">Nome</label>
-          <Input value={name} disabled={loading} onChange={(e) => setName(e.target.value)} placeholder="Nome" />
+          <Input
+            enterKeyHint="done"
+            value={name}
+            disabled={loading}
+            onChange={(e) => setName(e.target.value)}
+            onKeyDown={(e) => handleEnterKeySubmit(e, handleSave)}
+            placeholder="Nome"
+          />
         </div>
 
         <div className="space-y-3">
@@ -261,11 +276,11 @@ export function PatientEditModal({
         </div>
 
         <div className="pt-4">
-          <Button type="button" className="w-full" size="lg" onClick={handleSave} disabled={loading || !name.trim()}>
+          <Button type="submit" className="w-full" size="lg" disabled={loading || !name.trim()}>
             {loading ? <Spinner className="text-white dark:text-zinc-950" /> : 'Salvar'}
           </Button>
         </div>
-      </div>
+      </form>
     </BottomSheet>
   );
 }

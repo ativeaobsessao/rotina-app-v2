@@ -8,6 +8,7 @@ import { createActivityLog, updateActivityLog } from '../../services/api';
 import { formatDateToTime, formatTime } from '../../utils/date';
 import { getActivityCategoryLabel } from '../../utils/activitySchedule';
 import { triggerHapticFeedback } from '../../utils/haptics';
+import { dismissMobileKeyboard, handleEnterKeySubmit } from '../../utils/keyboardSubmit';
 import type { ActivityEventData } from '../../types/timeline';
 
 interface ActivityModalProps {
@@ -253,7 +254,14 @@ export function ActivityModal({
             )}
           </div>
         ) : showNotCompletedForm ? (
-          <div className="space-y-5">
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              dismissMobileKeyboard();
+              void handleSaveStatus('not_completed');
+            }}
+            className="space-y-5"
+          >
             {error && (
               <div className="p-3 bg-red-50 dark:bg-rose-950/40 dark:border dark:border-rose-800/50 text-red-700 dark:text-rose-300 rounded-xl text-sm">
                 {error}
@@ -283,9 +291,12 @@ export function ActivityModal({
                 Observação <span className="text-gray-400 dark:text-zinc-500 font-normal">(Opcional)</span>
               </label>
               <input
+                type="text"
+                enterKeyHint="done"
                 disabled={loading}
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
+                onKeyDown={(e) => handleEnterKeySubmit(e, () => handleSaveStatus('not_completed'))}
                 placeholder="Detalhes..."
                 className="flex h-12 w-full rounded-xl border border-gray-200 dark:border-white/[0.1] bg-white dark:bg-[#1c1c22] text-gray-900 dark:text-zinc-100 placeholder:text-gray-400 dark:placeholder:text-zinc-500 px-4 py-2 text-base focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 dark:focus-visible:ring-zinc-400"
               />
@@ -305,17 +316,23 @@ export function ActivityModal({
                 Voltar
               </Button>
               <Button
-                type="button"
+                type="submit"
                 className="flex-1 min-h-[46px] bg-red-600 hover:bg-red-700 dark:bg-rose-600 dark:hover:bg-rose-500 text-white"
                 disabled={loading || isDayClosed}
-                onClick={() => handleSaveStatus('not_completed')}
               >
                 {loading ? <Spinner className="text-white" /> : 'Confirmar'}
               </Button>
             </div>
-          </div>
+          </form>
         ) : (
-          <div className="space-y-5">
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              dismissMobileKeyboard();
+              void handleSaveStatus('completed');
+            }}
+            className="space-y-5"
+          >
             {error && (
               <div className="p-3 bg-red-50 dark:bg-rose-950/40 dark:border dark:border-rose-800/50 text-red-700 dark:text-rose-300 rounded-xl text-sm">
                 {error}
@@ -327,9 +344,12 @@ export function ActivityModal({
                 Observação <span className="text-gray-400 dark:text-zinc-500 font-normal">(Opcional)</span>
               </label>
               <input
+                type="text"
+                enterKeyHint="done"
                 disabled={loading || isDayClosed}
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
+                onKeyDown={(e) => handleEnterKeySubmit(e, () => handleSaveStatus('completed'))}
                 placeholder="Como foi a atividade ou recado importante..."
                 className="flex h-12 w-full rounded-xl border border-gray-200 dark:border-white/[0.1] bg-white dark:bg-[#1c1c22] text-gray-900 dark:text-zinc-100 placeholder:text-gray-400 dark:placeholder:text-zinc-500 px-4 py-2 text-base focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 dark:focus-visible:ring-zinc-400"
               />
@@ -337,10 +357,9 @@ export function ActivityModal({
 
             <div className="space-y-2.5 pt-1">
               <Button
-                type="button"
+                type="submit"
                 size="lg"
                 disabled={loading || isDayClosed}
-                onClick={() => handleSaveStatus('completed')}
                 className="w-full min-h-[48px] bg-emerald-600 hover:bg-emerald-700 dark:bg-emerald-600 dark:hover:bg-emerald-500 text-white font-semibold"
               >
                 {loading ? (
@@ -367,7 +386,7 @@ export function ActivityModal({
                 Não realizada
               </Button>
             </div>
-          </div>
+          </form>
         )}
       </div>
     </BottomSheet>

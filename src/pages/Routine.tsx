@@ -277,34 +277,92 @@ export function RoutineScreen({ onTabChange }: RoutineScreenProps) {
             )}
           </div>
           <div className="space-y-3">
-            {meals.map(meal =>
-              isAdmin ? (
-                <button 
+            {meals.map((meal) => {
+              const plannedDesc = meal.default_description?.trim();
+              const plannedDrink = meal.default_drink_description?.trim();
+              const canConfigureMeal = isAdmin || canManageActivities;
+
+              return canConfigureMeal ? (
+                <button
                   key={meal.id}
+                  type="button"
                   onClick={() => {
                     setEditingTimeType('meal');
                     setEditingTimeEntity(meal);
                   }}
-                  className={`w-full flex items-center justify-between p-4 rounded-2xl border bg-white dark:bg-[#121216] shadow-sm transition-all active:scale-[0.98] ${!meal.active ? 'opacity-60 border-gray-100 dark:border-white/[0.05]' : 'border-gray-200 dark:border-white/[0.08] dark:hover:bg-[#18181d]'}`}
+                  className={`w-full flex items-center justify-between p-4 rounded-2xl border bg-white dark:bg-[#121216] shadow-sm transition-all active:scale-[0.98] ${
+                    !meal.active
+                      ? 'opacity-60 border-gray-100 dark:border-white/[0.05]'
+                      : 'border-gray-200 dark:border-white/[0.08] dark:hover:bg-[#18181d]'
+                  }`}
                 >
-                  <div className="text-left">
-                    <h4 className={`font-semibold ${!meal.active ? 'text-gray-500 dark:text-zinc-500 line-through' : 'text-gray-900 dark:text-zinc-100'}`}>{meal.name}</h4>
-                    <p className="text-sm text-gray-500 dark:text-zinc-400">{formatTime(meal.scheduled_time)}</p>
+                  <div className="text-left min-w-0 pr-3">
+                    <h4
+                      className={`font-semibold ${
+                        !meal.active
+                          ? 'text-gray-500 dark:text-zinc-500 line-through'
+                          : 'text-gray-900 dark:text-zinc-100'
+                      }`}
+                    >
+                      {meal.name}
+                    </h4>
+                    <p className="text-sm text-gray-500 dark:text-zinc-400">
+                      {formatTime(meal.scheduled_time)}
+                    </p>
+                    {plannedDesc && (
+                      <p className="text-xs text-indigo-600 dark:text-indigo-400 mt-1 truncate">
+                        🍽️ {plannedDesc}
+                      </p>
+                    )}
+                    {plannedDrink && (
+                      <p className="text-xs text-sky-700/80 dark:text-sky-300/90 mt-0.5 truncate">
+                        🥤 {plannedDrink}
+                      </p>
+                    )}
+                    {!plannedDesc && !plannedDrink && (
+                      <p className="text-[11px] text-gray-400 dark:text-zinc-500 mt-1">
+                        Toque para definir o cardápio
+                      </p>
+                    )}
                   </div>
-                  <Edit2 className="w-4 h-4 text-gray-300 dark:text-zinc-600" />
+                  <Edit2 className="w-4 h-4 text-gray-300 dark:text-zinc-600 shrink-0" />
                 </button>
               ) : (
                 <div
                   key={meal.id}
-                  className={`w-full flex items-center justify-between p-4 rounded-2xl border bg-white dark:bg-[#121216] shadow-sm ${!meal.active ? 'opacity-60 border-gray-100 dark:border-white/[0.05]' : 'border-gray-200 dark:border-white/[0.08]'}`}
+                  className={`w-full flex items-center justify-between p-4 rounded-2xl border bg-white dark:bg-[#121216] shadow-sm ${
+                    !meal.active
+                      ? 'opacity-60 border-gray-100 dark:border-white/[0.05]'
+                      : 'border-gray-200 dark:border-white/[0.08]'
+                  }`}
                 >
-                  <div className="text-left">
-                    <h4 className={`font-semibold ${!meal.active ? 'text-gray-500 dark:text-zinc-500 line-through' : 'text-gray-900 dark:text-zinc-100'}`}>{meal.name}</h4>
-                    <p className="text-sm text-gray-500 dark:text-zinc-400">{formatTime(meal.scheduled_time)}</p>
+                  <div className="text-left min-w-0">
+                    <h4
+                      className={`font-semibold ${
+                        !meal.active
+                          ? 'text-gray-500 dark:text-zinc-500 line-through'
+                          : 'text-gray-900 dark:text-zinc-100'
+                      }`}
+                    >
+                      {meal.name}
+                    </h4>
+                    <p className="text-sm text-gray-500 dark:text-zinc-400">
+                      {formatTime(meal.scheduled_time)}
+                    </p>
+                    {plannedDesc && (
+                      <p className="text-xs text-indigo-600 dark:text-indigo-400 mt-1 truncate">
+                        🍽️ {plannedDesc}
+                      </p>
+                    )}
+                    {plannedDrink && (
+                      <p className="text-xs text-sky-700/80 dark:text-sky-300/90 mt-0.5 truncate">
+                        🥤 {plannedDrink}
+                      </p>
+                    )}
                   </div>
                 </div>
-              )
-            )}
+              );
+            })}
           </div>
         </section>
 
@@ -661,18 +719,6 @@ export function RoutineScreen({ onTabChange }: RoutineScreenProps) {
             onSuccess={handlePatientSuccess} 
           />
 
-          <TimeEditModal 
-            isOpen={editingTimeType !== undefined}
-            onClose={() => {
-              setEditingTimeEntity(undefined);
-              setEditingTimeType(undefined);
-            }}
-            entity={editingTimeEntity}
-            patientId={patient?.id}
-            type={editingTimeType as 'meal' | 'period'}
-            onSuccess={handleTimeSuccess}
-          />
-
           <MedicationFormModal 
             isOpen={isMedicationModalOpen}
             onClose={() => setIsMedicationModalOpen(false)}
@@ -683,6 +729,22 @@ export function RoutineScreen({ onTabChange }: RoutineScreenProps) {
             onSuccess={handleMedicationSuccess}
           />
         </>
+      )}
+
+      {/* Time / Meal Menu Modal (ADM edits all; any active member configures existing meal menu) */}
+      {(isAdmin || (canManageActivities && editingTimeType === 'meal' && Boolean(editingTimeEntity))) && (
+        <TimeEditModal
+          isOpen={editingTimeType !== undefined}
+          onClose={() => {
+            setEditingTimeEntity(undefined);
+            setEditingTimeType(undefined);
+          }}
+          entity={editingTimeEntity}
+          patientId={patient?.id}
+          type={(editingTimeType || 'meal') as 'meal' | 'period'}
+          isAdmin={isAdmin}
+          onSuccess={handleTimeSuccess}
+        />
       )}
 
       {/* Activity Modal (all active family accounts) */}

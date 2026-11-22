@@ -110,6 +110,8 @@ export interface Database {
           type: string;
           scheduled_time: string;
           display_order: number;
+          default_description: string | null;
+          default_drink_description: string | null;
           active: boolean;
           created_at: string;
           updated_at: string;
@@ -121,6 +123,8 @@ export interface Database {
           type: string;
           scheduled_time: string;
           display_order?: number;
+          default_description?: string | null;
+          default_drink_description?: string | null;
           active?: boolean;
           created_at?: string;
           updated_at?: string;
@@ -132,6 +136,8 @@ export interface Database {
           type?: string;
           scheduled_time?: string;
           display_order?: number;
+          default_description?: string | null;
+          default_drink_description?: string | null;
           active?: boolean;
           created_at?: string;
           updated_at?: string;

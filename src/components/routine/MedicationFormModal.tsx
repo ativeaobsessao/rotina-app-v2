@@ -6,6 +6,7 @@ import { Input } from '../ui/Input';
 import { Spinner } from '../ui/Spinner';
 import { createMedication, updateMedication } from '../../services/api';
 import { cn } from '../../utils/cn';
+import { dismissMobileKeyboard, handleEnterKeySubmit } from '../../utils/keyboardSubmit';
 import {
   ALL_WEEKDAY_KEYS,
   WEEKDAY_OPTIONS,
@@ -201,7 +202,14 @@ export function MedicationFormModal({
       onClose={onClose}
       title={medication ? 'Editar Medicamento' : 'Novo Medicamento'}
     >
-      <div className="space-y-5">
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          dismissMobileKeyboard();
+          void handleSave();
+        }}
+        className="space-y-5"
+      >
         {error && (
           <div className="p-3 bg-red-50 dark:bg-rose-950/40 dark:border dark:border-rose-800/50 text-red-700 dark:text-rose-300 rounded-xl text-sm">
             {error}
@@ -211,8 +219,10 @@ export function MedicationFormModal({
         <div className="space-y-2">
           <label className="text-sm font-semibold text-gray-900 dark:text-zinc-100">Nome</label>
           <Input
+            enterKeyHint="done"
             value={name}
             onChange={(e) => setName(e.target.value)}
+            onKeyDown={(e) => handleEnterKeySubmit(e, handleSave)}
             placeholder="Ex: Losartana"
           />
         </div>
@@ -222,8 +232,10 @@ export function MedicationFormModal({
             Dose padrão
           </label>
           <Input
+            enterKeyHint="done"
             value={dosage}
             onChange={(e) => setDosage(e.target.value)}
+            onKeyDown={(e) => handleEnterKeySubmit(e, handleSave)}
             placeholder="Ex: 1 comprimido 50mg"
           />
         </div>
@@ -362,8 +374,10 @@ export function MedicationFormModal({
                         {option.fullShort}
                       </span>
                       <Input
+                        enterKeyHint="done"
                         value={dailyDosageDrafts[dayKey] ?? ''}
                         onChange={(e) => handleDailyDosageChange(dayKey, e.target.value)}
+                        onKeyDown={(e) => handleEnterKeySubmit(e, handleSave)}
                         placeholder={dosage.trim() || 'Ex: 1 comprimido'}
                         aria-label={`Dose de ${option.fullLabel}`}
                         className="h-11 text-sm"
@@ -422,15 +436,15 @@ export function MedicationFormModal({
 
         <div className="pt-2">
           <Button
+            type="submit"
             className="w-full"
             size="lg"
-            onClick={handleSave}
             disabled={loading || !name.trim() || !dosage.trim()}
           >
             {loading ? <Spinner className="text-white dark:text-zinc-950" /> : 'Salvar Medicamento'}
           </Button>
         </div>
-      </div>
+      </form>
     </BottomSheet>
   );
 }

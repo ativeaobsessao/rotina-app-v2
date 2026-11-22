@@ -4,6 +4,7 @@ import { BottomSheet } from '../ui/BottomSheet';
 import { Button } from '../ui/Button';
 import { Spinner } from '../ui/Spinner';
 import { triggerHapticFeedback } from '../../utils/haptics';
+import { dismissMobileKeyboard, handleEnterKeySubmit } from '../../utils/keyboardSubmit';
 import { upsertDailyMoodLog, type DailyMoodLog } from '../../services/api';
 
 interface MoodAndPainModalProps {
@@ -259,7 +260,14 @@ export function MoodAndPainModal({
           </div>
         ) : (
           /* ─── MODO EDIÇÃO (Ultra simples para cuidadora) ─── */
-          <div className="space-y-6 animate-in fade-in duration-200">
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              dismissMobileKeyboard();
+              void handleSave();
+            }}
+            className="space-y-6 animate-in fade-in duration-200"
+          >
             {/* ETAPA 1: ESTADO DE ESPÍRITO */}
             <div>
               <label className="block text-xs font-bold uppercase tracking-wider text-gray-500 dark:text-zinc-400 mb-2.5">
@@ -374,9 +382,11 @@ export function MoodAndPainModal({
               </label>
               <input
                 type="text"
+                enterKeyHint="done"
                 placeholder="Ex: Começou a reclamar após o banho..."
                 value={notes}
                 onChange={e => setNotes(e.target.value)}
+                onKeyDown={(e) => handleEnterKeySubmit(e, handleSave)}
                 className="w-full px-4 py-3 bg-gray-50 dark:bg-[#1c1c22] rounded-2xl border border-gray-100 dark:border-white/[0.1] text-xs font-medium text-gray-900 dark:text-zinc-100 placeholder:text-gray-400 dark:placeholder:text-zinc-500 outline-none focus:border-indigo-500 focus:bg-white dark:focus:bg-[#202028] transition-all"
               />
             </div>
@@ -384,14 +394,14 @@ export function MoodAndPainModal({
             {/* BOTÃO SALVAR */}
             <div className="pt-2">
               <Button
-                onClick={handleSave}
+                type="submit"
                 disabled={loading}
                 className="w-full py-4 text-sm font-bold bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl shadow-lg shadow-indigo-600/25 active:scale-[0.98] transition-all"
               >
                 {loading ? <Spinner className="text-white w-5 h-5" /> : 'Salvar Bem-Estar de Hoje'}
               </Button>
             </div>
-          </div>
+          </form>
         )}
       </div>
     </BottomSheet>

@@ -8,6 +8,7 @@ import { createMedicationLog, updateMedicationLog } from '../../services/api';
 import { formatDateToTime } from '../../utils/date';
 import { getMedicationDosageForDate } from '../../utils/medicationSchedule';
 import { triggerHapticFeedback } from '../../utils/haptics';
+import { dismissMobileKeyboard, handleEnterKeySubmit } from '../../utils/keyboardSubmit';
 import type { MedicationEventData } from '../../types/timeline';
 
 interface MedicationModalProps {
@@ -335,7 +336,14 @@ export function MedicationModal({
         }}
         title="Não administrado"
       >
-        <div className="space-y-6">
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            dismissMobileKeyboard();
+            void handleSaveNotAdministered();
+          }}
+          className="space-y-6"
+        >
           {error && (
             <div className="p-3 bg-red-50 dark:bg-rose-950/40 dark:border dark:border-rose-800/50 text-red-700 dark:text-rose-300 rounded-xl text-sm">
               {error}
@@ -369,11 +377,14 @@ export function MedicationModal({
               Observação <span className="text-gray-400 dark:text-zinc-500 font-normal">(Opcional)</span>
             </label>
             <input
+              type="text"
+              enterKeyHint="done"
               disabled={loading}
               className="flex h-12 w-full rounded-xl border border-gray-200 dark:border-white/[0.1] bg-white dark:bg-[#1c1c22] text-gray-900 dark:text-zinc-100 placeholder:text-gray-400 dark:placeholder:text-zinc-500 px-4 py-2 text-base focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 dark:focus-visible:ring-zinc-400"
               placeholder="Detalhes..."
               value={notAdminNotes}
               onChange={(e) => setNotAdminNotes(e.target.value)}
+              onKeyDown={(e) => handleEnterKeySubmit(e, handleSaveNotAdministered)}
             />
           </div>
 
@@ -391,15 +402,14 @@ export function MedicationModal({
               Voltar
             </Button>
             <Button
-              type="button"
+              type="submit"
               className="flex-1 bg-red-600 hover:bg-red-700 dark:bg-rose-600 dark:hover:bg-rose-500 text-white"
-              onClick={handleSaveNotAdministered}
               disabled={loading || isDayClosed}
             >
               {loading ? <Spinner className="text-white" /> : 'Confirmar'}
             </Button>
           </div>
-        </div>
+        </form>
       </BottomSheet>
     );
   }

@@ -1707,16 +1707,83 @@ export async function uploadPatientPhoto(patientId: string, file: File, fileName
   };
 }
 
+function isMissingMealMenuSchemaError(error: any): boolean {
+  if (!error) return false;
+  const code = String(error?.code || '');
+  if (code !== 'PGRST204' && code !== '42703') return false;
+  const msg = String(error?.message || '').toLowerCase();
+  return msg.includes('default_description') || msg.includes('default_drink_description');
+}
+
 export async function createMealConfig(config: Database['public']['Tables']['meal_configs']['Insert']) {
-  const { data, error } = await (supabase as any).from('meal_configs').insert(config).select().single();
-  if (error) throw error;
+  let { data, error } = await (supabase as any).from('meal_configs').insert(config).select().single();
+
+  if (error && isMissingMealMenuSchemaError(error)) {
+    const hasPlannedMenu = Boolean(
+      String(config.default_description || '').trim() ||
+        String(config.default_drink_description || '').trim()
+    );
+    if (hasPlannedMenu) {
+      throw new Error(
+        'Atualize o banco de dados no Supabase (migration 0022) para salvar o cardápio programado da refeição.'
+      );
+    }
+    const {
+      default_description: _dd,
+      default_drink_description: _ddd,
+      ...legacyConfig
+    } = config as any;
+    const retryRes = await (supabase as any).from('meal_configs').insert(legacyConfig).select().single();
+    data = retryRes.data;
+    error = retryRes.error;
+  }
+
+  if (error) {
+    if (isRlsPermissionError(error)) {
+      throw new Error('Sem permissão para criar refeições na rotina desta família.');
+    }
+    throw error;
+  }
   await del(`mealConfigs_${config.patient_id}`).catch(() => {});
   return data;
 }
 
 export async function updateMealConfig(id: string, config: Database['public']['Tables']['meal_configs']['Update']) {
-  const { data, error } = await (supabase as any).from('meal_configs').update(config).eq('id', id).select().single();
-  if (error) throw error;
+  let { data, error } = await (supabase as any).from('meal_configs').update(config).eq('id', id).select().single();
+
+  if (error && isMissingMealMenuSchemaError(error)) {
+    const hasPlannedMenu = Boolean(
+      String(config.default_description || '').trim() ||
+        String(config.default_drink_description || '').trim()
+    );
+    if (hasPlannedMenu) {
+      throw new Error(
+        'Atualize o banco de dados no Supabase (migration 0022) para salvar o cardápio programado da refeição.'
+      );
+    }
+    const {
+      default_description: _dd,
+      default_drink_description: _ddd,
+      ...legacyConfig
+    } = config as any;
+    const retryRes = await (supabase as any)
+      .from('meal_configs')
+      .update(legacyConfig)
+      .eq('id', id)
+      .select()
+      .single();
+    data = retryRes.data;
+    error = retryRes.error;
+  }
+
+  if (error) {
+    if (isRlsPermissionError(error)) {
+      throw new Error(
+        'Sem permissão no banco de dados para atualizar esta refeição. Verifique se a migration 0022 foi executada no Supabase.'
+      );
+    }
+    throw error;
+  }
   if (data?.patient_id) {
     await del(`mealConfigs_${data.patient_id}`).catch(() => {});
   }

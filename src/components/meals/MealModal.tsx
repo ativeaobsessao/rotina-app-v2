@@ -31,6 +31,7 @@ import {
   consumePendingNativeCameraCrash,
 } from '../../services/mealDrafts';
 import { triggerHapticFeedback } from '../../utils/haptics';
+import { dismissMobileKeyboard, handleEnterKeySubmit } from '../../utils/keyboardSubmit';
 import type { MealEventData } from '../../types/timeline';
 
 export const MEAL_DRAFT_KEY = LEGACY_MEAL_DRAFT_KEY;
@@ -72,6 +73,13 @@ export function MealModal({
   const allowEdit = canEdit && !isDayClosed;
   const pronoun = patientGender === 'F' ? 'ela' : patientGender === 'M' ? 'ele' : 'ela(e)';
 
+  const initialPlannedDescription = !event.log
+    ? String(event.mealConfig?.default_description || '')
+    : '';
+  const initialPlannedDrink = !event.log
+    ? String(event.mealConfig?.default_drink_description || '')
+    : '';
+
   const [mode, setMode] = useState<'view' | 'edit'>(() => {
     if (!canEdit) return 'view';
     return isEditing ? 'view' : 'edit';
@@ -79,9 +87,14 @@ export function MealModal({
   const [consumption, setConsumption] = useState<'normal' | 'partial' | 'none'>(
     () => event.log?.consumption_status || 'normal'
   );
-  const [description, setDescription] = useState<string>(() => event.log?.description || '');
-  const [drinkDescription, setDrinkDescription] = useState<string>(
-    () => event.log?.drink_description || ''
+  const [description, setDescription] = useState<string>(() =>
+    event.log ? event.log.description || '' : initialPlannedDescription
+  );
+  const [drinkDescription, setDrinkDescription] = useState<string>(() =>
+    event.log ? event.log.drink_description || '' : initialPlannedDrink
+  );
+  const [isPreFilledFromRoutine, setIsPreFilledFromRoutine] = useState<boolean>(
+    () => !event.log && Boolean(initialPlannedDescription.trim() || initialPlannedDrink.trim())
   );
   const [notes, setNotes] = useState<string>(() => event.log?.notes || '');
   const [mealTime, setMealTime] = useState<string>(() =>
@@ -107,6 +120,8 @@ export function MealModal({
   const isSavingRef = useRef(false);
   const isMountedRef = useRef(true);
   const hasLocalEditsRef = useRef(false);
+  const hasUserEditedDescriptionRef = useRef(false);
+  const hasUserEditedDrinkRef = useRef(false);
   const activeSessionKeyRef = useRef<string | null>(null);
   const draftReqSeqRef = useRef(0);
   const draftDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -244,6 +259,8 @@ export function MealModal({
     if (activeSessionKeyRef.current !== sessionKey) {
       activeSessionKeyRef.current = sessionKey;
       hasLocalEditsRef.current = false;
+      hasUserEditedDescriptionRef.current = false;
+      hasUserEditedDrinkRef.current = false;
       nativeCameraOpenedInThisMountRef.current = false;
 
       if (objectUrlRef.current) {
@@ -265,10 +282,18 @@ export function MealModal({
           })
       );
 
+      const plannedDesc = !event.log ? String(event.mealConfig?.default_description || '') : '';
+      const plannedDrink = !event.log
+        ? String(event.mealConfig?.default_drink_description || '')
+        : '';
+
       setMode(crashedInNativeCamera ? 'edit' : !canEdit ? 'view' : event.log ? 'view' : 'edit');
       setConsumption(event.log?.consumption_status || 'normal');
-      setDescription(event.log?.description || '');
-      setDrinkDescription(event.log?.drink_description || '');
+      setDescription(event.log ? event.log.description || '' : plannedDesc);
+      setDrinkDescription(event.log ? event.log.drink_description || '' : plannedDrink);
+      setIsPreFilledFromRoutine(
+        !event.log && Boolean(plannedDesc.trim() || plannedDrink.trim())
+      );
       setNotes(event.log?.notes || '');
       setMealTime(defaultTime);
       setPhotoFile(null);
@@ -296,6 +321,9 @@ export function MealModal({
             }
             if (!draft) return;
 
+            hasUserEditedDescriptionRef.current = true;
+            hasUserEditedDrinkRef.current = true;
+            setIsPreFilledFromRoutine(false);
             setMode('edit');
             setConsumption(draft.consumption);
             setDescription(draft.description);
@@ -675,13 +703,18 @@ export function MealModal({
       }
 
       setSavingStatus('Salvando registro...');
+      const shouldOmitPreFilledDescription =
+        !isEditing && consumption === 'none' && !hasUserEditedDescriptionRef.current;
+      const shouldOmitPreFilledDrink =
+        !isEditing && consumption === 'none' && !hasUserEditedDrinkRef.current;
+
       const logData: any = {
         meal_config_id: event.id,
         patient_id: patientId,
         event_date: eventDate,
         consumption_status: consumption,
-        description: description.trim() || null,
-        drink_description: drinkDescription.trim() || null,
+        description: shouldOmitPreFilledDescription ? null : description.trim() || null,
+        drink_description: shouldOmitPreFilledDrink ? null : drinkDescription.trim() || null,
         notes: notes.trim() || null,
         photo_url: nextPhotoPath,
         meal_time: mealTime ? `${mealTime}:00` : null,
@@ -797,6 +830,24 @@ export function MealModal({
               <p className="text-xs text-gray-500 dark:text-zinc-400 mt-1.5 max-w-xs leading-relaxed">
                 Assim que o responsável ou cuidadora registrar esta refeição, as informações e fotos aparecerão aqui.
               </p>
+              {(event.mealConfig?.default_description?.trim() ||
+                event.mealConfig?.default_drink_description?.trim()) && (
+                <div className="mt-4 w-full rounded-xl bg-indigo-50/70 dark:bg-indigo-950/30 border border-indigo-100 dark:border-indigo-900/40 p-3 text-left space-y-1">
+                  <span className="block text-[10px] font-bold uppercase tracking-wider text-indigo-700 dark:text-indigo-300">
+                    Cardápio programado
+                  </span>
+                  {event.mealConfig?.default_description?.trim() && (
+                    <p className="text-xs font-medium text-gray-800 dark:text-zinc-200">
+                      🍽️ Servir: {event.mealConfig.default_description.trim()}
+                    </p>
+                  )}
+                  {event.mealConfig?.default_drink_description?.trim() && (
+                    <p className="text-xs text-sky-700 dark:text-sky-300">
+                      🥤 Bebida: {event.mealConfig.default_drink_description.trim()}
+                    </p>
+                  )}
+                </div>
+              )}
             </div>
             <Button
               type="button"
@@ -928,7 +979,14 @@ export function MealModal({
             )}
           </div>
         ) : (
-          <>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              dismissMobileKeyboard();
+              void handleSave();
+            }}
+            className="space-y-6"
+          >
             {recoveredFromCameraCrash ? (
               <div className="p-3 bg-amber-50/90 dark:bg-amber-950/40 border border-amber-200/80 dark:border-amber-800/50 text-amber-900 dark:text-amber-200 rounded-xl text-xs flex items-start gap-2">
                 <CheckCircle2 className="w-4 h-4 shrink-0 text-amber-600 dark:text-amber-400 mt-0.5" />
@@ -940,6 +998,11 @@ export function MealModal({
               <div className="p-3 bg-indigo-50/90 dark:bg-indigo-950/40 border border-indigo-200/80 dark:border-indigo-800/50 text-indigo-800 dark:text-indigo-200 rounded-xl text-xs flex items-center gap-2">
                 <CheckCircle2 className="w-4 h-4 shrink-0 text-indigo-600 dark:text-indigo-400" />
                 <span>Seu registro em andamento foi recuperado.</span>
+              </div>
+            ) : isPreFilledFromRoutine && consumption !== 'none' ? (
+              <div className="p-3 bg-indigo-50/80 dark:bg-indigo-950/35 border border-indigo-200/80 dark:border-indigo-800/40 text-indigo-800 dark:text-indigo-200 rounded-xl text-xs flex items-center gap-2">
+                <CheckCircle2 className="w-4 h-4 shrink-0 text-indigo-600 dark:text-indigo-400" />
+                <span>Preenchido pela rotina — confirme ou ajuste apenas se houve mudança.</span>
               </div>
             ) : null}
 
@@ -960,6 +1023,22 @@ export function MealModal({
                   onClick={() => {
                     hasLocalEditsRef.current = true;
                     setConsumption('normal');
+                    if (!isEditing) {
+                      if (!hasUserEditedDescriptionRef.current) {
+                        setDescription(String(event.mealConfig?.default_description || ''));
+                      }
+                      if (!hasUserEditedDrinkRef.current) {
+                        setDrinkDescription(String(event.mealConfig?.default_drink_description || ''));
+                      }
+                      if (
+                        !hasUserEditedDescriptionRef.current &&
+                        !hasUserEditedDrinkRef.current &&
+                        (event.mealConfig?.default_description?.trim() ||
+                          event.mealConfig?.default_drink_description?.trim())
+                      ) {
+                        setIsPreFilledFromRoutine(true);
+                      }
+                    }
                   }}
                   className={cn(
                     'p-4 rounded-xl border text-left flex items-center space-x-3 transition-colors',
@@ -997,6 +1076,22 @@ export function MealModal({
                   onClick={() => {
                     hasLocalEditsRef.current = true;
                     setConsumption('partial');
+                    if (!isEditing) {
+                      if (!hasUserEditedDescriptionRef.current) {
+                        setDescription(String(event.mealConfig?.default_description || ''));
+                      }
+                      if (!hasUserEditedDrinkRef.current) {
+                        setDrinkDescription(String(event.mealConfig?.default_drink_description || ''));
+                      }
+                      if (
+                        !hasUserEditedDescriptionRef.current &&
+                        !hasUserEditedDrinkRef.current &&
+                        (event.mealConfig?.default_description?.trim() ||
+                          event.mealConfig?.default_drink_description?.trim())
+                      ) {
+                        setIsPreFilledFromRoutine(true);
+                      }
+                    }
                   }}
                   className={cn(
                     'p-4 rounded-xl border text-left flex items-center space-x-3 transition-colors',
@@ -1034,6 +1129,15 @@ export function MealModal({
                   onClick={() => {
                     hasLocalEditsRef.current = true;
                     setConsumption('none');
+                    if (!isEditing) {
+                      if (!hasUserEditedDescriptionRef.current) {
+                        setDescription('');
+                      }
+                      if (!hasUserEditedDrinkRef.current) {
+                        setDrinkDescription('');
+                      }
+                      setIsPreFilledFromRoutine(false);
+                    }
                   }}
                   className={cn(
                     'p-4 rounded-xl border text-left flex items-center space-x-3 transition-colors',
@@ -1089,13 +1193,16 @@ export function MealModal({
                 <span className="text-gray-400 dark:text-zinc-500 font-normal">(Opcional)</span>
               </label>
               <Input
+                enterKeyHint="done"
                 placeholder="Ex: Arroz, feijão, frango e salada."
                 value={description}
                 disabled={loading}
                 onChange={(e) => {
                   hasLocalEditsRef.current = true;
+                  hasUserEditedDescriptionRef.current = true;
                   setDescription(e.target.value);
                 }}
+                onKeyDown={(e) => handleEnterKeySubmit(e, handleSave)}
               />
             </div>
 
@@ -1105,13 +1212,16 @@ export function MealModal({
                 <span className="text-gray-400 dark:text-zinc-500 font-normal">(Opcional)</span>
               </label>
               <Input
+                enterKeyHint="done"
                 placeholder="Ex: 200ml de água, suco natural ou chá."
                 value={drinkDescription}
                 disabled={loading}
                 onChange={(e) => {
                   hasLocalEditsRef.current = true;
+                  hasUserEditedDrinkRef.current = true;
                   setDrinkDescription(e.target.value);
                 }}
+                onKeyDown={(e) => handleEnterKeySubmit(e, handleSave)}
               />
             </div>
 
@@ -1218,6 +1328,7 @@ export function MealModal({
                 Observação <span className="text-gray-400 dark:text-zinc-500 font-normal">(Opcional)</span>
               </label>
               <Input
+                enterKeyHint="done"
                 placeholder="Alguma observação?"
                 value={notes}
                 disabled={loading}
@@ -1225,15 +1336,15 @@ export function MealModal({
                   hasLocalEditsRef.current = true;
                   setNotes(e.target.value);
                 }}
+                onKeyDown={(e) => handleEnterKeySubmit(e, handleSave)}
               />
             </div>
 
             <div className="pt-4">
               <Button
-                type="button"
+                type="submit"
                 className="w-full"
                 size="lg"
-                onClick={handleSave}
                 disabled={loading || isDayClosed}
               >
                 {loading ? (
@@ -1246,7 +1357,7 @@ export function MealModal({
                 )}
               </Button>
             </div>
-          </>
+          </form>
         )}
       </div>
       </BottomSheet>

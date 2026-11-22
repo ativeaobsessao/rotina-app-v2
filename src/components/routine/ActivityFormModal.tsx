@@ -4,6 +4,7 @@ import { Button } from '../ui/Button';
 import { Input } from '../ui/Input';
 import { Spinner } from '../ui/Spinner';
 import { cn } from '../../utils/cn';
+import { dismissMobileKeyboard, handleEnterKeySubmit } from '../../utils/keyboardSubmit';
 import { createActivity, updateActivity } from '../../services/api';
 import { DEFAULT_TIMEZONE, getLocalDateString, shiftDateString } from '../../utils/date';
 import {
@@ -190,7 +191,14 @@ export function ActivityFormModal({
       }}
       title={activity ? 'Editar Atividade' : 'Nova Atividade'}
     >
-      <div className="space-y-5">
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          dismissMobileKeyboard();
+          void handleSave();
+        }}
+        className="space-y-5"
+      >
         {error && (
           <div className="p-3 bg-red-50 dark:bg-rose-950/40 dark:border dark:border-rose-800/50 text-red-700 dark:text-rose-300 rounded-xl text-sm">
             {error}
@@ -202,9 +210,11 @@ export function ActivityFormModal({
             Nome da atividade
           </label>
           <Input
+            enterKeyHint="done"
             disabled={loading}
             value={title}
             onChange={(e) => setTitle(e.target.value)}
+            onKeyDown={(e) => handleEnterKeySubmit(e, handleSave)}
             placeholder="Ex: Consulta médica, Fisioterapia, Yoga"
           />
         </div>
@@ -392,9 +402,11 @@ export function ActivityFormModal({
             <span className="text-gray-400 dark:text-zinc-500 font-normal">(Opcional)</span>
           </label>
           <Input
+            enterKeyHint="done"
             disabled={loading}
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
+            onKeyDown={(e) => handleEnterKeySubmit(e, handleSave)}
             placeholder="Ex: Clínica Central, sala 204 ou levar exames"
           />
         </div>
@@ -445,16 +457,15 @@ export function ActivityFormModal({
 
         <div className="pt-2">
           <Button
-            type="button"
+            type="submit"
             className="w-full min-h-[48px]"
             size="lg"
-            onClick={handleSave}
             disabled={loading || !title.trim()}
           >
             {loading ? <Spinner className="text-white dark:text-zinc-950" /> : 'Salvar Atividade'}
           </Button>
         </div>
-      </div>
+      </form>
     </BottomSheet>
   );
 }

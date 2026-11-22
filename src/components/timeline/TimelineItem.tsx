@@ -192,6 +192,27 @@ export function TimelineItem({ event, onClick, profileId }: TimelineItemProps) {
             </p>
           )}
 
+          {event.type === 'meal' &&
+            !event.log &&
+            (event.mealConfig?.default_description?.trim() ||
+              event.mealConfig?.default_drink_description?.trim()) && (
+              <div className="mt-2 rounded-xl bg-indigo-50/70 dark:bg-indigo-950/30 border border-indigo-100/90 dark:border-indigo-900/40 px-2.5 py-2 space-y-0.5">
+                <span className="block text-[10px] font-bold uppercase tracking-wider text-indigo-700 dark:text-indigo-300">
+                  Cardápio programado
+                </span>
+                {event.mealConfig?.default_description?.trim() && (
+                  <p className="text-xs font-medium text-gray-800 dark:text-zinc-200 line-clamp-2">
+                    🍽️ Servir: {event.mealConfig.default_description.trim()}
+                  </p>
+                )}
+                {event.mealConfig?.default_drink_description?.trim() && (
+                  <p className="text-xs text-sky-700 dark:text-sky-300 truncate">
+                    🥤 Bebida: {event.mealConfig.default_drink_description.trim()}
+                  </p>
+                )}
+              </div>
+            )}
+
           {event.type === 'meal' && (event.log?.description || event.log?.drink_description) && (
             <div className="mt-2 space-y-0.5">
               {event.log?.description && (

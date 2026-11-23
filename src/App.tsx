@@ -3,14 +3,17 @@ import { supabase } from './services/supabase';
 import {
   getPatient,
   getCurrentProfile,
-  getPatientPhotoUrl,
   getMyFamilyMemberships,
   clearAllUserCaches,
 } from './services/api';
 import { LoginScreen } from './pages/Login';
 import { InviteScreen } from './pages/InviteScreen';
-import { ContextSelectorScreen } from './pages/ContextSelector';
+import {
+  ContextSelectorScreen,
+  type SelectedContextPatient,
+} from './pages/ContextSelector';
 import { ResetPasswordScreen } from './pages/ResetPassword';
+import { LaunchIntro } from './components/ui/LaunchIntro';
 import {
   readActiveMealRecovery,
   clearActiveMealRecovery,
@@ -46,6 +49,17 @@ function hasActiveSelectedContext(): boolean {
   return false;
 }
 
+function readCachedPatientsList(): SelectedContextPatient[] | null {
+  try {
+    const stored = localStorage.getItem('duca_cached_context_patients');
+    if (!stored) return null;
+    const parsed = JSON.parse(stored);
+    return Array.isArray(parsed) && parsed.length > 0 ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
 function getInviteStateFromUrl(): { token: string | null; isAuthFlow: boolean } {
   try {
     const params = new URLSearchParams(window.location.search);
@@ -78,16 +92,7 @@ function clearLocalContextState() {
 }
 
 export default function App() {
-  const cachedPatients = (() => {
-    try {
-      const stored = localStorage.getItem('duca_cached_context_patients');
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
-      }
-    } catch {}
-    return null;
-  })();
+  const cachedPatients = readCachedPatientsList();
 
   const [session, setSession] = useState<any>(() => {
     try {
@@ -114,7 +119,12 @@ export default function App() {
     !!cachedPatients && !restoredContext
   );
   const [isRecoveringPassword, setIsRecoveringPassword] = useState(false);
-  const [initialPatients, setInitialPatients] = useState<any[] | null>(cachedPatients);
+  const [initialPatients, setInitialPatients] = useState<SelectedContextPatient[] | null>(
+    cachedPatients
+  );
+  const [selectedPatientHint, setSelectedPatientHint] = useState<SelectedContextPatient | null>(
+    null
+  );
   const [currentTab, setCurrentTab] = useState<'today' | 'history' | 'routine'>(() =>
     initialRecovery?.tab === 'history' ? 'history' : 'today'
   );
@@ -150,10 +160,18 @@ export default function App() {
             getMyFamilyMemberships(),
           ]);
 
-          if (!isMountedRef.current || reqSeq !== checkSeqRef.current) return;
+          if (
+            !isMountedRef.current ||
+            reqSeq !== checkSeqRef.current ||
+            hasCheckedContextRef.current ||
+            hasActiveSelectedContext()
+          ) {
+            return;
+          }
 
           if (!prof || memberships.length === 0) {
             setNeedsSetup(true);
+            setNeedsContextSelection(false);
             hasCheckedContextRef.current = true;
             setLoading(false);
             return;
@@ -163,29 +181,40 @@ export default function App() {
           import('./pages/Routine');
           import('./pages/History');
 
+          const existingCached = readCachedPatientsList() || [];
+          const cachedPhotoById = new Map<string, string | null>(
+            existingCached.map((p) => [p.id, p.photo || null])
+          );
+
           const loadedPatientsUnfiltered = await Promise.all(
             memberships.map(async (m) => {
               const pat = await getPatient(m.family_id);
               if (!pat) return null;
-              let picUrl = null;
-              if (pat.photo_url) {
-                picUrl = await getPatientPhotoUrl(pat.id, pat.photo_url);
-              }
               return {
                 id: pat.id,
                 name: pat.name,
-                photo: picUrl,
+                photo: cachedPhotoById.get(pat.id) ?? null,
                 familyId: m.family_id,
-                gender: pat.gender,
+                gender: pat.gender || null,
               };
             })
           );
 
-          if (!isMountedRef.current || reqSeq !== checkSeqRef.current) return;
+          // Se o usuário já tocou em algum card enquanto esta busca rodava, jamais volte para a seleção!
+          if (
+            !isMountedRef.current ||
+            reqSeq !== checkSeqRef.current ||
+            hasCheckedContextRef.current ||
+            hasActiveSelectedContext()
+          ) {
+            return;
+          }
 
-          const loadedPatients = loadedPatientsUnfiltered.filter((p) => p !== null) as any[];
+          const loadedPatients = loadedPatientsUnfiltered.filter(
+            (p) => p !== null
+          ) as SelectedContextPatient[];
           const uniquePatients = Array.from(
-            new Map(loadedPatients.map((p: any) => [p.id, p])).values()
+            new Map(loadedPatients.map((p) => [p.id, p])).values()
           );
 
           try {
@@ -215,15 +244,22 @@ export default function App() {
         import('./pages/Routine');
         import('./pages/History');
       } catch (err) {
-        console.error('Error checking patient:', err);
-        if (isMountedRef.current && reqSeq === checkSeqRef.current && !hasCheckedContextRef.current) {
+        console.error('Error checking familiar:', err);
+        if (
+          isMountedRef.current &&
+          reqSeq === checkSeqRef.current &&
+          !hasCheckedContextRef.current &&
+          !hasActiveSelectedContext()
+        ) {
           setNeedsSetup(true);
         }
       } finally {
-        if (isMountedRef.current && reqSeq === checkSeqRef.current) {
-          setLoading(false);
+        if (reqSeq === checkSeqRef.current) {
+          inFlightCheckRef.current = null;
+          if (isMountedRef.current) {
+            setLoading(false);
+          }
         }
-        inFlightCheckRef.current = null;
       }
     })();
 
@@ -257,6 +293,7 @@ export default function App() {
       if (s) {
         await checkPatient();
       } else {
+        setNeedsContextSelection(false);
         setLoading(false);
       }
     });
@@ -283,8 +320,10 @@ export default function App() {
         if (!isMountedRef.current) return;
         hasCheckedContextRef.current = false;
         lastUserIdRef.current = null;
+        checkSeqRef.current += 1;
         inFlightCheckRef.current = null;
         setInitialPatients(null);
+        setSelectedPatientHint(null);
         setSession(null);
         setNeedsSetup(false);
         setNeedsContextSelection(false);
@@ -309,19 +348,35 @@ export default function App() {
         await clearAllUserCaches();
         if (!isMountedRef.current) return;
         hasCheckedContextRef.current = false;
+        checkSeqRef.current += 1;
+        inFlightCheckRef.current = null;
         setInitialPatients(null);
+        setSelectedPatientHint(null);
         setNeedsContextSelection(false);
       }
 
+      const contextAlreadyActive =
+        hasCheckedContextRef.current || hasActiveSelectedContext();
       const isSameActiveUser =
         Boolean(lastUserIdRef.current) &&
         incomingUserId === lastUserIdRef.current &&
-        hasCheckedContextRef.current;
+        contextAlreadyActive;
 
       lastUserIdRef.current = incomingUserId;
       setSession(s);
 
       if (!isSameActiveUser) {
+        if (!contextAlreadyActive && !switchedUser) {
+          const cached = readCachedPatientsList();
+          if (cached) {
+            setInitialPatients(cached);
+            setNeedsContextSelection(true);
+          } else {
+            setLoading(true);
+          }
+        } else if (!contextAlreadyActive) {
+          setLoading(true);
+        }
         await checkPatient();
       }
     });
@@ -338,36 +393,35 @@ export default function App() {
       if (!session) {
         return <LoginScreen inviteToken={urlInviteToken} />;
       }
-      return (
-        <div className="flex h-[100dvh] items-center justify-center bg-gray-50 dark:bg-[#09090b]">
-          <div className="w-8 h-8 rounded-full border-4 border-indigo-200 dark:border-indigo-900 border-t-indigo-600 dark:border-t-indigo-400 animate-spin" />
-        </div>
-      );
+      return <LaunchIntro message="Concluindo seu acesso..." />;
     }
     return <InviteScreen token={urlInviteToken} />;
   }
 
-  if (needsContextSelection) {
+  if (needsContextSelection && session) {
     return (
       <ContextSelectorScreen
         initialPatients={initialPatients || undefined}
-        onSelect={() => {
+        onSelect={(chosenPatient) => {
           try {
             sessionStorage.setItem('duca_context_selected', '1');
           } catch {}
-          setNeedsContextSelection(false);
           hasCheckedContextRef.current = true;
-          setLoading(true);
-          checkPatient();
+          checkSeqRef.current += 1;
+          inFlightCheckRef.current = null;
+          if (chosenPatient) {
+            setSelectedPatientHint(chosenPatient);
+          }
+          setNeedsSetup(false);
+          setNeedsContextSelection(false);
+          setLoading(false);
         }}
       />
     );
   }
 
   if (loading) {
-    return (
-      <div className="flex h-screen items-center justify-center bg-gray-50 dark:bg-[#09090b] transition-colors" />
-    );
+    return <LaunchIntro />;
   }
 
   if (!session) {
@@ -388,11 +442,7 @@ export default function App() {
 
   if (needsSetup) {
     return (
-      <React.Suspense
-        fallback={
-          <div className="flex h-[100dvh] items-center justify-center bg-gray-50 dark:bg-[#09090b] transition-colors" />
-        }
-      >
+      <React.Suspense fallback={<LaunchIntro />}>
         <SetupScreen
           onComplete={() => {
             setNeedsSetup(false);
@@ -405,11 +455,7 @@ export default function App() {
 
   if (currentTab === 'routine') {
     return (
-      <React.Suspense
-        fallback={
-          <div className="flex h-[100dvh] items-center justify-center bg-gray-50 dark:bg-[#09090b] transition-colors" />
-        }
-      >
+      <React.Suspense fallback={<LaunchIntro />}>
         <RoutineScreen onTabChange={setCurrentTab} />
       </React.Suspense>
     );
@@ -417,11 +463,7 @@ export default function App() {
 
   if (currentTab === 'history') {
     return (
-      <React.Suspense
-        fallback={
-          <div className="flex h-[100dvh] items-center justify-center bg-gray-50 dark:bg-[#09090b] transition-colors" />
-        }
-      >
+      <React.Suspense fallback={<LaunchIntro />}>
         <HistoryScreen
           onTabChange={setCurrentTab}
           onEditPastDay={(dateStr) => {
@@ -434,15 +476,12 @@ export default function App() {
   }
 
   return (
-    <React.Suspense
-      fallback={
-        <div className="flex h-[100dvh] items-center justify-center bg-gray-50 dark:bg-[#09090b] transition-colors" />
-      }
-    >
+    <React.Suspense fallback={<LaunchIntro />}>
       <TodayScreen
         onTabChange={setCurrentTab}
         editingDateStr={editingDateStr}
         onClearEditDate={() => setEditingDateStr(null)}
+        initialPatientHint={selectedPatientHint}
       />
     </React.Suspense>
   );

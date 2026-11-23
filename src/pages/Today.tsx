@@ -146,16 +146,26 @@ export function ClosureReminderBanner({
   );
 }
 
+export interface TodayPatientHint {
+  id: string;
+  name: string;
+  photo: string | null;
+  familyId: string;
+  gender?: string | null;
+}
+
 export function TodayScreen({
   onTabChange,
   editingDateStr,
   onClearEditDate,
   nowProvider = DEFAULT_NOW_PROVIDER,
+  initialPatientHint,
 }: {
   onTabChange?: (tab: 'today' | 'history' | 'routine') => void;
   editingDateStr?: string | null;
   onClearEditDate?: () => void;
   nowProvider?: () => Date;
+  initialPatientHint?: TodayPatientHint | null;
 }) {
   const { syncVersion } = useNetwork();
 
@@ -184,8 +194,19 @@ export function TodayScreen({
   const [hasReopened, setHasReopened] = useState(false);
 
   const [profile, setProfile] = useState<any>(null);
-  const [patient, setPatient] = useState<any>(null);
-  const [patientPhoto, setPatientPhoto] = useState<string | null>(null);
+  const [patient, setPatient] = useState<any>(() =>
+    initialPatientHint
+      ? {
+          id: initialPatientHint.id,
+          name: initialPatientHint.name,
+          family_id: initialPatientHint.familyId,
+          gender: initialPatientHint.gender ?? null,
+        }
+      : null
+  );
+  const [patientPhoto, setPatientPhoto] = useState<string | null>(
+    () => initialPatientHint?.photo ?? null
+  );
   const [events, setEvents] = useState<TimelineEvent[]>([]);
   const [allActivities, setAllActivities] = useState<any[]>([]);
   const [loadedDate, setLoadedDate] = useState<string | null>(null);
@@ -586,10 +607,13 @@ export function TodayScreen({
       setPatient(pat);
 
       if (pat.photo_url) {
-        const url = await getPatientPhotoUrl(pat.id, pat.photo_url);
-        if (isMountedRef.current && seq === loadSeqRef.current) {
-          setPatientPhoto(url);
-        }
+        void getPatientPhotoUrl(pat.id, pat.photo_url)
+          .then((url) => {
+            if (isMountedRef.current && seq === loadSeqRef.current) {
+              setPatientPhoto(url);
+            }
+          })
+          .catch(() => {});
       } else {
         setPatientPhoto(null);
       }
@@ -832,8 +856,41 @@ export function TodayScreen({
   if (loading || isTransitioning || loadedDate !== localDate) {
     return (
       <MainLayout activeTab={editingDateStr ? 'history' : 'today'} onTabChange={onTabChange}>
-        <div className="flex h-[80vh] items-center justify-center">
-          <Spinner />
+        <div className="max-w-md mx-auto w-full">
+          <header className="sticky top-0 z-30 bg-white/95 dark:bg-[#111115]/95 backdrop-blur-xl border-b border-gray-100/80 dark:border-white/[0.08] px-4 pt-safe">
+            <div className="h-12 flex items-center justify-between gap-4">
+              <h1 className="text-xl font-bold tracking-tight text-gray-900 dark:text-zinc-100">
+                DUCA
+              </h1>
+              <UserProfile />
+            </div>
+          </header>
+          <div className="px-4 py-4 space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-full bg-gray-200/80 dark:bg-white/[0.08] overflow-hidden flex items-center justify-center shrink-0">
+                {patientPhoto ? (
+                  <img src={patientPhoto} alt={patient?.name || ''} className="w-full h-full object-cover" />
+                ) : (
+                  <span className="text-xl">👵</span>
+                )}
+              </div>
+              <div className="space-y-1.5 flex-1 min-w-0">
+                {patient?.name ? (
+                  <h2 className="text-lg font-semibold text-gray-900 dark:text-zinc-100 truncate leading-tight">
+                    {patient.name}
+                  </h2>
+                ) : (
+                  <div className="h-5 w-32 rounded-lg bg-gray-200/80 dark:bg-white/[0.08] animate-pulse" />
+                )}
+                <div className="h-3 w-28 rounded-md bg-gray-100 dark:bg-white/[0.05] animate-pulse" />
+              </div>
+            </div>
+            <div className="space-y-2.5 pt-2">
+              <div className="h-20 rounded-2xl bg-white dark:bg-[#141418] border border-gray-100 dark:border-white/[0.06] animate-pulse" />
+              <div className="h-20 rounded-2xl bg-white dark:bg-[#141418] border border-gray-100 dark:border-white/[0.06] animate-pulse" />
+              <div className="h-20 rounded-2xl bg-white dark:bg-[#141418] border border-gray-100 dark:border-white/[0.06] animate-pulse" />
+            </div>
+          </div>
         </div>
       </MainLayout>
     );

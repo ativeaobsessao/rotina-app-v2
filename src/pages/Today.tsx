@@ -66,6 +66,7 @@ import {
 } from '../services/mealDrafts';
 import { UserProfile } from '../components/ui/UserProfile';
 import { NotificationBell } from '../components/notifications/NotificationBell';
+import { PushAuthorizationPrompt } from '../components/notifications/PushAuthorizationPrompt';
 import {
   getActivityMilestoneBadge,
   isActivityMilestoneDays,
@@ -1238,6 +1239,18 @@ export function TodayScreen({
             </button>
           </div>
         )}
+
+        <PushAuthorizationPrompt
+          familyId={profile?.family_id}
+          patientId={patient?.id}
+          patientName={patient?.name}
+          userId={profile?.id}
+          onPushReceived={() => {
+            if (patient?.id && localDate) {
+              void refreshTimeline(patient.id, localDate);
+            }
+          }}
+        />
 
         {/* Banners */}
         {!dailyClosure && hasReopened && (

@@ -1,5 +1,6 @@
 import { supabase } from './supabase';
 import {
+  getMyPushSubscriptions,
   upsertMyPushSubscription,
   deleteMyPushSubscriptionByEndpoint,
   updateMyPushSubscriptionPreferences,
@@ -7,9 +8,24 @@ import {
 } from './api';
 import {
   arrayBufferToBase64Url,
+  DEFAULT_PUSH_PREFERENCES,
   urlBase64ToUint8Array,
+  type NotificationLeadMinutes,
   type PushNotificationPreferences,
 } from '../utils/notifications';
+
+export const LIVE_PUSH_RECEIVED_EVENT = 'duca:push-received';
+export const PUSH_SUBSCRIPTION_CHANGED_EVENT = 'duca:push-subscription-changed';
+
+export interface LivePushPayload {
+  title: string;
+  body: string;
+  url?: string;
+  type?: string | null;
+  milestoneDays?: number | null;
+  sourceId?: string | null;
+  receivedAt?: number;
+}
 
 export interface BrowserPushSupport {
   supported: boolean;
@@ -29,9 +45,11 @@ export interface ResolvedPushServerConfig {
 }
 
 let cachedServerVapidKey = '';
+let swRuntimeInitialized = false;
 
 export function resetPushConfigCacheForTests(): void {
   cachedServerVapidKey = '';
+  swRuntimeInitialized = false;
 }
 
 function cleanKeyValue(value: unknown): string {
@@ -75,6 +93,48 @@ export function getBrowserPushSupport(): BrowserPushSupport {
     permission,
     hasVapidKey: Boolean(getVapidPublicKey()),
   };
+}
+
+export function initWebPushRuntime(): void {
+  if (swRuntimeInitialized || typeof window === 'undefined' || typeof navigator === 'undefined') {
+    return;
+  }
+  if (!('serviceWorker' in navigator)) return;
+  swRuntimeInitialized = true;
+
+  const onSwMessage = (event: MessageEvent) => {
+    const data = event?.data;
+    if (!data || typeof data !== 'object') return;
+
+    if (data.type === 'DUCA_PUSH_RECEIVED' && data.payload) {
+      window.dispatchEvent(
+        new CustomEvent<LivePushPayload>(LIVE_PUSH_RECEIVED_EVENT, {
+          detail: data.payload,
+        })
+      );
+    } else if (data.type === 'DUCA_PUSH_SUBSCRIPTION_CHANGED') {
+      window.dispatchEvent(
+        new CustomEvent(PUSH_SUBSCRIPTION_CHANGED_EVENT, {
+          detail: data.subscription || null,
+        })
+      );
+    }
+  };
+
+  navigator.serviceWorker.addEventListener?.('message', onSwMessage);
+
+  // Garante que o Service Worker esteja registrado em produção mesmo antes de o usuário abrir o modal
+  if (typeof navigator.serviceWorker.getRegistration === 'function') {
+    navigator.serviceWorker
+      .getRegistration()
+      .then((reg) => {
+        if (!reg && typeof navigator.serviceWorker.register === 'function') {
+          return navigator.serviceWorker.register('/sw.js', { scope: '/' }).catch(() => null);
+        }
+        return reg;
+      })
+      .catch(() => null);
+  }
 }
 
 async function parseInvokeErrorPayload(error: any): Promise<any> {
@@ -248,10 +308,25 @@ export async function subscribeBrowserAndSaveToSupabase(input: {
   let browserSub = await reg.pushManager.getSubscription();
   if (!browserSub) {
     const applicationServerKey = urlBase64ToUint8Array(vapidPublicKey) as unknown as BufferSource;
-    browserSub = await reg.pushManager.subscribe({
-      userVisibleOnly: true,
-      applicationServerKey,
-    });
+    try {
+      browserSub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey,
+      });
+    } catch (subErr: any) {
+      if (subErr?.name === 'InvalidStateError') {
+        const stale = await reg.pushManager.getSubscription().catch(() => null);
+        if (stale) {
+          await stale.unsubscribe().catch(() => false);
+        }
+        browserSub = await reg.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey,
+        });
+      } else {
+        throw subErr;
+      }
+    }
   }
 
   const { p256dh, auth } = extractSubscriptionKeys(browserSub);
@@ -273,6 +348,75 @@ export async function subscribeBrowserAndSaveToSupabase(input: {
     timezone: getBrowserTimezone(),
     userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : null,
   });
+}
+
+export async function syncBrowserPushSubscriptionWithSupabase(input: {
+  familyId: string;
+  patientId: string | null;
+}): Promise<PushSubscriptionRow | null> {
+  if (!input.familyId) return null;
+  const support = getBrowserPushSupport();
+  if (!support.supported || support.permission !== 'granted') return null;
+
+  const browserSub = await getCurrentBrowserPushSubscription();
+  if (!browserSub) return null;
+
+  const { p256dh, auth } = extractSubscriptionKeys(browserSub);
+  if (!browserSub.endpoint || !p256dh || !auth) return null;
+
+  try {
+    const serverSubs = await getMyPushSubscriptions(input.familyId);
+    const matching = serverSubs.find((s) => s.endpoint === browserSub.endpoint);
+
+    const needsSync =
+      !matching ||
+      matching.keys_p256dh !== p256dh ||
+      matching.keys_auth !== auth ||
+      (input.patientId && matching.patient_id !== input.patientId);
+
+    if (!needsSync) {
+      return matching;
+    }
+
+    const basePrefs: PushNotificationPreferences = matching
+      ? {
+          enabled: matching.enabled,
+          notify_medications: matching.notify_medications,
+          notify_meals: matching.notify_meals,
+          notify_activities: matching.notify_activities,
+          lead_minutes: ([0, 5, 10, 15, 30].includes(matching.lead_minutes)
+            ? matching.lead_minutes
+            : 0) as NotificationLeadMinutes,
+        }
+      : serverSubs[0]
+      ? {
+          enabled: serverSubs[0].enabled,
+          notify_medications: serverSubs[0].notify_medications,
+          notify_meals: serverSubs[0].notify_meals,
+          notify_activities: serverSubs[0].notify_activities,
+          lead_minutes: ([0, 5, 10, 15, 30].includes(serverSubs[0].lead_minutes)
+            ? serverSubs[0].lead_minutes
+            : 0) as NotificationLeadMinutes,
+        }
+      : DEFAULT_PUSH_PREFERENCES;
+
+    return await upsertMyPushSubscription({
+      familyId: input.familyId,
+      patientId: input.patientId,
+      endpoint: browserSub.endpoint,
+      keysP256dh: p256dh,
+      keysAuth: auth,
+      enabled: basePrefs.enabled,
+      notifyMedications: basePrefs.notify_medications,
+      notifyMeals: basePrefs.notify_meals,
+      notifyActivities: basePrefs.notify_activities,
+      leadMinutes: basePrefs.lead_minutes,
+      timezone: getBrowserTimezone(),
+      userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : null,
+    });
+  } catch {
+    return null;
+  }
 }
 
 export async function savePushPreferencesForSubscription(

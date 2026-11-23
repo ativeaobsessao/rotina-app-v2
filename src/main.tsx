@@ -6,8 +6,10 @@ import './index.css';
 import { ThemeProvider } from './contexts/ThemeContext.tsx';
 import { ErrorBoundary } from './components/ErrorBoundary.tsx';
 import { initPWAInstallTracking } from './services/pwaInstallStore.ts';
+import { initWebPushRuntime } from './services/pushNotifications.ts';
 
 initPWAInstallTracking();
+initWebPushRuntime();
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

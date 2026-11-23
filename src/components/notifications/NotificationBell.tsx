@@ -6,6 +6,11 @@ import {
   filterActiveMilestoneAlerts,
   getActivityMilestoneNotifications,
 } from '../../utils/notifications';
+import {
+  initWebPushRuntime,
+  PUSH_SUBSCRIPTION_CHANGED_EVENT,
+  syncBrowserPushSubscriptionWithSupabase,
+} from '../../services/pushNotifications';
 import { NotificationsModal } from './NotificationsModal';
 
 export const OPEN_NOTIFICATIONS_EVENT = 'duca:open-notifications';
@@ -33,10 +38,26 @@ export function NotificationBell({
   const effectiveToday = todayDateStr || getLocalDateString(DEFAULT_TIMEZONE);
 
   useEffect(() => {
+    initWebPushRuntime();
     const handleOpenEvent = () => setIsOpen(true);
     window.addEventListener(OPEN_NOTIFICATIONS_EVENT, handleOpenEvent);
     return () => window.removeEventListener(OPEN_NOTIFICATIONS_EVENT, handleOpenEvent);
   }, []);
+
+  useEffect(() => {
+    if (!familyId || !userId) return;
+    const syncSub = () => {
+      void syncBrowserPushSubscriptionWithSupabase({
+        familyId,
+        patientId: patientId || null,
+      });
+    };
+    syncSub();
+    window.addEventListener(PUSH_SUBSCRIPTION_CHANGED_EVENT, syncSub);
+    return () => {
+      window.removeEventListener(PUSH_SUBSCRIPTION_CHANGED_EVENT, syncSub);
+    };
+  }, [familyId, patientId, userId]);
 
   useEffect(() => {
     if (activities !== undefined || !patientId) return;

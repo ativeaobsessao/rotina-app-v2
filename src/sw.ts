@@ -14,6 +14,7 @@ interface SwPushEvent extends Event {
 }
 
 interface SwNotificationEvent extends Event {
+  action?: string;
   notification: {
     data?: Record<string, any>;
     close: () => void;
@@ -23,6 +24,7 @@ interface SwNotificationEvent extends Event {
 
 interface SwPushSubscriptionChangeEvent extends Event {
   oldSubscription?: PushSubscription | null;
+  newSubscription?: PushSubscription | null;
   waitUntil: (promise: Promise<any>) => void;
 }
 
@@ -30,6 +32,7 @@ interface SwWindowClient {
   url: string;
   focus: () => Promise<SwWindowClient>;
   navigate?: (url: string) => Promise<SwWindowClient | null>;
+  postMessage?: (message: any) => void;
 }
 
 interface SwGlobalScope {
@@ -80,6 +83,20 @@ registerRoute(
   })
 );
 
+async function broadcastToOpenClients(message: Record<string, any>): Promise<void> {
+  try {
+    const clientsList = await swSelf.clients.matchAll({
+      type: 'window',
+      includeUncontrolled: true,
+    });
+    for (const client of clientsList) {
+      if (typeof client.postMessage === 'function') {
+        client.postMessage(message);
+      }
+    }
+  } catch {}
+}
+
 swSelf.addEventListener('push', (event: SwPushEvent) => {
   let payload: Record<string, any> = {
     title: 'DUCA',
@@ -102,22 +119,46 @@ swSelf.addEventListener('push', (event: SwPushEvent) => {
   }
 
   const title = String(payload.title || 'DUCA');
-  const options: NotificationOptions & { renotify?: boolean; vibrate?: number[] } = {
-    body: String(payload.body || ''),
+  const body = String(payload.body || '');
+  const notificationData = {
+    url: String(payload.url || '/'),
+    type: payload.type || null,
+    milestoneDays: payload.milestoneDays ?? null,
+    sourceId: payload.sourceId || null,
+    receivedAt: Date.now(),
+  };
+
+  const options: NotificationOptions & {
+    renotify?: boolean;
+    vibrate?: number[];
+    timestamp?: number;
+    actions?: Array<{ action: string; title: string }>;
+  } = {
+    body,
     icon: '/web-app-manifest-192x192.png',
     badge: '/favicon-96x96.png',
     tag: payload.tag ? String(payload.tag) : undefined,
     renotify: Boolean(payload.tag),
+    requireInteraction: Boolean(payload.requireInteraction),
+    timestamp: typeof payload.timestamp === 'number' ? payload.timestamp : Date.now(),
     vibrate: [120, 60, 120],
-    data: {
-      url: String(payload.url || '/'),
-      type: payload.type || null,
-      milestoneDays: payload.milestoneDays ?? null,
-      sourceId: payload.sourceId || null,
-    },
+    actions: [{ action: 'open', title: 'Abrir no DUCA' }],
+    data: notificationData,
   };
 
-  event.waitUntil(swSelf.registration.showNotification(title, options));
+  event.waitUntil(
+    Promise.all([
+      swSelf.registration.showNotification(title, options),
+      broadcastToOpenClients({
+        type: 'DUCA_PUSH_RECEIVED',
+        payload: {
+          title,
+          body,
+          ...notificationData,
+        },
+      }),
+    ])
+  );
 });
 
 swSelf.addEventListener('notificationclick', (event: SwNotificationEvent) => {
@@ -127,7 +168,8 @@ swSelf.addEventListener('notificationclick', (event: SwNotificationEvent) => {
   let targetUrl = '/';
   try {
     const resolved = new URL(rawUrl, swSelf.location.origin);
-    targetUrl = resolved.origin === swSelf.location.origin ? resolved.href : swSelf.location.origin + '/';
+    targetUrl =
+      resolved.origin === swSelf.location.origin ? resolved.href : swSelf.location.origin + '/';
   } catch {
     targetUrl = swSelf.location.origin + '/';
   }
@@ -144,6 +186,12 @@ swSelf.addEventListener('notificationclick', (event: SwNotificationEvent) => {
           if (typeof client.navigate === 'function' && client.url !== targetUrl) {
             await client.navigate(targetUrl).catch(() => null);
           }
+          if (typeof client.postMessage === 'function') {
+            client.postMessage({
+              type: 'DUCA_NOTIFICATION_CLICKED',
+              data: event.notification.data || {},
+            });
+          }
           return client.focus();
         }
       }
@@ -154,10 +202,22 @@ swSelf.addEventListener('notificationclick', (event: SwNotificationEvent) => {
 });
 
 swSelf.addEventListener('pushsubscriptionchange', (event: SwPushSubscriptionChangeEvent) => {
-  const options = event.oldSubscription?.options;
-  if (!options) return;
-
   event.waitUntil(
-    swSelf.registration.pushManager.subscribe(options).catch(() => null)
+    (async () => {
+      let nextSub = event.newSubscription || null;
+      if (!nextSub && event.oldSubscription?.options) {
+        nextSub = await swSelf.registration.pushManager
+          .subscribe(event.oldSubscription.options)
+          .catch(() => null);
+      }
+
+      if (nextSub) {
+        const serialized = typeof nextSub.toJSON === 'function' ? nextSub.toJSON() : null;
+        await broadcastToOpenClients({
+          type: 'DUCA_PUSH_SUBSCRIPTION_CHANGED',
+          subscription: serialized,
+        });
+      }
+    })()
   );
 });

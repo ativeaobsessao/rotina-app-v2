@@ -17,13 +17,16 @@ import {
 } from '../src/utils/notifications.ts';
 import { NotificationBell } from '../src/components/notifications/NotificationBell.tsx';
 import { NotificationsModal } from '../src/components/notifications/NotificationsModal.tsx';
+import { PushAuthorizationPrompt } from '../src/components/notifications/PushAuthorizationPrompt.tsx';
 import { TodayScreen } from '../src/pages/Today.tsx';
 import { ThemeProvider } from '../src/contexts/ThemeContext.tsx';
 import { supabase } from '../src/services/supabase.ts';
 import {
+  LIVE_PUSH_RECEIVED_EVENT,
   resetPushConfigCacheForTests,
   resolvePushServerConfig,
   subscribeBrowserAndSaveToSupabase,
+  syncBrowserPushSubscriptionWithSupabase,
 } from '../src/services/pushNotifications.ts';
 import { createMealLog, createMedicationLog } from '../src/services/api.ts';
 
@@ -175,6 +178,8 @@ test('[SQL + Guardrails] migration 0024, Edge Function, SW e proibição de term
   assert.match(swCode, /addEventListener\('push'/);
   assert.match(swCode, /addEventListener\('notificationclick'/);
   assert.match(swCode, /addEventListener\('pushsubscriptionchange'/);
+  assert.match(swCode, /DUCA_PUSH_RECEIVED/);
+  assert.match(swCode, /DUCA_PUSH_SUBSCRIPTION_CHANGED/);
   assert.match(swCode, /supabase-images-cache/);
 
   const filesToCheck = [
@@ -184,6 +189,7 @@ test('[SQL + Guardrails] migration 0024, Edge Function, SW e proibição de term
     'src/services/pushNotifications.ts',
     'src/components/notifications/NotificationBell.tsx',
     'src/components/notifications/NotificationsModal.tsx',
+    'src/components/notifications/PushAuthorizationPrompt.tsx',
   ];
   for (const rel of filesToCheck) {
     const content = fs.readFileSync(path.join(process.cwd(), rel), 'utf8');
@@ -1027,6 +1033,192 @@ test('[Tempo Real Familiares] createMealLog e createMedicationLog disparam actio
       value: origOnLine,
       configurable: true,
     });
+    dom.window.close();
+  }
+});
+
+test('[Autorização + Tempo Real + Sync] PushAuthorizationPrompt solicita permissão, salva no Supabase, exibe toast em tempo real e syncBrowserPushSubscriptionWithSupabase atualiza chaves renovadas', async () => {
+  const dom = setupDom();
+  const container = document.getElementById('root')!;
+  const root = createRoot(container);
+
+  const origAuthGetUser = supabase.auth.getUser.bind(supabase.auth);
+  const origFrom = supabase.from.bind(supabase);
+  const origRpc = (supabase as any).rpc?.bind(supabase);
+  const origEnvVapid = process.env.VITE_VAPID_PUBLIC_KEY;
+  delete process.env.VITE_VAPID_PUBLIC_KEY;
+  resetPushConfigCacheForTests();
+
+  const fakeVapidBytes = new Uint8Array(65).fill(5);
+  fakeVapidBytes[0] = 4;
+  const remoteVapidKey = arrayBufferToBase64Url(fakeVapidBytes.buffer);
+
+  let serverSubRow: any = null;
+  const rpcCalls: Array<{ fn: string; args: any }> = [];
+
+  (supabase.auth as any).getUser = async () => ({
+    data: { user: { id: 'family-user-1', email: 'filho@duca.local' } },
+    error: null,
+  });
+  (supabase as any).from = (table: string) => {
+    if (table === 'push_subscriptions') {
+      return makeQueryChain(serverSubRow ? [serverSubRow] : []);
+    }
+    return makeQueryChain([]);
+  };
+  (supabase as any).rpc = async (fn: string, args: any) => {
+    rpcCalls.push({ fn, args });
+    serverSubRow = {
+      id: 'sub-sync-1',
+      user_id: 'family-user-1',
+      family_id: args.p_family_id,
+      patient_id: args.p_patient_id,
+      endpoint: args.p_endpoint,
+      keys_p256dh: args.p_keys_p256dh,
+      keys_auth: args.p_keys_auth,
+      enabled: args.p_enabled,
+      notify_medications: args.p_notify_medications,
+      notify_meals: args.p_notify_meals,
+      notify_activities: args.p_notify_activities,
+      lead_minutes: args.p_lead_minutes,
+      timezone: args.p_timezone,
+    };
+    return { data: serverSubRow, error: null };
+  };
+  Object.defineProperty(supabase, 'functions', {
+    value: {
+      invoke: async (_fn: string, opts?: any) => {
+        if (opts?.body?.action === 'public_config') {
+          return {
+            data: { ok: true, configured: true, vapidPublicKey: remoteVapidKey },
+            error: null,
+          };
+        }
+        return { data: null, error: null };
+      },
+    },
+    configurable: true,
+  });
+
+  let currentSub: any = null;
+  const fakeReg = {
+    pushManager: {
+      getSubscription: async () => currentSub,
+      subscribe: async () => {
+        currentSub = {
+          endpoint: 'https://push.example/sub/auth-prompt-1',
+          toJSON: () => ({
+            endpoint: 'https://push.example/sub/auth-prompt-1',
+            keys: { p256dh: 'p256dh-prompt', auth: 'auth-prompt' },
+          }),
+          unsubscribe: async () => true,
+        };
+        return currentSub;
+      },
+    },
+  };
+  Object.defineProperty(globalThis.navigator, 'serviceWorker', {
+    value: {
+      getRegistration: async () => fakeReg,
+      ready: Promise.resolve(fakeReg),
+      addEventListener: () => {},
+    },
+    configurable: true,
+  });
+
+  const mockPushManager = function () {};
+  const mockNotification = {
+    permission: 'default',
+    requestPermission: async () => {
+      mockNotification.permission = 'granted';
+      return 'granted';
+    },
+  };
+  (globalThis as any).PushManager = mockPushManager;
+  (dom.window as any).PushManager = mockPushManager;
+  (globalThis as any).Notification = mockNotification;
+  (dom.window as any).Notification = mockNotification;
+
+  const receivedPayloads: any[] = [];
+
+  try {
+    await act(async () => {
+      root.render(
+        React.createElement(PushAuthorizationPrompt, {
+          familyId: 'fam-1',
+          patientId: 'pat-1',
+          patientName: 'Vovó Dude',
+          userId: 'family-user-1',
+          onPushReceived: (payload) => receivedPayloads.push(payload),
+        })
+      );
+      await new Promise((r) => setTimeout(r, 60));
+    });
+
+    const authBtn = (Array.from(container.querySelectorAll('button')) as HTMLButtonElement[]).find(
+      (b) => b.textContent?.includes('Autorizar notificações')
+    );
+    assert.ok(authBtn, 'Botão Autorizar notificações deve aparecer quando permission=default');
+
+    await act(async () => {
+      authBtn.click();
+      await new Promise((r) => setTimeout(r, 60));
+    });
+
+    assert.equal(mockNotification.permission, 'granted');
+    assert.equal(rpcCalls.length, 1);
+    assert.equal(rpcCalls[0].args.p_endpoint, 'https://push.example/sub/auth-prompt-1');
+    assert.match(container.textContent || '', /Notificações autorizadas!/);
+
+    // Simula chegada de push em tempo real pelo Service Worker enquanto o app está aberto
+    await act(async () => {
+      window.dispatchEvent(
+        new CustomEvent(LIVE_PUSH_RECEIVED_EVENT, {
+          detail: {
+            title: 'Refeição registrada · Almoço',
+            body: 'Vovó Dude: Cuidadora registrou às 12:15 (Comeu normalmente).',
+          },
+        })
+      );
+    });
+
+    assert.equal(receivedPayloads.length, 1);
+    assert.match(container.textContent || '', /Refeição registrada · Almoço/);
+
+    // Simula rotação de endpoint pelo navegador (pushsubscriptionchange) e valida re-sync no Supabase
+    currentSub = {
+      endpoint: 'https://push.example/sub/rotated-2',
+      toJSON: () => ({
+        endpoint: 'https://push.example/sub/rotated-2',
+        keys: { p256dh: 'p256dh-rotated', auth: 'auth-rotated' },
+      }),
+      unsubscribe: async () => true,
+    };
+
+    const synced = await syncBrowserPushSubscriptionWithSupabase({
+      familyId: 'fam-1',
+      patientId: 'pat-1',
+    });
+
+    assert.equal(rpcCalls.length, 2);
+    assert.equal(synced?.endpoint, 'https://push.example/sub/rotated-2');
+    assert.equal(rpcCalls[1].args.p_keys_p256dh, 'p256dh-rotated');
+  } finally {
+    await act(async () => root.unmount());
+    (supabase.auth as any).getUser = origAuthGetUser;
+    (supabase as any).from = origFrom;
+    (supabase as any).rpc = origRpc;
+    delete (supabase as any).functions;
+    if (origEnvVapid === undefined) {
+      delete process.env.VITE_VAPID_PUBLIC_KEY;
+    } else {
+      process.env.VITE_VAPID_PUBLIC_KEY = origEnvVapid;
+    }
+    resetPushConfigCacheForTests();
+    delete (globalThis as any).PushManager;
+    delete (dom.window as any).PushManager;
+    delete (globalThis as any).Notification;
+    delete (dom.window as any).Notification;
     dom.window.close();
   }
 });

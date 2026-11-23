@@ -17,14 +17,41 @@ export interface BrowserPushSupport {
   hasVapidKey: boolean;
 }
 
+export type PushServerConfigStatus =
+  | 'ready'
+  | 'missing_server_vapid'
+  | 'function_unavailable';
+
+export interface ResolvedPushServerConfig {
+  status: PushServerConfigStatus;
+  vapidPublicKey: string;
+  errorMessage?: string;
+}
+
+let cachedServerVapidKey = '';
+
+export function resetPushConfigCacheForTests(): void {
+  cachedServerVapidKey = '';
+}
+
+function cleanKeyValue(value: unknown): string {
+  if (typeof value !== 'string') return '';
+  return value.trim().replace(/^["']|["']$/g, '').trim();
+}
+
 export function getVapidPublicKey(): string {
-  const viteKey = (import.meta as any).env?.VITE_VAPID_PUBLIC_KEY;
-  if (typeof viteKey === 'string' && viteKey.trim()) {
-    return viteKey.trim();
+  const viteKey = cleanKeyValue((import.meta as any).env?.VITE_VAPID_PUBLIC_KEY);
+  if (viteKey) {
+    return viteKey;
   }
   const nodeKey =
-    typeof process !== 'undefined' && process.env ? process.env.VITE_VAPID_PUBLIC_KEY : '';
-  return typeof nodeKey === 'string' ? nodeKey.trim() : '';
+    typeof process !== 'undefined' && process.env
+      ? cleanKeyValue(process.env.VITE_VAPID_PUBLIC_KEY)
+      : '';
+  if (nodeKey) {
+    return nodeKey;
+  }
+  return cachedServerVapidKey;
 }
 
 export function getBrowserPushSupport(): BrowserPushSupport {
@@ -50,6 +77,74 @@ export function getBrowserPushSupport(): BrowserPushSupport {
   };
 }
 
+async function parseInvokeErrorPayload(error: any): Promise<any> {
+  if (!error) return null;
+  try {
+    const ctx = error.context;
+    if (ctx && typeof ctx.json === 'function') {
+      return await ctx.clone().json();
+    }
+  } catch {}
+  return null;
+}
+
+export async function resolvePushServerConfig(): Promise<ResolvedPushServerConfig> {
+  const localKey = getVapidPublicKey();
+  if (localKey) {
+    return { status: 'ready', vapidPublicKey: localKey };
+  }
+
+  try {
+    const { data, error } = await supabase.functions.invoke('dispatch-notifications', {
+      body: { action: 'public_config' },
+    });
+
+    if (error) {
+      const payload = await parseInvokeErrorPayload(error);
+      if (payload?.missingVapid) {
+        return {
+          status: 'missing_server_vapid',
+          vapidPublicKey: '',
+          errorMessage:
+            'As chaves de notificação (VAPID_PUBLIC_KEY e VAPID_PRIVATE_KEY) ainda não foram configuradas nos segredos do Supabase.',
+        };
+      }
+      return {
+        status: 'function_unavailable',
+        vapidPublicKey: '',
+        errorMessage: payload?.error || error.message || 'Serviço de notificações indisponível.',
+      };
+    }
+
+    const remoteKey = cleanKeyValue(data?.vapidPublicKey);
+    if (remoteKey && data?.configured !== false) {
+      cachedServerVapidKey = remoteKey;
+      return { status: 'ready', vapidPublicKey: remoteKey };
+    }
+
+    if (data?.configured === false || data?.missingVapid) {
+      return {
+        status: 'missing_server_vapid',
+        vapidPublicKey: '',
+        errorMessage:
+          'As chaves de notificação (VAPID_PUBLIC_KEY e VAPID_PRIVATE_KEY) ainda não foram configuradas nos segredos do Supabase.',
+      };
+    }
+
+    return {
+      status: 'function_unavailable',
+      vapidPublicKey: '',
+      errorMessage: 'Não foi possível validar a configuração de notificações no servidor.',
+    };
+  } catch (err: any) {
+    return {
+      status: 'function_unavailable',
+      vapidPublicKey: '',
+      errorMessage: err?.message || 'Não foi possível contatar o serviço de notificações.',
+    };
+  }
+}
+
 export function getBrowserTimezone(): string {
   try {
     return Intl.DateTimeFormat().resolvedOptions().timeZone || 'America/Sao_Paulo';
@@ -58,14 +153,28 @@ export function getBrowserTimezone(): string {
   }
 }
 
-export async function getActiveServiceWorkerRegistration(): Promise<ServiceWorkerRegistration | null> {
+export async function getActiveServiceWorkerRegistration(
+  options: { attemptRegister?: boolean } = {}
+): Promise<ServiceWorkerRegistration | null> {
   if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) {
     return null;
   }
   try {
     const existing = await navigator.serviceWorker.getRegistration();
     if (existing) return existing;
-    return await navigator.serviceWorker.ready;
+
+    if (options.attemptRegister && typeof navigator.serviceWorker.register === 'function') {
+      try {
+        const reg = await navigator.serviceWorker.register('/sw.js', { scope: '/' });
+        if (reg) return reg;
+      } catch {}
+    }
+
+    const readyWithTimeout = await Promise.race<ServiceWorkerRegistration | null>([
+      navigator.serviceWorker.ready.catch(() => null),
+      new Promise<null>((resolve) => setTimeout(() => resolve(null), 2500)),
+    ]);
+    return readyWithTimeout;
   } catch {
     return null;
   }
@@ -107,11 +216,18 @@ export async function subscribeBrowserAndSaveToSupabase(input: {
     );
   }
 
-  const vapidPublicKey = getVapidPublicKey();
+  let vapidPublicKey = getVapidPublicKey();
   if (!vapidPublicKey) {
-    throw new Error(
-      'Chave pública VAPID (VITE_VAPID_PUBLIC_KEY) não configurada no ambiente do aplicativo.'
-    );
+    const serverConfig = await resolvePushServerConfig();
+    vapidPublicKey = serverConfig.vapidPublicKey;
+    if (!vapidPublicKey) {
+      throw new Error(
+        serverConfig.status === 'missing_server_vapid'
+          ? 'As chaves de notificação (VAPID_PUBLIC_KEY e VAPID_PRIVATE_KEY) ainda precisam ser salvas nos segredos do Supabase.'
+          : serverConfig.errorMessage ||
+              'Não foi possível preparar o serviço de notificações no servidor. Verifique se a função dispatch-notifications está publicada no Supabase.'
+      );
+    }
   }
 
   let permission = Notification.permission;
@@ -124,7 +240,7 @@ export async function subscribeBrowserAndSaveToSupabase(input: {
     );
   }
 
-  const reg = await getActiveServiceWorkerRegistration();
+  const reg = await getActiveServiceWorkerRegistration({ attemptRegister: true });
   if (!reg || !reg.pushManager) {
     throw new Error('Serviço em segundo plano (Service Worker) ainda não está ativo neste navegador.');
   }
@@ -202,8 +318,15 @@ export async function sendTestPushNotification(endpoint?: string): Promise<TestP
   });
 
   if (error) {
+    const payload = await parseInvokeErrorPayload(error);
+    if (payload?.missingVapid) {
+      throw new Error(
+        'Chaves VAPID ainda não configuradas nos segredos do Supabase Edge Functions.'
+      );
+    }
     throw new Error(
-      error.message ||
+      payload?.error ||
+        error.message ||
         'Não foi possível contatar a função dispatch-notifications no Supabase. Verifique se ela já foi publicada com as chaves VAPID.'
     );
   }
@@ -234,3 +357,5 @@ export async function sendTestPushNotification(endpoint?: string): Promise<TestP
     message: 'Notificação de teste enviada via Supabase! Confira os avisos do seu aparelho.',
   };
 }
+
+export { notifyFamilyEventRecorded } from './eventPush';

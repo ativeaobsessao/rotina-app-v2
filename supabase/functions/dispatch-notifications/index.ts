@@ -1,12 +1,19 @@
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import webpush from 'npm:web-push@3.6.7';
 
-const SUPABASE_URL = Deno.env.get('SUPABASE_URL') || '';
-const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '';
-const VAPID_PUBLIC_KEY = Deno.env.get('VAPID_PUBLIC_KEY') || '';
-const VAPID_PRIVATE_KEY = Deno.env.get('VAPID_PRIVATE_KEY') || '';
-const VAPID_SUBJECT = Deno.env.get('VAPID_SUBJECT') || 'mailto:contato@duca.app';
-const NOTIFICATION_CRON_SECRET = Deno.env.get('NOTIFICATION_CRON_SECRET') || '';
+function cleanEnvValue(value: string | undefined): string {
+  return String(value || '')
+    .trim()
+    .replace(/^["']|["']$/g, '')
+    .trim();
+}
+
+const SUPABASE_URL = cleanEnvValue(Deno.env.get('SUPABASE_URL'));
+const SUPABASE_SERVICE_ROLE_KEY = cleanEnvValue(Deno.env.get('SUPABASE_SERVICE_ROLE_KEY'));
+const VAPID_PUBLIC_KEY = cleanEnvValue(Deno.env.get('VAPID_PUBLIC_KEY'));
+const VAPID_PRIVATE_KEY = cleanEnvValue(Deno.env.get('VAPID_PRIVATE_KEY'));
+const VAPID_SUBJECT = cleanEnvValue(Deno.env.get('VAPID_SUBJECT')) || 'mailto:contato@duca.app';
+const NOTIFICATION_CRON_SECRET = cleanEnvValue(Deno.env.get('NOTIFICATION_CRON_SECRET'));
 
 const WEEKDAY_NAMES = [
   'Sunday',
@@ -172,6 +179,46 @@ Deno.serve(async (req: Request) => {
     );
   }
 
+  const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+
+  let bodyJson: any = {};
+  try {
+    bodyJson = await req.json();
+  } catch {
+    bodyJson = {};
+  }
+
+  // ── MODO 0: CONSULTA SEGURA DA CHAVE PÚBLICA VAPID PELO APP AUTENTICADO ────
+  if (bodyJson?.action === 'public_config') {
+    const authHeader = req.headers.get('authorization') || '';
+    const jwt = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : '';
+    if (!jwt) {
+      return new Response(JSON.stringify({ error: 'Sessão não autenticada.' }), {
+        status: 401,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    const { data: userData, error: userErr } = await supabaseAdmin.auth.getUser(jwt);
+    if (userErr || !userData?.user) {
+      return new Response(JSON.stringify({ error: 'Token inválido.' }), {
+        status: 401,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    return new Response(
+      JSON.stringify({
+        ok: true,
+        configured: Boolean(VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY),
+        vapidPublicKey: VAPID_PUBLIC_KEY || null,
+      }),
+      { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+    );
+  }
+
   if (!VAPID_PUBLIC_KEY || !VAPID_PRIVATE_KEY) {
     return new Response(
       JSON.stringify({
@@ -183,17 +230,6 @@ Deno.serve(async (req: Request) => {
   }
 
   webpush.setVapidDetails(VAPID_SUBJECT, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
-
-  const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
-
-  let bodyJson: any = {};
-  try {
-    bodyJson = await req.json();
-  } catch {
-    bodyJson = {};
-  }
 
   // ── MODO 1: DISPARO DE TESTE PELO PRÓPRIO USUÁRIO AUTENTICADO ────────────
   if (bodyJson?.action === 'test') {
@@ -274,6 +310,277 @@ Deno.serve(async (req: Request) => {
       status: 200,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
+  }
+
+  // ── MODO 1B: AVISO EM TEMPO REAL PARA FAMILIARES QUANDO UM REGISTRO É SALVO ─
+  if (bodyJson?.action === 'event_recorded') {
+    const authHeader = req.headers.get('authorization') || '';
+    const jwt = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : '';
+    if (!jwt) {
+      return new Response(JSON.stringify({ error: 'Sessão não autenticada.' }), {
+        status: 401,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    const { data: userData, error: userErr } = await supabaseAdmin.auth.getUser(jwt);
+    if (userErr || !userData?.user) {
+      return new Response(JSON.stringify({ error: 'Token inválido.' }), {
+        status: 401,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    const actorUserId = userData.user.id;
+    const kind = bodyJson?.kind === 'meal' ? 'meal' : bodyJson?.kind === 'medication' ? 'medication' : null;
+    const logId = typeof bodyJson?.logId === 'string' ? bodyJson.logId.trim() : '';
+
+    if (!kind || !logId) {
+      return new Response(JSON.stringify({ error: 'Parâmetros kind e logId são obrigatórios.' }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    let logRow: any = null;
+    if (kind === 'meal') {
+      const { data, error } = await supabaseAdmin
+        .from('meal_logs')
+        .select(
+          'id, patient_id, meal_config_id, event_date, consumption_status, description, drink_description, meal_time, created_by, created_at, meal_config:meal_configs(name), patient:patients(id, family_id, name), creator:profiles!meal_logs_created_by_fkey(name)'
+        )
+        .eq('id', logId)
+        .maybeSingle();
+      if (error) {
+        return new Response(JSON.stringify({ error: error.message }), {
+          status: 500,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+      logRow = data;
+    } else {
+      const { data, error } = await supabaseAdmin
+        .from('medication_logs')
+        .select(
+          'id, patient_id, medication_id, event_date, status, reason, applied_dosage, administered_time, created_by, created_at, medication:medications(name, dosage), patient:patients(id, family_id, name), creator:profiles!medication_logs_created_by_fkey(name)'
+        )
+        .eq('id', logId)
+        .maybeSingle();
+      if (error) {
+        return new Response(JSON.stringify({ error: error.message }), {
+          status: 500,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+      logRow = data;
+    }
+
+    if (!logRow || !logRow.patient?.family_id) {
+      return new Response(JSON.stringify({ error: 'Registro não encontrado.' }), {
+        status: 404,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    const familyId = String(logRow.patient.family_id);
+    const patientId = String(logRow.patient.id);
+    const patientName = String(logRow.patient.name || 'Familiar');
+
+    const { data: members, error: membersErr } = await supabaseAdmin
+      .from('family_members')
+      .select('user_id, member_type')
+      .eq('family_id', familyId);
+
+    if (membersErr) {
+      return new Response(JSON.stringify({ error: membersErr.message }), {
+        status: 500,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    const actorIsMember = (members || []).some((m: any) => m.user_id === actorUserId);
+    if (!actorIsMember) {
+      return new Response(JSON.stringify({ error: 'Acesso negado para esta família.' }), {
+        status: 403,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    // Destinatários: membros familiares (member_type = 'FAMILY'), excluindo quem acabou de registrar
+    const familyRecipientIds = (members || [])
+      .filter((m: any) => m.user_id !== actorUserId && m.member_type !== 'CAREGIVER')
+      .map((m: any) => m.user_id);
+
+    if (familyRecipientIds.length === 0) {
+      return new Response(
+        JSON.stringify({ ok: true, recipients: 0, sent: 0, skippedDuplicates: 0, failed: 0 }),
+        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    const { data: familyRow } = await supabaseAdmin
+      .from('families')
+      .select('timezone')
+      .eq('id', familyId)
+      .maybeSingle();
+
+    const familyTz = familyRow?.timezone || 'America/Sao_Paulo';
+    const eventTimeDate = logRow.created_at ? new Date(logRow.created_at) : new Date();
+    const formattedClock = new Intl.DateTimeFormat('pt-BR', {
+      timeZone: familyTz,
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    }).format(eventTimeDate);
+    const explicitHhmm =
+      kind === 'meal'
+        ? formatShortTime(logRow.meal_time)
+        : formatShortTime(logRow.administered_time);
+    const hhmm = explicitHhmm || formattedClock;
+
+    const actorName = String(logRow.creator?.name || 'Cuidadora').trim();
+    const notificationType = kind === 'meal' ? 'meal_recorded' : 'medication_recorded';
+
+    let title = '';
+    let body = '';
+
+    if (kind === 'meal') {
+      const mealName = String(logRow.meal_config?.name || 'Refeição');
+      const statusLabel =
+        logRow.consumption_status === 'normal'
+          ? 'Comeu normalmente'
+          : logRow.consumption_status === 'partial'
+          ? 'Comeu parcialmente'
+          : 'Não comeu';
+      const detailParts = [logRow.description, logRow.drink_description]
+        .filter((v: any) => typeof v === 'string' && v.trim())
+        .join(' · ')
+        .slice(0, 90);
+
+      title = `Refeição registrada · ${mealName}`;
+      body = `${patientName}: ${actorName} registrou às ${hhmm} (${statusLabel})${
+        detailParts ? ` — ${detailParts}` : '.'
+      }`;
+    } else {
+      const medName = String(logRow.medication?.name || 'Medicamento');
+      const dose = String(logRow.applied_dosage || logRow.medication?.dosage || '').trim();
+      if (logRow.status === 'administered') {
+        title = `Medicamento administrado · ${medName}`;
+        body = `${patientName}: ${actorName} registrou a dose${dose ? ` (${dose})` : ''} às ${hhmm}.`;
+      } else {
+        const reason = typeof logRow.reason === 'string' && logRow.reason.trim() ? logRow.reason.trim() : '';
+        title = `Medicamento não administrado · ${medName}`;
+        body = `${patientName}: ${actorName} informou às ${hhmm}${reason ? ` — ${reason}` : '.'}`;
+      }
+    }
+
+    let subQuery = supabaseAdmin
+      .from('push_subscriptions')
+      .select('*')
+      .eq('family_id', familyId)
+      .eq('enabled', true)
+      .in('user_id', familyRecipientIds);
+
+    subQuery =
+      kind === 'meal'
+        ? subQuery.eq('notify_meals', true)
+        : subQuery.eq('notify_medications', true);
+
+    const { data: targetSubs, error: targetSubsErr } = await subQuery;
+    if (targetSubsErr) {
+      return new Response(JSON.stringify({ error: targetSubsErr.message }), {
+        status: 500,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    const filteredSubs = (targetSubs || []).filter(
+      (s: any) => !s.patient_id || s.patient_id === patientId
+    );
+
+    const loggedUserIds = new Set<string>();
+    let sent = 0;
+    let skippedDuplicates = 0;
+    let failed = 0;
+
+    for (const sub of filteredSubs) {
+      if (!loggedUserIds.has(sub.user_id)) {
+        const { error: logErr } = await supabaseAdmin.from('notification_dispatch_logs').insert({
+          family_id: familyId,
+          patient_id: patientId,
+          user_id: sub.user_id,
+          notification_type: notificationType,
+          source_id: logRow.id,
+          event_date: logRow.event_date,
+          milestone_days: null,
+          title,
+          body,
+        });
+
+        if (logErr) {
+          if (logErr.code === '23505') {
+            skippedDuplicates += 1;
+            continue;
+          }
+          // Se migration 0025 ainda não foi aplicada (23514 check violation), ainda envia o push
+          if (logErr.code !== '23514') {
+            console.warn('Erro ao gravar log de notificação em tempo real:', logErr.message);
+          }
+        }
+        loggedUserIds.add(sub.user_id);
+      }
+
+      try {
+        await webpush.sendNotification(
+          {
+            endpoint: sub.endpoint,
+            keys: { p256dh: sub.keys_p256dh, auth: sub.keys_auth },
+          },
+          JSON.stringify({
+            title,
+            body,
+            tag: `${notificationType}-${logRow.id}`,
+            url: '/',
+            type: notificationType,
+            sourceId: logRow.id,
+          })
+        );
+        sent += 1;
+        await supabaseAdmin
+          .from('push_subscriptions')
+          .update({
+            last_notified_at: new Date().toISOString(),
+            failure_count: 0,
+            last_error: null,
+          })
+          .eq('id', sub.id);
+      } catch (pushErr: any) {
+        failed += 1;
+        const statusCode = pushErr?.statusCode;
+        if (statusCode === 404 || statusCode === 410) {
+          await supabaseAdmin.from('push_subscriptions').delete().eq('id', sub.id);
+        } else {
+          await supabaseAdmin
+            .from('push_subscriptions')
+            .update({
+              failure_count: (sub.failure_count || 0) + 1,
+              last_error: String(pushErr?.message || 'Erro ao enviar Web Push'),
+            })
+            .eq('id', sub.id);
+        }
+      }
+    }
+
+    return new Response(
+      JSON.stringify({
+        ok: true,
+        recipients: filteredSubs.length,
+        sent,
+        skippedDuplicates,
+        failed,
+      }),
+      { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+    );
   }
 
   // ── MODO 2: DISPARO AUTOMÁTICO AGENDADO (CRON / SERVIDOR) ─────────────────

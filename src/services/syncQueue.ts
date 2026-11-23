@@ -892,6 +892,21 @@ async function runQueueCore(
         }
         await adapter.saveQueue(q);
       });
+      if (
+        (item.action === 'createMealLog' || item.action === 'createMedicationLog') &&
+        createdServerId &&
+        typeof client?.functions?.invoke === 'function'
+      ) {
+        void Promise.resolve(
+          client.functions.invoke('dispatch-notifications', {
+            body: {
+              action: 'event_recorded',
+              kind: item.action === 'createMealLog' ? 'meal' : 'medication',
+              logId: String(createdServerId),
+            },
+          })
+        ).catch(() => {});
+      }
       notifyQueueListeners();
       processed += 1;
     } catch (err: any) {

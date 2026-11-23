@@ -1,6 +1,7 @@
 import { get, set, del, keys } from 'idb-keyval';
 import { addToSyncQueue, QUEUE_KEY, type OfflinePhotoAttachment } from './syncQueue';
 import { supabase } from './supabase';
+import { notifyFamilyEventRecorded } from './eventPush';
 import type { Database } from '../types/database.types';
 import { getLocalDateString } from '../utils/date';
 import {
@@ -946,6 +947,10 @@ export async function createMealLog(
     }
     if (data) {
       await upsertMealLogInCache(log.patient_id, log.event_date, data);
+      const createdId = (data as any)?.id;
+      if (createdId) {
+        void notifyFamilyEventRecorded({ kind: 'meal', logId: createdId });
+      }
     }
     return data;
   } catch (err: any) {
@@ -1166,6 +1171,10 @@ export async function createMedicationLog(log: Database['public']['Tables']['med
     }
     if (data) {
       await upsertMedLogInCache(log.patient_id, log.event_date, data);
+      const createdId = (data as any)?.id;
+      if (createdId) {
+        void notifyFamilyEventRecorded({ kind: 'medication', logId: createdId });
+      }
     }
     return data;
   } catch (err: any) {

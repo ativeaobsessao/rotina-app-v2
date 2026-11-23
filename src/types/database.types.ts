@@ -21,6 +21,8 @@ export type ShoppingItemStatus = 'pending' | 'purchased';
 export type NotificationType =
   | 'medication'
   | 'meal'
+  | 'meal_recorded'
+  | 'medication_recorded'
   | 'activity_7d'
   | 'activity_3d'
   | 'activity_1d'

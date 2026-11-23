@@ -16,9 +16,16 @@ import {
   arrayBufferToBase64Url,
 } from '../src/utils/notifications.ts';
 import { NotificationBell } from '../src/components/notifications/NotificationBell.tsx';
+import { NotificationsModal } from '../src/components/notifications/NotificationsModal.tsx';
 import { TodayScreen } from '../src/pages/Today.tsx';
 import { ThemeProvider } from '../src/contexts/ThemeContext.tsx';
 import { supabase } from '../src/services/supabase.ts';
+import {
+  resetPushConfigCacheForTests,
+  resolvePushServerConfig,
+  subscribeBrowserAndSaveToSupabase,
+} from '../src/services/pushNotifications.ts';
+import { createMealLog, createMedicationLog } from '../src/services/api.ts';
 
 function installMemoryIndexedDB() {
   const stores = new Map<string, Map<any, any>>();
@@ -144,6 +151,13 @@ test('[SQL + Guardrails] migration 0024, Edge Function, SW e proibição de term
   assert.match(sql, /CREATE OR REPLACE FUNCTION public\.upsert_my_push_subscription/i);
   assert.match(sql, /ENABLE ROW LEVEL SECURITY/i);
 
+  const sql25 = fs.readFileSync(
+    path.join(process.cwd(), 'supabase/migrations/0025_realtime_family_push_notifications.sql'),
+    'utf8'
+  );
+  assert.match(sql25, /'meal_recorded'/);
+  assert.match(sql25, /'medication_recorded'/);
+
   const fnCode = fs.readFileSync(
     path.join(process.cwd(), 'supabase/functions/dispatch-notifications/index.ts'),
     'utf8'
@@ -153,6 +167,9 @@ test('[SQL + Guardrails] migration 0024, Edge Function, SW e proibição de term
   assert.match(fnCode, /constantTimeEqual/);
   assert.match(fnCode, /ACTIVITY_MILESTONES\s*=\s*\[7,\s*3,\s*1\]/);
   assert.match(fnCode, /action\s*===\s*'test'/);
+  assert.match(fnCode, /action\s*===\s*'public_config'/);
+  assert.match(fnCode, /action\s*===\s*'event_recorded'/);
+  assert.match(fnCode, /member_type\s*!==\s*'CAREGIVER'/);
 
   const swCode = fs.readFileSync(path.join(process.cwd(), 'src/sw.ts'), 'utf8');
   assert.match(swCode, /addEventListener\('push'/);
@@ -163,6 +180,7 @@ test('[SQL + Guardrails] migration 0024, Edge Function, SW e proibição de term
   const filesToCheck = [
     'src/sw.ts',
     'src/utils/notifications.ts',
+    'src/services/eventPush.ts',
     'src/services/pushNotifications.ts',
     'src/components/notifications/NotificationBell.tsx',
     'src/components/notifications/NotificationsModal.tsx',
@@ -584,6 +602,8 @@ test('[Regressão UI - Portal nas 3 abas] Sininho abre fora do header sticky (se
   const origChannel = supabase.channel.bind(supabase);
   const origRemoveChannel = supabase.removeChannel.bind(supabase);
 
+  resetPushConfigCacheForTests();
+
   (supabase.auth as any).getUser = async () => ({
     data: { user: { id: 'member-1', email: 'ana@duca.local' } },
     error: null,
@@ -593,6 +613,20 @@ test('[Regressão UI - Portal nas 3 abas] Sininho abre fora do header sticky (se
     error: null,
   });
   (supabase as any).rpc = async () => ({ data: 0, error: null });
+  Object.defineProperty(supabase, 'functions', {
+    value: {
+      invoke: async (_fn: string, opts?: any) => {
+        if (opts?.body?.action === 'public_config') {
+          return {
+            data: { ok: true, configured: true, vapidPublicKey: 'test-public-vapid-key' },
+            error: null,
+          };
+        }
+        return { data: { ok: true }, error: null };
+      },
+    },
+    configurable: true,
+  });
   (supabase as any).channel = () => ({
     on() {
       return this;
@@ -737,8 +771,262 @@ test('[Regressão UI - Portal nas 3 abas] Sininho abre fora do header sticky (se
     (supabase.auth as any).getSession = origAuthGetSession;
     (supabase as any).from = origFrom;
     (supabase as any).rpc = origRpc;
+    delete (supabase as any).functions;
     (supabase as any).channel = origChannel;
     (supabase as any).removeChannel = origRemoveChannel;
+    resetPushConfigCacheForTests();
+    dom.window.close();
+  }
+});
+
+test('[Bugfix VAPID + UI] Busca chave VAPID automaticamente via Edge Function sem VITE_VAPID_PUBLIC_KEY e distingue falta de segredo no Supabase de navegador incompatível', async () => {
+  const dom = setupDom();
+  const container = document.getElementById('root')!;
+  const root = createRoot(container);
+
+  const origAuthGetUser = supabase.auth.getUser.bind(supabase.auth);
+  const origFrom = supabase.from.bind(supabase);
+  const origRpc = (supabase as any).rpc?.bind(supabase);
+  const origEnvVapid = process.env.VITE_VAPID_PUBLIC_KEY;
+  delete process.env.VITE_VAPID_PUBLIC_KEY;
+  resetPushConfigCacheForTests();
+
+  (supabase.auth as any).getUser = async () => ({
+    data: { user: { id: 'user-1', email: 'ana@duca.local' } },
+    error: null,
+  });
+
+  const fakeVapidBytes = new Uint8Array(65).fill(9);
+  fakeVapidBytes[0] = 4;
+  const remoteVapidKey = arrayBufferToBase64Url(fakeVapidBytes.buffer);
+
+  let serverConfigured = false;
+  let capturedAppServerKey: Uint8Array | null = null;
+  const rpcCalls: Array<{ fn: string; args: any }> = [];
+
+  (supabase as any).from = () => makeQueryChain([]);
+  (supabase as any).rpc = async (fn: string, args: any) => {
+    rpcCalls.push({ fn, args });
+    return {
+      data: {
+        id: 'sub-remote-1',
+        user_id: 'user-1',
+        family_id: args.p_family_id,
+        patient_id: args.p_patient_id,
+        endpoint: args.p_endpoint,
+        keys_p256dh: args.p_keys_p256dh,
+        keys_auth: args.p_keys_auth,
+        enabled: args.p_enabled,
+        notify_medications: args.p_notify_medications,
+        notify_meals: args.p_notify_meals,
+        notify_activities: args.p_notify_activities,
+        lead_minutes: args.p_lead_minutes,
+        timezone: args.p_timezone,
+      },
+      error: null,
+    };
+  };
+  Object.defineProperty(supabase, 'functions', {
+    value: {
+      invoke: async (_fn: string, opts?: any) => {
+        if (opts?.body?.action === 'public_config') {
+          if (!serverConfigured) {
+            return {
+              data: { ok: true, configured: false, missingVapid: true, vapidPublicKey: null },
+              error: null,
+            };
+          }
+          return {
+            data: { ok: true, configured: true, vapidPublicKey: remoteVapidKey },
+            error: null,
+          };
+        }
+        return { data: null, error: null };
+      },
+    },
+    configurable: true,
+  });
+
+  const fakeBrowserSub = {
+    endpoint: 'https://push.example/sub/remote-999',
+    toJSON: () => ({
+      endpoint: 'https://push.example/sub/remote-999',
+      keys: { p256dh: 'remote-p256dh', auth: 'remote-auth' },
+    }),
+    unsubscribe: async () => true,
+  };
+  let currentSub: any = null;
+  const fakeReg = {
+    pushManager: {
+      getSubscription: async () => currentSub,
+      subscribe: async (opts: any) => {
+        capturedAppServerKey = opts.applicationServerKey;
+        currentSub = fakeBrowserSub;
+        return fakeBrowserSub;
+      },
+    },
+  };
+  Object.defineProperty(globalThis.navigator, 'serviceWorker', {
+    value: {
+      getRegistration: async () => fakeReg,
+      ready: Promise.resolve(fakeReg),
+    },
+    configurable: true,
+  });
+  const mockPushManager = function () {};
+  const mockNotification = {
+    permission: 'granted',
+    requestPermission: async () => 'granted',
+  };
+  (globalThis as any).PushManager = mockPushManager;
+  (dom.window as any).PushManager = mockPushManager;
+  (globalThis as any).Notification = mockNotification;
+  (dom.window as any).Notification = mockNotification;
+
+  try {
+    // 1. Quando o servidor ainda não tem VAPID configurado, NotificationsModal NÃO deve culpar o navegador
+    const missingConfig = await resolvePushServerConfig();
+    assert.equal(missingConfig.status, 'missing_server_vapid');
+
+    await act(async () => {
+      root.render(
+        React.createElement(NotificationsModal, {
+          isOpen: true,
+          onClose: () => {},
+          familyId: 'fam-1',
+          patientId: 'pat-1',
+          patientName: 'Vovó Dude',
+          userId: 'user-1',
+          activities: [],
+          todayDateStr: '2026-11-22',
+        })
+      );
+      await new Promise((r) => setTimeout(r, 60));
+    });
+
+    const modalText = document.body.textContent || '';
+    assert.match(modalText, /segredos do servidor Supabase/i);
+    assert.doesNotMatch(modalText, /Este navegador ainda não consegue enviar avisos com a tela bloqueada/);
+
+    // 2. Quando o servidor retorna VAPID via public_config, subscribeBrowserAndSaveToSupabase funciona sem VITE_VAPID_PUBLIC_KEY
+    serverConfigured = true;
+    resetPushConfigCacheForTests();
+    const resolved = await resolvePushServerConfig();
+    assert.equal(resolved.status, 'ready');
+    assert.equal(resolved.vapidPublicKey, remoteVapidKey);
+
+    const saved = await subscribeBrowserAndSaveToSupabase({
+      familyId: 'fam-1',
+      patientId: 'pat-1',
+      preferences: {
+        enabled: true,
+        notify_medications: true,
+        notify_meals: true,
+        notify_activities: true,
+        lead_minutes: 5,
+      },
+    });
+
+    assert.equal(saved.endpoint, 'https://push.example/sub/remote-999');
+    assert.equal(rpcCalls.length, 1);
+    assert.ok(capturedAppServerKey && capturedAppServerKey.length === 65);
+  } finally {
+    await act(async () => root.unmount());
+    (supabase.auth as any).getUser = origAuthGetUser;
+    (supabase as any).from = origFrom;
+    (supabase as any).rpc = origRpc;
+    delete (supabase as any).functions;
+    if (origEnvVapid === undefined) {
+      delete process.env.VITE_VAPID_PUBLIC_KEY;
+    } else {
+      process.env.VITE_VAPID_PUBLIC_KEY = origEnvVapid;
+    }
+    resetPushConfigCacheForTests();
+    delete (globalThis as any).PushManager;
+    delete (dom.window as any).PushManager;
+    delete (globalThis as any).Notification;
+    delete (dom.window as any).Notification;
+    dom.window.close();
+  }
+});
+
+test('[Tempo Real Familiares] createMealLog e createMedicationLog disparam action event_recorded sem bloquear o salvamento', async () => {
+  const dom = setupDom();
+  const origFrom = supabase.from.bind(supabase);
+  const origOnLine = navigator.onLine;
+  Object.defineProperty(globalThis.navigator, 'onLine', {
+    value: true,
+    configurable: true,
+  });
+
+  const invokedEvents: Array<{ fn: string; body: any }> = [];
+
+  (supabase as any).from = (table: string) => {
+    return {
+      insert: (payload: any) => ({
+        select: () => ({
+          single: async () => ({
+            data: {
+              id: table === 'meal_logs' ? 'meal-log-101' : 'med-log-202',
+              ...payload,
+            },
+            error: null,
+          }),
+        }),
+      }),
+    };
+  };
+
+  Object.defineProperty(supabase, 'functions', {
+    value: {
+      invoke: async (fn: string, opts?: any) => {
+        invokedEvents.push({ fn, body: opts?.body });
+        // Simula falha/erro momentâneo no push para garantir que nunca quebra o salvamento
+        throw new Error('push transient error');
+      },
+    },
+    configurable: true,
+  });
+
+  try {
+    const meal = await createMealLog({
+      patient_id: 'pat-1',
+      meal_config_id: 'mc-1',
+      event_date: '2026-11-22',
+      accepted: true,
+      description: 'Café com leite e pão integral',
+      created_by: 'caregiver-1',
+    } as any);
+
+    const med = await createMedicationLog({
+      patient_id: 'pat-1',
+      medication_id: 'med-1',
+      event_date: '2026-11-22',
+      status: 'taken',
+      created_by: 'caregiver-1',
+    } as any);
+
+    await new Promise((r) => setTimeout(r, 30));
+
+    assert.equal(meal.id, 'meal-log-101');
+    assert.equal(med.id, 'med-log-202');
+    assert.deepEqual(invokedEvents, [
+      {
+        fn: 'dispatch-notifications',
+        body: { action: 'event_recorded', kind: 'meal', logId: 'meal-log-101' },
+      },
+      {
+        fn: 'dispatch-notifications',
+        body: { action: 'event_recorded', kind: 'medication', logId: 'med-log-202' },
+      },
+    ]);
+  } finally {
+    (supabase as any).from = origFrom;
+    delete (supabase as any).functions;
+    Object.defineProperty(globalThis.navigator, 'onLine', {
+      value: origOnLine,
+      configurable: true,
+    });
     dom.window.close();
   }
 });

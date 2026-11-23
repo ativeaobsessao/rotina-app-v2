@@ -25,10 +25,12 @@ import {
 import {
   getBrowserPushSupport,
   getCurrentBrowserPushSubscription,
+  resolvePushServerConfig,
   savePushPreferencesForSubscription,
   sendTestPushNotification,
   subscribeBrowserAndSaveToSupabase,
   unsubscribeBrowserFromWebPush,
+  type PushServerConfigStatus,
 } from '../../services/pushNotifications';
 import { DEFAULT_TIMEZONE, getLocalDateString } from '../../utils/date';
 import {
@@ -87,6 +89,9 @@ export function NotificationsModal({
   );
   const [recentLogs, setRecentLogs] = useState<NotificationDispatchLogRow[]>([]);
   const [dismissTick, setDismissTick] = useState(0);
+  const [serverConfigStatus, setServerConfigStatus] = useState<PushServerConfigStatus | 'checking'>(
+    'checking'
+  );
 
   const [feedback, setFeedback] = useState<{
     type: 'error' | 'success' | 'info';
@@ -108,15 +113,17 @@ export function NotificationsModal({
     setFeedback(null);
 
     try {
-      const [browserSub, serverSubs, fetchedActivities, logs] = await Promise.all([
+      const [browserSub, serverSubs, fetchedActivities, logs, pushServerConfig] = await Promise.all([
         getCurrentBrowserPushSubscription(),
         familyId ? getMyPushSubscriptions(familyId) : Promise.resolve([]),
         activities === undefined && patientId
           ? getActivities(patientId).catch(() => [])
           : Promise.resolve(null),
         patientId ? getMyNotificationDispatchLogs(patientId, 6).catch(() => []) : Promise.resolve([]),
+        resolvePushServerConfig(),
       ]);
 
+      setServerConfigStatus(pushServerConfig.status);
       if (fetchedActivities !== null) {
         setLoadedActivities(fetchedActivities);
       }
@@ -143,6 +150,7 @@ export function NotificationsModal({
         });
       }
     } catch (err: any) {
+      setServerConfigStatus((prev) => (prev === 'checking' ? 'function_unavailable' : prev));
       setFeedback({
         type: 'error',
         text: err?.message || 'Não foi possível carregar suas preferências agora. Tente novamente em instantes.',
@@ -477,10 +485,16 @@ export function NotificationsModal({
                       : 'Avisos desligados neste aparelho'}
                   </p>
                   <p className="text-xs text-gray-500 dark:text-zinc-400 leading-relaxed">
-                    {support.permission === 'denied'
-                      ? 'Os avisos foram bloqueados neste navegador. Toque no cadeado ao lado do endereço do site, permita Notificações e toque em Ativar.'
-                      : !support.supported || !support.hasVapidKey
+                    {loadingSub || serverConfigStatus === 'checking'
+                      ? 'Conferindo se este aparelho já está pronto para receber seus lembretes...'
+                      : !support.supported
                       ? 'Este navegador ainda não consegue enviar avisos com a tela bloqueada. Se puder, abra pelo Chrome, Edge ou pela Tela de Início.'
+                      : support.permission === 'denied'
+                      ? 'Os avisos foram bloqueados neste navegador. Toque no cadeado ao lado do endereço do site, permita Notificações e toque em Ativar.'
+                      : serverConfigStatus === 'missing_server_vapid'
+                      ? 'Falta apenas salvar as chaves de segurança das notificações (VAPID) nos segredos do servidor Supabase para liberar este aparelho.'
+                      : serverConfigStatus === 'function_unavailable'
+                      ? 'Ainda não conseguimos conectar ao serviço de avisos no servidor. Confira se a função de notificações já foi publicada no Supabase.'
                       : isDeviceSubscribed
                       ? 'Tudo pronto! Você receberá os lembretes escolhidos abaixo com tranquilidade.'
                       : 'Toque no botão Ativar para autorizar os avisos neste celular ou computador.'}
@@ -547,7 +561,7 @@ export function NotificationsModal({
                       Medicamentos
                     </p>
                     <p className="text-[11px] text-gray-500 dark:text-zinc-400 leading-relaxed">
-                      Lembramos nos horários dos períodos em que ainda faltam doses para registrar
+                      Lembramos nos horários pendentes e avisamos familiares na hora quando uma dose for registrada
                     </p>
                   </div>
                 </div>
@@ -570,7 +584,7 @@ export function NotificationsModal({
                       Horários de Refeição
                     </p>
                     <p className="text-[11px] text-gray-500 dark:text-zinc-400 leading-relaxed">
-                      Aviso na hora de cada refeição, já mostrando o cardápio planejado
+                      Lembramos o cardápio na hora da refeição e avisamos familiares assim que for registrada
                     </p>
                   </div>
                 </div>
